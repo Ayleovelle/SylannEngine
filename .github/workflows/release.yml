@@ -147,6 +147,7 @@ jobs:
           name: ${{ steps.get_version.outputs.version }}
           body: ${{ steps.get_changelog.outputs.changelog }}
           files: dist/*.zip
+          prerelease: ${{ contains(steps.get_version.outputs.version, 'preview') || contains(steps.get_version.outputs.version, 'alpha') || contains(steps.get_version.outputs.version, 'beta') }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

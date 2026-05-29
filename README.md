@@ -194,23 +194,21 @@ SylannEngine/
 
 ```mermaid
 graph TD
-    A["其他 AstrBot 插件<br/>(语音 / 游戏 / 多模态 / 观察 / ...)"] -->|"process(session_id, text)"| B
+    A["你的插件<br/>process(session_id, text)"] -->|"调用"| B
     B -->|"Surface dict"| A
 
-    B["SylannEngine — main.py<br/>AstrBot Star 插件入口"]
+    B["SylanneEngine<br/>sylanne_core/engine.py"]
     B --> C
+    B -->|"LLM callback"| LLM["开发者提供的 LLM 接口"]
 
-    C["sylanne_core/engine.py<br/>SylanneEngine 引擎类"]
-    C --> D
-
-    subgraph D["sylanne_core/compute/"]
+    subgraph C["sylanne_core/compute/ — 7 层计算管线"]
         direction LR
         L1["L1 HDC"] --> L2["L2 Gate"] --> L3["L3 Absence-Impact"]
         L3 --> L4["L4 Relational"] --> L5["L5 Fusion"]
         L5 --> L6["L6 Boundary"] --> L7["L7 Expression"]
     end
 
-    D --- E["Body (8子系统) + Personality (双层) + Memory (三层)"]
+    C --- E["Body (8子系统) + Personality (双层) + Memory (三层)"]
 ```
 
 ---
@@ -234,7 +232,7 @@ engine = engine_star.star_instance
 
 ### Q: 我需要自己提供 LLM 吗？
 
-不需要。SylannEngine 自动使用 AstrBot 已配置的 LLM 提供商。
+需要。开发者需要在插件配置页为 SylannEngine 提供可用的 LLM 接口。如果未配置或 LLM 不可用，引擎会自动退化为本地规则引擎，计算不会中断，但语义评估精度会下降。
 
 ---
 
