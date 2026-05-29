@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'metadata.yaml'
+      - 'CHANGELOG.md'
 
 permissions:
   contents: write
@@ -14,95 +14,76 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      
-      - name: Extract version from metadata.yaml
+
+      - name: Extract version
         id: get_version
         run: |
-          # 提取版本号（去除 # 后面的注释）
-          VERSION=$(grep -E '^version:' metadata.yaml | sed 's/version: *//' | sed 's/ *#.*//' | tr -d ' ')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
-      
+          VERSION=$(python3 -c "import re; print(re.search(r'__version__\s*=\s*\"(.+?)\"', open('sylanne_core/__init__.py').read()).group(1))")
+          echo "version=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "Extracted version: v${VERSION}"
+
       - name: Check if release exists
         id: check_release
         run: |
           if gh release view ${{ steps.get_version.outputs.version }} &>/dev/null; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "Release ${{ steps.get_version.outputs.version }} already exists"
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "Release ${{ steps.get_version.outputs.version }} does not exist"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Extract changelog for version
         if: steps.check_release.outputs.exists == 'false'
         id: get_changelog
         run: |
           VERSION="${{ steps.get_version.outputs.version }}"
-          echo "Looking for version: $VERSION"
-          
-          # 创建 Python 脚本文件来提取 changelog
+
           cat > extract_changelog.py << 'PYTHON_SCRIPT'
           import re
           import sys
-          
+
           version = sys.argv[1]
-          
+
           try:
               with open('CHANGELOG.md', 'r', encoding='utf-8') as f:
                   content = f.read()
           except FileNotFoundError:
               print('修复了一些已知问题')
               sys.exit(0)
-          
-          # 匹配指定版本的内容 (匹配 ## [vX.Y.Z] 到下一个 ## [ 或文件结尾)
+
           pattern = rf'## \[{re.escape(version)}\]\s*-\s*\d{{4}}-\d{{2}}-\d{{2}}\s*\n(.*?)(?=\n## \[|\Z)'
           match = re.search(pattern, content, re.DOTALL)
-          
+
           if match:
               changelog = match.group(1).strip()
-              if changelog:
-                  print(changelog)
-              else:
-                  print('修复了一些已知问题')
+              print(changelog if changelog else '修复了一些已知问题')
           else:
               print('修复了一些已知问题')
           PYTHON_SCRIPT
-          
-          # 执行 Python 脚本并将输出写入文件
+
           python3 extract_changelog.py "$VERSION" > changelog_output.txt
-          
-          # 读取文件内容到变量
           CHANGELOG=$(cat changelog_output.txt)
-          
-          # 如果 changelog 为空，使用默认提示
           if [ -z "$CHANGELOG" ]; then
             CHANGELOG="修复了一些已知问题"
           fi
-          
-          echo "Extracted changelog:"
-          echo "$CHANGELOG"
-          
-          # 写入 GitHub Actions 输出
+
           {
             echo "changelog<<EOF"
             echo "$CHANGELOG"
             echo "EOF"
           } >> $GITHUB_OUTPUT
-          
-          # 清理临时文件
+
           rm -f extract_changelog.py changelog_output.txt
 
-      - name: Build plugin zip package
+      - name: Build zip package
         if: steps.check_release.outputs.exists == 'false'
         run: |
           set -euo pipefail
 
-          PACKAGE_NAME=$(grep -E '^name:' metadata.yaml | sed 's/name: *//' | sed 's/ *#.*//' | tr -d ' ')
+          PACKAGE_NAME="sylannengine"
           VERSION="${{ steps.get_version.outputs.version }}"
-          BUILD_ROOT="${RUNNER_TEMP}/plugin-build"
+          BUILD_ROOT="${RUNNER_TEMP}/sdk-build"
           STAGE_DIR="${BUILD_ROOT}/${PACKAGE_NAME}"
           ZIP_NAME="${PACKAGE_NAME}-${VERSION}.zip"
 
@@ -112,6 +93,7 @@ jobs:
 
           rsync -a \
             --exclude '.git/' \
+            --exclude '.github/' \
             --exclude '.idea/' \
             --exclude '.vscode/' \
             --exclude '.pytest_cache/' \
@@ -135,10 +117,10 @@ jobs:
         if: steps.check_release.outputs.exists == 'false'
         uses: actions/upload-artifact@v7
         with:
-          name: plugin-zip-${{ steps.get_version.outputs.version }}
+          name: sdk-zip-${{ steps.get_version.outputs.version }}
           path: dist/*.zip
           if-no-files-found: error
-      
+
       - name: Create Release
         if: steps.check_release.outputs.exists == 'false'
         uses: softprops/action-gh-release@v3

@@ -11,4 +11,4 @@ from .config import SylanneConfig
 from .types import Surface
 
 __all__ = ["SylanneEngine", "SylanneConfig", "Surface"]
-__version__ = "0.1.0"
+__version__ = "0.1.0-preview"
