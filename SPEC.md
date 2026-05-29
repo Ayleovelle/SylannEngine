@@ -409,7 +409,7 @@ engine.health()
 
 ### 5.3 Degradation Strategy / 退化策略
 
-The engine is designed to **never crash**. / 引擎设计为永不崩溃。
+The engine is designed to **degrade gracefully** under failure conditions. / 引擎在故障条件下优雅降级。
 
 | Failure / 失败点 | Degradation / 退化行为 |
 |---------|-------------|
