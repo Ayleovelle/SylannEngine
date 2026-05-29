@@ -368,15 +368,24 @@ class AnniversaryDetector:
     """追踪关系里程碑日期。"""
 
     def __init__(self) -> None:
-        self._milestones: dict[str, dict] = {}  # session_key -> {first_chat, important_events: [...]}
+        self._milestones: dict[
+            str, dict
+        ] = {}  # session_key -> {first_chat, important_events: [...]}
 
     def record_first_chat(self, session_key: str, timestamp: float) -> None:
         if session_key not in self._milestones:
-            self._milestones[session_key] = {"first_chat": timestamp, "important_events": []}
+            self._milestones[session_key] = {
+                "first_chat": timestamp,
+                "important_events": [],
+            }
 
-    def record_important_event(self, session_key: str, event: str, timestamp: float) -> None:
+    def record_important_event(
+        self, session_key: str, event: str, timestamp: float
+    ) -> None:
         if session_key in self._milestones:
-            self._milestones[session_key]["important_events"].append({"event": event, "timestamp": timestamp})
+            self._milestones[session_key]["important_events"].append(
+                {"event": event, "timestamp": timestamp}
+            )
 
     def check_anniversaries(self, session_key: str, now: float) -> list[str]:
         """检查是否有纪念日到期。返回纪念描述列表。"""
@@ -751,12 +760,14 @@ class MemorySystem:
         if dead_node_set:
             if hasattr(self, "_l3_label_index"):
                 self._l3_label_index = {
-                    label: nid for label, nid in self._l3_label_index.items()
+                    label: nid
+                    for label, nid in self._l3_label_index.items()
                     if nid not in dead_node_set
                 }
             if hasattr(self, "_l3_edge_index"):
                 self._l3_edge_index = {
-                    key: idx for key, idx in self._l3_edge_index.items()
+                    key: idx
+                    for key, idx in self._l3_edge_index.items()
                     if idx < len(self._l3_edges)
                 }
 
@@ -921,9 +932,7 @@ class MemorySystem:
                 item.created_at = time.time()
                 item.recall_count += 1
                 item.last_recalled_tick = self._tick
-                _logger.info(
-                    f"Sylanne memory reheat: id={memory_id}, reason={reason}"
-                )
+                _logger.info(f"Sylanne memory reheat: id={memory_id}, reason={reason}")
                 return True
 
         # 在 L2 中查找
@@ -932,14 +941,10 @@ class MemorySystem:
                 item.created_at = time.time()
                 item.recall_count += 1
                 item.last_recalled_tick = self._tick
-                _logger.info(
-                    f"Sylanne memory reheat: id={memory_id}, reason={reason}"
-                )
+                _logger.info(f"Sylanne memory reheat: id={memory_id}, reason={reason}")
                 return True
 
-        _logger.debug(
-            f"Sylanne memory reheat failed: id={memory_id} not found"
-        )
+        _logger.debug(f"Sylanne memory reheat failed: id={memory_id} not found")
         return False
 
     def _compute_relevance(
@@ -1068,7 +1073,6 @@ class MemorySystem:
         if not results:
             return ""
         lines = ["[记忆参考]"]
-        now = time.time()
         for r in results[:max_items]:
             # 记忆温度前缀（Item 148）
             temp_prefix = self._TEMPERATURE_PREFIXES.get(
@@ -1226,13 +1230,18 @@ class MemorySystem:
     ) -> GraphEdge:
         if not hasattr(self, "_l3_edge_index"):
             self._l3_edge_index = {
-                (e.source, e.target, e.relation): i for i, e in enumerate(self._l3_edges)
+                (e.source, e.target, e.relation): i
+                for i, e in enumerate(self._l3_edges)
             }
         key = (source, target, relation)
         idx = self._l3_edge_index.get(key)
         if idx is not None and idx < len(self._l3_edges):
             edge = self._l3_edges[idx]
-            if edge.source == source and edge.target == target and edge.relation == relation:
+            if (
+                edge.source == source
+                and edge.target == target
+                and edge.relation == relation
+            ):
                 edge.emotion_weight = (edge.emotion_weight + emotion_weight) / 2
                 edge.clarity = max(edge.clarity, clarity)
                 return edge
@@ -1250,7 +1259,8 @@ class MemorySystem:
             self._l3_edges.sort(key=lambda e: e.clarity, reverse=True)
             self._l3_edges = self._l3_edges[:1500]
             self._l3_edge_index = {
-                (e.source, e.target, e.relation): i for i, e in enumerate(self._l3_edges)
+                (e.source, e.target, e.relation): i
+                for i, e in enumerate(self._l3_edges)
             }
         return edge
 

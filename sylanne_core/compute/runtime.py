@@ -266,18 +266,14 @@ class AlphaRuntime:
                     f"Consistency check: void[{idx}].pressure = {void.pressure:.4f} > 5.0, "
                     f"clamping to 5.0"
                 )
-                corrections.append(
-                    f"void[{idx}].pressure: {void.pressure:.4f} -> 5.0"
-                )
+                corrections.append(f"void[{idx}].pressure: {void.pressure:.4f} -> 5.0")
                 void.pressure = 5.0
             elif void.pressure < 0.0:
                 logger.error(
                     f"Consistency check: void[{idx}].pressure = {void.pressure:.4f} < 0.0, "
                     f"clamping to 0.0"
                 )
-                corrections.append(
-                    f"void[{idx}].pressure: {void.pressure:.4f} -> 0.0"
-                )
+                corrections.append(f"void[{idx}].pressure: {void.pressure:.4f} -> 0.0")
                 void.pressure = 0.0
 
         if corrections:

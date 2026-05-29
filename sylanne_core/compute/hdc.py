@@ -23,6 +23,7 @@ from collections import OrderedDict
 # 若环境中不可用则回退到纯 Python 大整数实现。
 try:
     import numpy as np
+
     _HAS_NUMPY = True
 except ImportError:
     _HAS_NUMPY = False
@@ -49,7 +50,9 @@ def _build_char_lut(dim: int) -> "np.ndarray":
         parts = []
         chunk = 0
         while len(b"".join(parts)) < byte_dim:
-            parts.append(hashlib.sha256(token_bytes + struct.pack("<I", chunk)).digest())
+            parts.append(
+                hashlib.sha256(token_bytes + struct.pack("<I", chunk)).digest()
+            )
             chunk += 1
         raw = b"".join(parts)[:byte_dim]
         # 将 packed bytes 展开为 dim 个独立比特（little-endian 位序）
@@ -316,7 +319,6 @@ class HDCEncoder:
         位序约定：bits[byte_idx*8 + bit_idx] 对应输出字节 byte_idx 的第 bit_idx 位。
         这与纯 Python 路径的 int.to_bytes(byte_dim, 'little') 位序一致。
         """
-        dim = self.dim
         byte_dim = self._byte_dim
         # 重塑为 [byte_dim, 8]，每行是一个字节的 8 个比特（从 LSB 到 MSB）
         reshaped = bits.reshape(byte_dim, 8)

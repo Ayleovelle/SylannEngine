@@ -510,7 +510,11 @@ def compute_embodiment_drift(
     # 速率限制：如果总变化量超过 _TICK_DRIFT_CAP，按比例缩放
     # 季节性调制也纳入预算，不绕过 drift cap
     seasonal_target = _get_seasonal_target()
-    if seasonal_target and seasonal_target in traits and not traits[seasonal_target].frozen:
+    if (
+        seasonal_target
+        and seasonal_target in traits
+        and not traits[seasonal_target].frozen
+    ):
         pending.append((seasonal_target, 0.01, "_seasonal"))
 
     total_abs = sum(abs(d) for _, d, _ in pending)
@@ -733,9 +737,7 @@ def contradiction_tolerance(traits: dict[str, float]) -> float:
     返回:
         矛盾容忍度，范围 [0.2, 1.0]。
     """
-    inner_order = float(
-        traits.get("inner_order", traits.get("conscientiousness", 0.5))
-    )
+    inner_order = float(traits.get("inner_order", traits.get("conscientiousness", 0.5)))
     return 1.0 - inner_order * 0.8
 
 
@@ -824,9 +826,7 @@ def should_explore(curiosity: float, info_entropy: float, energy: float) -> bool
 # ---------------------------------------------------------------------------
 
 
-def apply_relationship_age_modulation(
-    traits: dict, relationship_stage: str
-) -> dict:
+def apply_relationship_age_modulation(traits: dict, relationship_stage: str) -> dict:
     """根据关系阶段调整人格参数。
 
     关系阶段定义：

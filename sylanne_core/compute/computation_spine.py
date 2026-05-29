@@ -50,7 +50,13 @@ class CircuitBreaker:
     冷却期结束后进入 half-open 状态，允许一次尝试：成功则关闭，失败则重新打开。
     """
 
-    __slots__ = ("_failures", "_threshold", "_cooldown", "_open_since", "_last_good_result")
+    __slots__ = (
+        "_failures",
+        "_threshold",
+        "_cooldown",
+        "_open_since",
+        "_last_good_result",
+    )
 
     def __init__(self, threshold: int = 3, cooldown: float = 60.0):
         self._failures: int = 0
@@ -162,7 +168,9 @@ class ComputationSpine:
     )
 
     def __init__(self, plugin: Any = None):
-        hdc_dim = getattr(plugin, '_cfg_int', lambda k, d: d)('sylanne_alpha_hdc_dimension', 2048)
+        hdc_dim = getattr(plugin, "_cfg_int", lambda k, d: d)(
+            "sylanne_alpha_hdc_dimension", 2048
+        )
         self.encoder = HDCEncoder(dim=hdc_dim)
         self.gate = PredictiveCodingGate(dim=hdc_dim)
         self.engine = VoidScarEngine(n_dims=8, similarity_fn=self._hdc_similarity)
@@ -591,7 +599,13 @@ class ComputationSpine:
         if not self._layer_enabled.get("gate", True):
             surprise = 0.0
             route = "fast"
-            l1_payload = {"ones_ratio": 0.0, "total_bits": 0, "sample_bits": [], "prediction_similarity": 0.0, "flip_ratio": 0.0}
+            l1_payload = {
+                "ones_ratio": 0.0,
+                "total_bits": 0,
+                "sample_bits": [],
+                "prediction_similarity": 0.0,
+                "flip_ratio": 0.0,
+            }
             logger.debug("Layer gate DISABLED — using defaults")
         else:
             cb = self._circuit_breakers["gate"]
@@ -599,7 +613,13 @@ class ComputationSpine:
                 _gate_fallback = cb.fallback() or {"surprise": 0.0, "route": "fast"}
                 surprise = _gate_fallback["surprise"]
                 route = _gate_fallback["route"]
-                l1_payload = {"ones_ratio": 0.0, "total_bits": 0, "sample_bits": [], "prediction_similarity": 0.0, "flip_ratio": 0.0}
+                l1_payload = {
+                    "ones_ratio": 0.0,
+                    "total_bits": 0,
+                    "sample_bits": [],
+                    "prediction_similarity": 0.0,
+                    "flip_ratio": 0.0,
+                }
                 logger.warning("Layer gate circuit OPEN — using fallback")
             else:
                 try:
@@ -622,7 +642,13 @@ class ComputationSpine:
                     _gate_fallback = cb.fallback() or {"surprise": 0.0, "route": "fast"}
                     surprise = _gate_fallback["surprise"]
                     route = _gate_fallback["route"]
-                    l1_payload = {"ones_ratio": 0.0, "total_bits": 0, "sample_bits": [], "prediction_similarity": 0.0, "flip_ratio": 0.0}
+                    l1_payload = {
+                        "ones_ratio": 0.0,
+                        "total_bits": 0,
+                        "sample_bits": [],
+                        "prediction_similarity": 0.0,
+                        "flip_ratio": 0.0,
+                    }
                     logger.error("Layer gate failed: %s — using fallback", exc)
         self._last_route = route
         if route in self._route_counts:
@@ -660,14 +686,20 @@ class ComputationSpine:
                     )
                     emotion = self.engine.observe()
                     recalled = [
-                        {"boundary_size": len(v.boundary), "pressure": v.pressure, "depth": v.depth}
+                        {
+                            "boundary_size": len(v.boundary),
+                            "pressure": v.pressure,
+                            "depth": v.depth,
+                        }
                         for v in self.engine.void_space.voids[:3]
                     ]
                     holes = [
                         {"pressure": v.pressure, "depth": v.depth, "age": v.age}
                         for v in self.engine.void_space.voids
                     ]
-                    cb.record_success({"emotion": emotion, "recalled": recalled, "holes": holes})
+                    cb.record_success(
+                        {"emotion": emotion, "recalled": recalled, "holes": holes}
+                    )
                 except Exception as exc:
                     cb.record_failure()
                     _vs_fallback = cb.fallback() or {}
@@ -760,7 +792,9 @@ class ComputationSpine:
             _elapsed = time.perf_counter_ns() - t0
             self._timings["expression"].append(_elapsed)
             if _elapsed > _LAYER_TIMEOUT_NS:
-                logger.warning("Layer expression(fast) took %.1fms (>200ms)", _elapsed / 1e6)
+                logger.warning(
+                    "Layer expression(fast) took %.1fms (>200ms)", _elapsed / 1e6
+                )
             # Fast path still perturbs boundary lightly (10% force)
             if self._layer_enabled.get("boundary", True):
                 fast_force = self._emotion_to_boundary_force(emotion)
@@ -829,7 +863,9 @@ class ComputationSpine:
             # Apply HGT d_0 (expression drive correction)
             drive = max(0.0, min(1.0, drive + hgt_decision[0] * 0.3))
             if boundary_result.get("phase_transition"):
-                drive = min(1.0, drive + 0.4)  # Phase transition boosts expression drive
+                drive = min(
+                    1.0, drive + 0.4
+                )  # Phase transition boosts expression drive
             self.expression.accumulate(drive, dt=1.0)
             self.expression.silence_lowers_threshold(dt=dt)
 

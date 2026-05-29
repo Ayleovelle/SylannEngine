@@ -186,7 +186,12 @@ class ScarredState:
         # 神经质值影响 modifier 饱和上限，需要使缓存失效
         self._invalidate_modifier_cache()
 
-    def healing_duration(self, stage: "HealingStage", dim: int | None = None, _dim_counts: dict[int, int] | None = None) -> int:
+    def healing_duration(
+        self,
+        stage: "HealingStage",
+        dim: int | None = None,
+        _dim_counts: dict[int, int] | None = None,
+    ) -> int:
         """获取某阶段的愈合持续时间，可选按维度调整。
 
         如果某维度的伤痕数 > 3，愈合速度降低 50%（反复受伤的地方更难愈合）。
@@ -445,7 +450,9 @@ class ScarredState:
                 if scar.stage == HealingStage.FADED:
                     continue
                 scar.ticks_in_stage += 1
-                threshold = self.healing_duration(scar.stage, dim=scar.dimension, _dim_counts=_dim_counts)
+                threshold = self.healing_duration(
+                    scar.stage, dim=scar.dimension, _dim_counts=_dim_counts
+                )
                 if threshold > 0 and scar.ticks_in_stage >= threshold:
                     scar.stage = HealingStage(scar.stage + 1)
                     scar.ticks_in_stage = 0
@@ -470,13 +477,20 @@ class ScarredState:
             "base": list(self.base),
         }
 
-    def _heal_one_tick(self, existing_count: int, healed: list[int], _dim_counts: dict[int, int] | None = None) -> None:
+    def _heal_one_tick(
+        self,
+        existing_count: int,
+        healed: list[int],
+        _dim_counts: dict[int, int] | None = None,
+    ) -> None:
         """执行一次愈合 tick（用于时间感知的奖励愈合）。"""
         for scar in self.scars[:existing_count]:
             if scar.stage == HealingStage.FADED:
                 continue
             scar.ticks_in_stage += 1
-            threshold = self.healing_duration(scar.stage, dim=scar.dimension, _dim_counts=_dim_counts)
+            threshold = self.healing_duration(
+                scar.stage, dim=scar.dimension, _dim_counts=_dim_counts
+            )
             if threshold > 0 and scar.ticks_in_stage >= threshold:
                 scar.stage = HealingStage(scar.stage + 1)
                 scar.ticks_in_stage = 0
@@ -556,10 +570,7 @@ class ScarredState:
                 scar.stage = HealingStage.FADED
                 scar.ticks_in_stage = 0
                 self._invalidate_modifier_cache()
-                return (
-                    "一道旧伤正在愈合——"
-                    "曾经敏感的地方，现在可以轻轻触碰了"
-                )
+                return "一道旧伤正在愈合——曾经敏感的地方，现在可以轻轻触碰了"
         return None
 
     def to_dict(self) -> dict[str, Any]:
