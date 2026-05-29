@@ -99,7 +99,7 @@
 我们写了完整的形式化论文和实验报告，感兴趣可以看：
 
 - [英文论文 (PDF)](docs/scar_void_arxiv_paper_v3.pdf) — 完整公理系统、证明和 11 组实验
-- [中文计算模型说明 (TeX)](docs/sylanne_4_alpha_computation_model.tex) — 状态空间定义和转移方程
+- [中文论文 (PDF)](docs/scar_void_arxiv_paper_zh_v4.pdf) — 中文版本
 
 ---
 
