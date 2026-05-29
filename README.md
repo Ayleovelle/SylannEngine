@@ -41,6 +41,7 @@
 - **调试模式**：断路器状态、各层耗时、健康检查
 - **被动接收**：只有插件调用 `process()` 推数据进来才计算，不主动拉取任何数据
 - **零外部依赖**：计算引擎本身只依赖 Python 标准库
+- **使用案例**：[astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne) — 基于 SylannEngine 构建的情感交互插件
 
 ---
 
@@ -78,21 +79,19 @@
 
 ## 集成指南
 
-### 声明依赖
+### 安装
 
-在你的插件 `metadata.yaml` 中添加：
+将 SylannEngine 作为 git submodule 或直接复制 `sylanne_core/` 到你的插件目录中：
 
-```yaml
-dependencies:
-  - astrbot_plugin_sylannengine
+```bash
+git submodule add https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
 ```
 
-AstrBot 会在加载你的插件前确保 SylannEngine 已就绪。
-
-### 获取引擎实例
+### 初始化引擎
 
 ```python
 from astrbot.api.star import Context, Star
+from sylanne_core import SylanneEngine, SylanneConfig
 
 
 class MyPlugin(Star):
@@ -101,9 +100,12 @@ class MyPlugin(Star):
         self._engine = None
 
     async def initialize(self):
-        engine_star = self.context.get_registered_star("astrbot_plugin_sylannengine")
-        if engine_star:
-            self._engine = engine_star.star_instance
+        self._engine = SylanneEngine(
+            data_dir="./data/sylannengine",
+            llm=self._llm_call,
+            config=SylanneConfig(),
+        )
+        await self._engine.start()
 
     async def on_message(self, event):
         if self._engine:
@@ -113,6 +115,13 @@ class MyPlugin(Star):
             )
             action = surface["decision"]["action"]
             warmth = surface["state"]["valence"]["warmth"]
+
+    async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
+        """你自己的 LLM 调用实现。"""
+        response = await self.context.provider_manager.text_chat(
+            prompt=user_prompt, system_prompt=system_prompt,
+        )
+        return response.completion_text
 ```
 
 ---
@@ -142,11 +151,12 @@ class MyPlugin(Star):
 
 ## 配置项详解
 
-| 配置 | 默认值 | 说明 |
+| SylanneConfig 参数 | 默认值 | 说明 |
 |------|--------|------|
-| `sylannengine_data_dir` | `./data/sylannengine` | 持久化目录 |
-| `sylannengine_diagnostics` | `false` | 是否返回管线中间态和调试信息 |
-| `sylannengine_locale` | `zh` | 语言（影响内部评估器 prompt） |
+| `diagnostics` | `False` | 是否返回管线中间态和调试信息 |
+| `locale` | `"zh"` | 语言（影响内部评估器 prompt） |
+| `memory_capacity` | `1000` | 记忆系统容量上限 |
+| `persistence_fsync` | `True` | 持久化写入时是否 fsync |
 
 ---
 
@@ -154,8 +164,6 @@ class MyPlugin(Star):
 
 ```
 SylannEngine/
-├── main.py                          # AstrBot 插件入口
-├── metadata.yaml                    # 插件元数据
 ├── SPEC.md                          # 标准规范文档（双语）
 ├── CHANGELOG.md                     # 更新日志
 ├── LICENSE                          # AGPL-3.0
@@ -215,11 +223,13 @@ graph TD
 
 ## 常见问题
 
-### Q: 其他插件怎么获取引擎实例？
+### Q: 怎么在我的插件里用？
 
 ```python
-engine_star = self.context.get_registered_star("astrbot_plugin_sylannengine")
-engine = engine_star.star_instance
+from sylanne_core import SylanneEngine, SylanneConfig
+
+engine = SylanneEngine(data_dir="./data/sylannengine", llm=your_llm_call, config=SylanneConfig())
+await engine.start()
 ```
 
 ### Q: LLM 挂了会怎样？
