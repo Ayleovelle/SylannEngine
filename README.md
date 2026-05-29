@@ -18,7 +18,7 @@
 
 - [功能特性](#功能特性)
 - [输出示例](#输出示例)
-- [安装与使用](#安装与使用)
+- [集成指南](#集成指南)
 - [API 说明](#api-说明)
 - [配置项详解](#配置项详解)
 - [目录结构](#目录结构)
@@ -76,17 +76,20 @@
 
 ---
 
-## 安装与使用
+## 集成指南
 
-### 安装
+### 声明依赖
 
-在 AstrBot WebUI 的插件页面，选择「从 Git 仓库安装」，输入：
+在你的插件 `metadata.yaml` 中添加：
 
+```yaml
+dependencies:
+  - astrbot_plugin_sylannengine
 ```
-https://github.com/Ayleovelle/SylannEngine.git
-```
 
-### 在你的插件中调用
+AstrBot 会在加载你的插件前确保 SylannEngine 已就绪。
+
+### 获取引擎实例
 
 ```python
 from astrbot.api.star import Context, Star
@@ -189,32 +192,25 @@ SylannEngine/
 
 ## 架构说明
 
-```
-┌──────────────────────────────────────────────┐
-│           其他 AstrBot 插件                    │
-│  (语音 / 游戏 / 多模态 / 观察 / ...)          │
-└──────────────┬───────────────▲───────────────┘
-               │ process()     │ Surface dict
-               ▼               │
-┌──────────────────────────────────────────────┐
-│            SylannEngine (main.py)             │
-│         AstrBot Star 插件入口                  │
-└──────────────┬───────────────▲───────────────┘
-               │               │
-┌──────────────▼───────────────┴───────────────┐
-│           sylanne_core/engine.py              │
-│         SylanneEngine 引擎类                   │
-└──────────────┬───────────────▲───────────────┘
-               │               │
-┌──────────────▼───────────────┴───────────────┐
-│           sylanne_core/compute/              │
-│                                              │
-│  L1 HDC → L2 Gate → L3 Absence-Impact →     │
-│  L4 Relational → L5 Fusion → L6 Boundary →  │
-│  L7 Expression                               │
-│                                              │
-│  + Body(8子系统) + Personality(双层) + Memory │
-└──────────────────────────────────────────────┘
+```mermaid
+graph TD
+    A["其他 AstrBot 插件<br/>(语音 / 游戏 / 多模态 / 观察 / ...)"] -->|"process(session_id, text)"| B
+    B -->|"Surface dict"| A
+
+    B["SylannEngine — main.py<br/>AstrBot Star 插件入口"]
+    B --> C
+
+    C["sylanne_core/engine.py<br/>SylanneEngine 引擎类"]
+    C --> D
+
+    subgraph D["sylanne_core/compute/"]
+        direction LR
+        L1["L1 HDC"] --> L2["L2 Gate"] --> L3["L3 Absence-Impact"]
+        L3 --> L4["L4 Relational"] --> L5["L5 Fusion"]
+        L5 --> L6["L6 Boundary"] --> L7["L7 Expression"]
+    end
+
+    D --- E["Body (8子系统) + Personality (双层) + Memory (三层)"]
 ```
 
 ---

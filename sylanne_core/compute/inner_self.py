@@ -3,6 +3,7 @@
 整合秘密状态层、自我叙事引擎、矛盾检测三个子系统。
 这些组件共同构成 Sylanne 的内在自我意识。
 """
+
 from __future__ import annotations
 
 import random
@@ -242,9 +243,7 @@ class ContradictionDetector:
                 valence_diff = abs(current_valence - stance.valence)
                 if valence_diff > 0.6:
                     severity = min(1.0, valence_diff)
-                    c_type = (
-                        "emotional" if abs(stance.valence) > 0.3 else "behavioral"
-                    )
+                    c_type = "emotional" if abs(stance.valence) > 0.3 else "behavioral"
                     return ContradictionCandidate(
                         current_text[:50], stance, severity, c_type
                     )
@@ -252,8 +251,14 @@ class ContradictionDetector:
 
     def is_playful_inconsistency(self, text: str, mode: str) -> bool:
         playful_markers = (
-            "哈哈", "开玩笑", "逗你", "才怪", "反正",
-            "just kidding", "jk", "lol",
+            "哈哈",
+            "开玩笑",
+            "逗你",
+            "才怪",
+            "反正",
+            "just kidding",
+            "jk",
+            "lol",
         )
         if mode in ("playful", "curious"):
             return True

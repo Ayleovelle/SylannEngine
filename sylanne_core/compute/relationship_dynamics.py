@@ -3,6 +3,7 @@
 整合关系弹性、修复策略、动态边界协商三个子系统。
 这些组件共同管理 Sylanne 与用户之间的关系状态演化。
 """
+
 from __future__ import annotations
 
 import time
@@ -196,7 +197,5 @@ class DynamicBoundary:
         db._levels = data.get("levels", {d: 0.3 for d in cls.DIMENSIONS})
         db._probe_cooldowns = data.get("cooldowns", {d: 0 for d in cls.DIMENSIONS})
         for p in data.get("probes", []):
-            db._probe_history.append(
-                BoundaryProbe(p["ts"], p["dim"], p["ok"])
-            )
+            db._probe_history.append(BoundaryProbe(p["ts"], p["dim"], p["ok"]))
         return db

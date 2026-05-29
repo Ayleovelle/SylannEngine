@@ -166,12 +166,14 @@ def _map_memory(kernel: Any) -> dict[str, Any]:
     recalled = []
     for t in traces[-5:]:
         if isinstance(t, dict):
-            recalled.append({
-                "text": t.get("text", ""),
-                "relevance": t.get("relevance", 0.0),
-                "created_at": t.get("created_at", 0.0),
-                "layer": t.get("layer", "L1"),
-            })
+            recalled.append(
+                {
+                    "text": t.get("text", ""),
+                    "relevance": t.get("relevance", 0.0),
+                    "created_at": t.get("created_at", 0.0),
+                    "layer": t.get("layer", "L1"),
+                }
+            )
     return {
         "recalled": recalled,
         "total_stored": len(traces),
@@ -241,6 +243,8 @@ def _map_debug(kernel: Any, raw: dict[str, Any]) -> dict[str, Any]:
         "healthy": not any(b["open"] for b in breakers.values()),
         "circuit_breakers": breakers,
         "layer_avg_ms": timing,
-        "computation_cache_size": len(spine._result_cache) if hasattr(spine, "_result_cache") else 0,
+        "computation_cache_size": len(spine._result_cache)
+        if hasattr(spine, "_result_cache")
+        else 0,
         "kernel_schema_version": raw.get("schema_version", "unknown"),
     }

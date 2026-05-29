@@ -74,6 +74,7 @@ class SylannEngineStar(Star):
     async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
         """通过 AstrBot 的 LLM 能力调用模型。"""
         from astrbot.core.provider.manager import ProviderManager
+
         provider_manager: ProviderManager = self.context.provider_manager
         response = await provider_manager.text_chat(
             prompt=user_prompt,
@@ -84,6 +85,7 @@ class SylannEngineStar(Star):
     async def _embedding_call(self, text: str) -> list[float]:
         """通过 AstrBot 的 Embedding 能力调用模型（如果可用）。"""
         from astrbot.core.provider.manager import ProviderManager
+
         provider_manager: ProviderManager = self.context.provider_manager
         if hasattr(provider_manager, "embedding"):
             return await provider_manager.embedding(text)

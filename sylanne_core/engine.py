@@ -73,7 +73,9 @@ class SylanneEngine:
     ) -> Surface:
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
-            assessment = await self._assess(text) if self._config.assessor_enabled else None
+            assessment = (
+                await self._assess(text) if self._config.assessor_enabled else None
+            )
             event = {
                 "text": text,
                 "confidence": confidence or (assessment or {}).get("confidence", 0.0),
@@ -112,8 +114,7 @@ class SylanneEngine:
         if session_id in self._hosts:
             del self._hosts[session_id]
         safe_name = "".join(
-            ch if ch.isalnum() or ch in {"-", "_", "."} else "_"
-            for ch in session_id
+            ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in session_id
         )[:128]
         for suffix in (".alpha.json", ".json"):
             state_file = self._data_dir / f"{safe_name}{suffix}"
@@ -135,6 +136,7 @@ class SylanneEngine:
     def _get_or_create_host(self, session_id: str) -> Any:
         if session_id not in self._hosts:
             from .compute import SylanneHost
+
             self._hosts[session_id] = SylanneHost(
                 root=self._data_dir,
                 session_key=session_id,
@@ -153,6 +155,7 @@ class SylanneEngine:
             return None
         try:
             from .assessor import assess_text
+
             result = await assess_text(text, self._llm)
             if result and result.pop("_degraded", False):
                 if self._status == "running":
@@ -165,4 +168,5 @@ class SylanneEngine:
 
     def _to_surface(self, session_id: str, host: Any, raw: dict[str, Any]) -> Surface:
         from .adapter import to_surface
+
         return to_surface(session_id, host, raw, diagnostics=self._config.diagnostics)

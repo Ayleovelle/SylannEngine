@@ -378,7 +378,9 @@ def attention_delta(
 # ---------------------------------------------------------------------------
 
 
-def importance_tagger(text: str, valence: float, is_first: bool, is_question: bool) -> str:
+def importance_tagger(
+    text: str, valence: float, is_first: bool, is_question: bool
+) -> str:
     """为消息打重要性标签。"""
     if is_first:
         return "landmark"  # 首条消息
