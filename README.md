@@ -45,6 +45,84 @@
 
 ---
 
+## 计算原理
+
+### 核心思想
+
+SylannEngine 将长期交互中的内部状态建模为一个受约束的离散时间动态系统。外部输入不能直接变成行动——它必须先改变内部状态，再由状态形成行动倾向，最后经过边界约束：
+
+```
+event → state update → decision → guard → output
+```
+
+系统解决了传统情感计算的三个根本缺陷：
+
+1. **时间不可逆性**：三次对话前受到的伤害应当永久改变系统对相同输入的处理方式
+2. **一等缺席计算**：从未讨论的话题、已解决的话题、主动回避的话题——这三种"不在场"有完全不同的关系含义
+3. **主权保护**：没有形式化的边界机制，外部行为者可以无限制地操纵内部状态
+
+### 7 层计算管线
+
+| 层 | 名称 | 职责 | 理论基础 |
+|---|---|---|---|
+| L1 | HDC 超维编码 | 将文本编码为高维稀疏二进制超向量，用于快速相似度匹配和组合表示 | Hyperdimensional Computing (Kanerva, 2009) |
+| L2 | 预测编码门控 | 维护预测向量，通过惊讶度（预测误差）决定计算路径：低惊讶走快路径，高惊讶走全栈 | Free Energy Principle (Friston, 2010) |
+| L3 | 缺失-影响引擎 | 伤痕代数（不可逆状态动力学）与虚空微积分（一等缺席计算）的双向耦合 | Scar Algebra + Void Calculus (原创理论) |
+| L4 | 关系层析 | 在单纯复形上实现胞腔层，通过层拉普拉斯扩散实现跨关系影响传播 | Cellular Sheaf Theory (Hansen & Ghrist, 2019) |
+| L5 | MoE-HGT 融合 | 异构图 Transformer + 混合专家门控，将 L1-L4 异构信号融合为决策向量 | MoE + Heterogeneous Graph Transformer |
+| L6 | 自维持边界 | 人格作为自我维持的计算过程，小扰动被吸收，大冲击触发相变重组 | Autopoiesis (Maturana & Varela, 1980) |
+| L7 | 相变表达触发 | 表达是相变过程——内部压力持续积累直到临界点突变爆发 | Phase Transition Theory |
+
+### 六大形式化理论
+
+**1. Scar Algebra（影响代数）**
+
+自修改算子代数：累积的"伤痕"不可逆地改变未来输入的处理方式。核心公理：不可逆性（无事件可撤销先前事件）、算子自修改（转移算子依赖完整历史）、单调累积（伤痕序列只增不减）。使用对数压缩修饰符和谱归一化保证收敛。
+
+**2. Void Calculus（虚空微积分）**
+
+一等缺席计算：将"不在场"建模为具有自主压力动力学的计算原语。虚空不是从数据中被动检测的（区别于 TDA），而是主动参与计算、影响系统行为的一等对象。
+
+**3. Bidirectional Coupling（双向耦合）**
+
+Γ 耦合：虚空压力 → 伤痕创伤事件（压力积累到阈值时触发创伤）
+Φ 耦合：伤痕麻木 → 虚空检测灵敏度（麻木降低虚空检测阈值）
+产生涌现的滞后效应和一致性度量。
+
+**4. Relational Sheaf Theory（关系层析）**
+
+在单纯复形上的胞腔层，茎（stalk）携带 Scar Algebra 状态，限制映射编码人格驱动的自我呈现，上同调 H¹ 检测关系矛盾（解离检测）。
+
+**5. Embodiment Five（具身五维人格）**
+
+双层 EMA 漂移 + 稳态调节 + 振荡抑制。人格不是标签或 prompt 修饰符，而是确定性派生 26+ 计算参数的函数，贯穿所有管线层。
+
+**6. MoE-HGT（混合专家异构图变换器）**
+
+三阶段架构：类型专家 FFN 编码 → 多头交叉注意力 → 情境专家 MoE 门控。Hebbian 慢适应（BCM 路由偏置 + Oja 注意力先验）保证长期学习不坍缩。
+
+### 实验验证
+
+| 指标 | 结果 |
+|------|------|
+| forward() p50 延迟 | 0.99 ms |
+| forward() p95 延迟 | 1.45 ms |
+| 内存峰值 | 123 KB |
+| 参数量 | ~10K |
+| 1000 tick 稳定性 | 通过 |
+| 永久滞后效应（不可逆性验证） | divergence 0.104 |
+| 主权上限（快速攻击下伤痕拒绝率） | 80% |
+| 人格漂移（持续接纳下表达驱动力） | +0.226 |
+
+### 论文
+
+完整形式化证明、公理系统和实验协议见：
+
+- [Sylanne-Embodiment 1.2: Irreversible Computation, Relational Sheaves, and Homeostatic Personality for AI Companions](docs/scar_void_arxiv_paper_v3.pdf) (English)
+- [Sylanne 4.0 Alpha 非人关系躯体计算模型说明](docs/sylanne_4_alpha_computation_model.tex) (中文)
+
+---
+
 ## 输出示例
 
 ```jsonc
@@ -167,6 +245,10 @@ SylannEngine/
 ├── SPEC.md                          # 标准规范文档（双语）
 ├── CHANGELOG.md                     # 更新日志
 ├── LICENSE                          # AGPL-3.0
+│
+├── docs/                            # 论文与理论文档
+│   ├── scar_void_arxiv_paper_v3.pdf # 英文论文
+│   └── sylanne_4_alpha_computation_model.tex  # 中文计算模型说明
 │
 └── sylanne_core/                    # 计算引擎 SDK
     ├── __init__.py                  # 导出 SylanneEngine / SylanneConfig / Surface
