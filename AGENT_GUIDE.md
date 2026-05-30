@@ -4,11 +4,45 @@
 
 ---
 
-## 1. 何时调用
+## 1. 两种调用方式
+
+SylannEngine 支持两种集成模式，按需选择：
+
+### 拉模式（Pull）— 你主动问引擎要结果
+
+其他模块调用 `engine.process()`，引擎计算后返回结果。
+
+```python
+surface = await engine.process(session_id="user_123", text="你好")
+action = surface["decision"]["action"]
+```
+
+### 推模式（Push）— 引擎主动把结果推给你
+
+注册一个 listener，每次 `process()` 完成后引擎自动把结果推过来。适合多模块协作场景——比如情感模块算完后，语气模块、记忆模块各自拿到结果做自己的事。
+
+```python
+async def on_surface(session_id: str, surface: dict):
+    """引擎每次计算完都会调这个"""
+    if surface["decision"]["action"] == "withdraw":
+        await tone_module.set_gentle(session_id)
+
+engine.on(on_surface)
+```
+
+取消订阅：
+
+```python
+engine.off(on_surface)
+```
+
+### 方法一览
 
 | 场景 | 调用方法 | 说明 |
 |------|----------|------|
 | 收到用户消息 | `await engine.process(session_id, text)` | 主入口，每条消息调一次 |
+| 注册推送监听 | `engine.on(listener)` | listener(session_id, surface) 会在每次 process 后被调用 |
+| 取消推送监听 | `engine.off(listener)` | 移除已注册的 listener |
 | 查询当前状态（不触发计算） | `engine.state(session_id)` | 只读，不改变内部状态 |
 | 检查引擎健康 | `engine.health()` | 返回 status / degraded 信息 |
 | 重置会话 | `engine.reset(session_id)` | 清除该用户的所有状态 |

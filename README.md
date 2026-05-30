@@ -190,7 +190,8 @@ class MyPlugin(Star):
 | 方法 | 签名 | 说明 |
 |------|------|------|
 | `process` | `await (session_id, text, **ctx) -> dict` | 处理输入文本，返回完整计算结果 |
-| `tick` | `await (session_id, flags) -> dict` | 无文本的状态推进（时间衰减等） |
+| `on` | `(listener) -> None` | 注册推送监听器，process 完成后自动调用 listener(session_id, surface) |
+| `off` | `(listener) -> None` | 移除推送监听器 |
 | `state` | `(session_id) -> dict` | 查询当前状态（不触发计算） |
 | `health` | `() -> dict` | 引擎健康检查 |
 | `reset` | `(session_id) -> None` | 重置会话 |
