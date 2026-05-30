@@ -129,8 +129,11 @@ class TestFromDict:
     def test_ignores_extra_keys(self):
         data = {
             "pulse": {
-                "beat": 5.0, "unknown_field": 99.0,
-                "rhythm": 0.8, "strain": 0.1, "last_tick": 0.0,
+                "beat": 5.0,
+                "unknown_field": 99.0,
+                "rhythm": 0.8,
+                "strain": 0.1,
+                "last_tick": 0.0,
             }
         }
         body = AlphaBodyState.from_dict(data)
@@ -154,8 +157,11 @@ class TestFromDict:
     def test_bool_coercion(self):
         data = {
             "immunity": {
-                "boundary_pressure": 0.0, "sovereignty": 1.0,
-                "interruption_budget": 1.0, "cooldown": 0.0, "paused": 1,
+                "boundary_pressure": 0.0,
+                "sovereignty": 1.0,
+                "interruption_budget": 1.0,
+                "cooldown": 0.0,
+                "paused": 1,
             }
         }
         body = AlphaBodyState.from_dict(data)

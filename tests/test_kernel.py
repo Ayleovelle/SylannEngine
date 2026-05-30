@@ -32,7 +32,13 @@ class TestKernelTick:
         kernel = AlphaKernel.boot("s1")
         result = kernel.tick({"text": "hello", "now": 1.0, "flags": ["safe"]})
         assert result["decision"]["action"] in {
-            "wait", "explore", "express", "reach_out", "repair", "withdraw", "recover"
+            "wait",
+            "explore",
+            "express",
+            "reach_out",
+            "repair",
+            "withdraw",
+            "recover",
         }
 
     def test_tick_with_none_event(self):
@@ -112,8 +118,10 @@ class TestKernelGuard:
         kernel = AlphaKernel.boot("s1")
         kernel.body.immunity.sovereignty = 0.3
         decision = {
-            "action": "reach_out", "reason": "test",
-            "reason_code": "test", "confidence": 0.5,
+            "action": "reach_out",
+            "reason": "test",
+            "reason_code": "test",
+            "confidence": 0.5,
         }
         guard = kernel._guard(decision)
         assert guard["allowed"] is False

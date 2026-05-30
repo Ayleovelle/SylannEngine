@@ -59,7 +59,13 @@ class TestEngineProcess:
         await engine.start()
         surface = await engine.process("s1", "ouch", flags=["hurt"])
         assert surface["decision"]["action"] in {
-            "wait", "explore", "express", "reach_out", "repair", "withdraw", "recover"
+            "wait",
+            "explore",
+            "express",
+            "reach_out",
+            "repair",
+            "withdraw",
+            "recover",
         }
 
     @pytest.mark.asyncio
