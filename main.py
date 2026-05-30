@@ -35,6 +35,7 @@ except ImportError:
     def register(*args, **kwargs):
         def decorator(cls):
             return cls
+
         return decorator
 
 
