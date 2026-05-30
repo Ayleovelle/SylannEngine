@@ -28,6 +28,8 @@ class AlphaRuntime:
     提供 load/save/reset/export_all 等完整的生命周期管理方法。
     """
 
+    _CONSISTENCY_CHECK_INTERVAL: int = 50
+
     def __init__(self, root: str | Path):
         """初始化运行时，指定持久化根目录。
 
@@ -35,6 +37,7 @@ class AlphaRuntime:
             root: 存储 .alpha.json 文件的根目录路径。
         """
         self.root = Path(root)
+        self._save_count: int = 0
 
     def load(
         self, session_key: str, legacy: dict[str, Any] | None = None
@@ -71,17 +74,15 @@ class AlphaRuntime:
         return AlphaKernel.boot(session_key=session_key, legacy=legacy)
 
     def save(self, kernel: AlphaKernel) -> None:
-        """原子写入 kernel 快照到磁盘。写入前执行一致性自检。"""
-        self._consistency_check(kernel)
+        """原子写入 kernel 快照到磁盘。定期执行一致性自检。"""
+        self._save_count += 1
+        if self._save_count % self._CONSISTENCY_CHECK_INTERVAL == 0:
+            self._consistency_check(kernel)
         self.root.mkdir(parents=True, exist_ok=True)
         path = self._path(kernel.session_key)
         tmp = path.with_suffix(path.suffix + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    kernel.snapshot(), ensure_ascii=False, sort_keys=True, indent=2
-                )
-            )
+            f.write(json.dumps(kernel.snapshot(), ensure_ascii=False))
             f.flush()
             os.fsync(f.fileno())
         try:

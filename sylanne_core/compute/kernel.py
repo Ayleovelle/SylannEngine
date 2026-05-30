@@ -95,6 +95,9 @@ class AlphaKernel:
     fallibility: dict[str, Any] = field(default_factory=dict)
     computation: ComputationSpine = field(default_factory=ComputationSpine)
     _last_computation_result: dict[str, Any] = field(default_factory=dict)
+    _cached_vector_summary: dict[str, float] | None = field(
+        default=None, repr=False
+    )
 
     @classmethod
     def boot(
@@ -190,6 +193,7 @@ class AlphaKernel:
         Returns:
             包含 state/decision/guard/surface 的结果字典
         """
+        self._cached_vector_summary = None
         event = self._event(event)
         self.body.apply(
             text=event.text,
@@ -796,15 +800,17 @@ class AlphaKernel:
             return value[:10] if len(value) >= 10 else ""
 
     def _vector_summary(self) -> dict[str, float]:
-        """从 29 维状态向量中提取 4 个关键摘要指标。
+        """从 29 维状态向量中提取 4 个关键摘要指标（单次 tick 内缓存）。
 
         - vitality: 生命力（节律 + 循环）
         - need: 最大需求强度
         - risk: 最大风险指标（边界压力/耗竭/开放伤口）
         - plasticity: 可塑性
         """
+        if self._cached_vector_summary is not None:
+            return self._cached_vector_summary
         vector = self.body.state_vector()
-        return {
+        summary = {
             "vitality": round(
                 min(
                     1.0, vector["pulse.rhythm"] + vector["bloodflow.circulation"] * 0.2
@@ -829,6 +835,8 @@ class AlphaKernel:
             ),
             "plasticity": vector["nerve.plasticity"],
         }
+        self._cached_vector_summary = summary
+        return summary
 
     def _decide(self) -> dict[str, Any]:
         """基于身体需求的行动决策。

@@ -236,7 +236,7 @@ class ComputationSpine:
         self._personality_dirty: bool = False
 
         # Diagnostics toggle — skip expensive _l1_hdc_payload when WebUI isn't polling
-        self._diagnostics_enabled: bool = True
+        self._diagnostics_enabled: bool = False
 
         # Circuit breakers for each computation layer (异常隔离与自愈)
         self._circuit_breakers: dict[str, CircuitBreaker] = {
