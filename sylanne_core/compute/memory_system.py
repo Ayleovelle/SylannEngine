@@ -57,7 +57,7 @@ class MemoryItem:
     last_recalled_tick: int = 0
     rewrite_count: int = 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "text": self.text,
@@ -74,7 +74,7 @@ class MemoryItem:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> MemoryItem:
+    def from_dict(cls, d: dict[str, Any]) -> MemoryItem:
         return cls(
             id=d["id"],
             text=d["text"],
@@ -162,7 +162,7 @@ class GraphNode:
     valid_from: str | None = None  # ISO date for evolving
     staleness_threshold: int = 180  # days, default 6 months
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "label": self.label,
@@ -176,7 +176,7 @@ class GraphNode:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> GraphNode:
+    def from_dict(cls, d: dict[str, Any]) -> GraphNode:
         return cls(
             id=d["id"],
             label=d["label"],
@@ -201,7 +201,7 @@ class GraphEdge:
     clarity: float  # [0.0, 1.0]
     last_recalled: int = 0  # tick
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "source": self.source,
             "target": self.target,
@@ -212,7 +212,7 @@ class GraphEdge:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> GraphEdge:
+    def from_dict(cls, d: dict[str, Any]) -> GraphEdge:
         return cls(
             source=d["source"],
             target=d["target"],
@@ -267,7 +267,7 @@ class ConversationBuffer:
         self.last_flush_ts = time.time()
         return msgs
 
-    def inject_context(self, entries: list[dict]) -> None:
+    def inject_context(self, entries: list[dict[str, Any]]) -> None:
         """注入群聊旁观消息作为背景上下文（插入到头部）。"""
         for i, entry in enumerate(entries):
             self.messages.insert(
@@ -280,7 +280,7 @@ class ConversationBuffer:
                 },
             )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "session_key": self.session_key,
             "messages": self.messages,
@@ -290,7 +290,7 @@ class ConversationBuffer:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> ConversationBuffer:
+    def from_dict(cls, d: dict[str, Any]) -> ConversationBuffer:
         buf = cls(session_key=d["session_key"])
         buf.messages = d.get("messages", [])
         buf.last_activity = d.get("last_activity", 0.0)
@@ -368,9 +368,7 @@ class AnniversaryDetector:
     """追踪关系里程碑日期。"""
 
     def __init__(self) -> None:
-        self._milestones: dict[
-            str, dict
-        ] = {}  # session_key -> {first_chat, important_events: [...]}
+        self._milestones: dict[str, dict[str, Any]] = {}
 
     def record_first_chat(self, session_key: str, timestamp: float) -> None:
         if session_key not in self._milestones:
@@ -403,11 +401,11 @@ class AnniversaryDetector:
 
         return results
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, dict[str, Any]]:
         return dict(self._milestones)
 
     @classmethod
-    def from_dict(cls, data: dict) -> AnniversaryDetector:
+    def from_dict(cls, data: dict[str, dict[str, Any]]) -> AnniversaryDetector:
         det = cls()
         det._milestones = data
         return det
@@ -457,11 +455,13 @@ class MemorySystem:
         "cold": "（很久以前）",
     }
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: float) -> None:
         self._l1: deque[MemoryItem] = deque(maxlen=self._L1_CAPACITY)
         self._l2: list[MemoryItem] = []
         self._l3_nodes: dict[str, GraphNode] = {}
         self._l3_edges: list[GraphEdge] = []
+        self._l3_label_index: dict[str, str] = {}
+        self._l3_edge_index: dict[tuple[str, str, str], int] = {}
         self._tick: int = 0
         self._last_consolidation_ts: float = 0.0
         self._recalled_l2_items: list[MemoryItem] = []
@@ -739,18 +739,16 @@ class MemorySystem:
 
         # 清理 label/edge 索引中的 stale entries
         if dead_node_set:
-            if hasattr(self, "_l3_label_index"):
-                self._l3_label_index = {
-                    label: nid
-                    for label, nid in self._l3_label_index.items()
-                    if nid not in dead_node_set
-                }
-            if hasattr(self, "_l3_edge_index"):
-                self._l3_edge_index = {
-                    key: idx
-                    for key, idx in self._l3_edge_index.items()
-                    if idx < len(self._l3_edges)
-                }
+            self._l3_label_index = {
+                label: nid
+                for label, nid in self._l3_label_index.items()
+                if nid not in dead_node_set
+            }
+            self._l3_edge_index = {
+                key: idx
+                for key, idx in self._l3_edge_index.items()
+                if idx < len(self._l3_edges)
+            }
 
     # ------------------------------------------------------------------
     # Ebbinghaus 遗忘曲线（Item 95）
@@ -827,7 +825,7 @@ class MemorySystem:
             candidates.append(result)
 
         # --- L2 recall ---
-        self._recalled_l2_items: list[MemoryItem] = []
+        self._recalled_l2_items = []
         for item in self._l2:
             relevance, reason = self._compute_relevance_with_reason(
                 query, query_embedding, item.text, item.embedding
@@ -1108,7 +1106,7 @@ class MemorySystem:
     # L3 图谱摄入
     # ------------------------------------------------------------------
 
-    def ingest_graph_triples(self, triples: list) -> None:
+    def ingest_graph_triples(self, triples: list[Any]) -> None:
         """将 LLM 实体抽取结果合并入 L3 图。"""
         for triple in triples:
             if isinstance(triple, (list, tuple)):
@@ -1168,8 +1166,6 @@ class MemorySystem:
         temporal_type: str = "episodic",
         valid_from: str | None = None,
     ) -> GraphNode:
-        if not hasattr(self, "_l3_label_index"):
-            self._l3_label_index = {n.label: nid for nid, n in self._l3_nodes.items()}
         existing_id = self._l3_label_index.get(label)
         if existing_id and existing_id in self._l3_nodes:
             node = self._l3_nodes[existing_id]
@@ -1199,10 +1195,6 @@ class MemorySystem:
         emotion_weight: float,
         clarity: float,
     ) -> GraphEdge:
-        if not hasattr(self, "_l3_edge_index"):
-            self._l3_edge_index = {
-                (e.source, e.target, e.relation): i for i, e in enumerate(self._l3_edges)
-            }
         key = (source, target, relation)
         idx = self._l3_edge_index.get(key)
         if idx is not None and idx < len(self._l3_edges):
@@ -1280,7 +1272,7 @@ class MemorySystem:
     # 序列化
     # ------------------------------------------------------------------
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """序列化全部三层为可 JSON 化的 dict。"""
         return {
             "version": "2.0.0",
@@ -1293,19 +1285,19 @@ class MemorySystem:
             "l3_edges": [edge.to_dict() for edge in self._l3_edges],
         }
 
-    def from_dict(self, data: dict) -> MemorySystem:
+    def from_dict(self, data: dict[str, Any]) -> MemorySystem:
         """从 dict 恢复全部三层状态（就地修改并返回 self）。"""
         self._restore_from_data(data)
         return self
 
     @classmethod
-    def create_from_dict(cls, data: dict) -> MemorySystem:
+    def create_from_dict(cls, data: dict[str, Any]) -> MemorySystem:
         """从 dict 创建新的 MemorySystem 实例。"""
         mem = cls()
         mem._restore_from_data(data)
         return mem
 
-    def _restore_from_data(self, data: dict) -> None:
+    def _restore_from_data(self, data: dict[str, Any]) -> None:
         """就地从 dict 恢复全部三层状态。兼容 v1 和 v2 格式。"""
         self._tick = data.get("tick", 0)
         self._last_consolidation_ts = data.get("last_consolidation_ts", 0.0)
@@ -1318,8 +1310,8 @@ class MemorySystem:
             nid: GraphNode.from_dict(nd) for nid, nd in data.get("l3_nodes", {}).items()
         }
         self._l3_edges = [GraphEdge.from_dict(ed) for ed in data.get("l3_edges", [])]
-        self._l3_label_index: dict[str, str] = {n.label: nid for nid, n in self._l3_nodes.items()}
-        self._l3_edge_index: dict[tuple[str, str, str], int] = {
+        self._l3_label_index = {n.label: nid for nid, n in self._l3_nodes.items()}
+        self._l3_edge_index = {
             (e.source, e.target, e.relation): i for i, e in enumerate(self._l3_edges)
         }
 
@@ -1368,13 +1360,13 @@ class ArchaeologyEngine:
 
     def __init__(self) -> None:
         self._last_dig: float = 0
-        self._findings: list[dict] = []
+        self._findings: list[dict[str, Any]] = []
 
     def should_dig(self, now: float) -> bool:
         """每 24h 最多挖掘一次。"""
         return now - self._last_dig > 86400
 
-    def dig(self, cold_memories: list, max_findings: int = 3) -> list[dict]:
+    def dig(self, cold_memories: list[Any], max_findings: int = 3) -> list[dict[str, Any]]:
         """从冷记忆中发掘模式。"""
         self._last_dig = time.time()
 
@@ -1405,7 +1397,7 @@ class ArchaeologyEngine:
         self._findings.extend(findings)
         return findings
 
-    def get_recent_findings(self, n: int = 5) -> list[dict]:
+    def get_recent_findings(self, n: int = 5) -> list[dict[str, Any]]:
         return self._findings[-n:]
 
 

@@ -98,7 +98,7 @@ class Void:
             return 1.0
         return len(self.boundary) / (len(self.boundary) + self._estimated_boundary_size)
 
-    def tick(self, pressure_cap: float = 100.0):
+    def tick(self, pressure_cap: float = 100.0) -> None:
         """虚空老化：每 tick 增加年龄并按公式积累压力。
 
         压力公式：pressure += depth * log(age + 1) * (1 - beta)
@@ -335,7 +335,7 @@ class VoidSpace:
             effective_threshold += len(self.voids) * 0.02
         return surprise > effective_threshold
 
-    def _create_void(self, deflected_from: bytes):
+    def _create_void(self, deflected_from: bytes) -> None:
         """创建新虚空：以"被偏转离开的话题"向量作为初始边界。"""
         v = Void(
             boundary=[deflected_from],
@@ -367,7 +367,7 @@ class VoidSpace:
             self.ghosts = self.ghosts[-50:]
         return len(dead)
 
-    def _merge_pass(self):
+    def _merge_pass(self) -> None:
         """合并操作：将边界重叠的虚空合并为一个（它们本质上是同一个"缺席"）。"""
         if len(self.voids) < 2:
             return
@@ -405,7 +405,7 @@ class VoidSpace:
             beta=0.0,
         )
 
-    def _split_pass(self):
+    def _split_pass(self) -> None:
         """分裂操作：将边界呈双峰分布的虚空分裂为两个独立虚空。"""
         new_voids: list[Void] = []
         for v in self.voids:
@@ -413,7 +413,7 @@ class VoidSpace:
                 new_voids.append(v)
                 continue
             cluster_a, cluster_b = self._try_split(v)
-            if cluster_a is not None:
+            if cluster_a is not None and cluster_b is not None:
                 new_voids.append(
                     Void(
                         boundary=cluster_a,
@@ -509,7 +509,7 @@ class VoidSpace:
         split_threshold: float,
         merge_threshold: float,
         pressure_cap: float,
-    ):
+    ) -> None:
         self._contract_threshold = contract_threshold
         self._split_threshold = split_threshold
         self._merge_threshold = merge_threshold

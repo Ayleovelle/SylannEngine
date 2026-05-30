@@ -143,10 +143,10 @@ class SylanneAlphaHost:
         return surface
 
     def diagnostics(self) -> dict[str, Any]:
-        return self.kernel.surface()
+        return dict(self.kernel.surface())
 
     def snapshot(self) -> dict[str, Any]:
-        return self.kernel.snapshot()
+        return dict(self.kernel.snapshot())
 
     def _tick(
         self,
@@ -158,7 +158,7 @@ class SylanneAlphaHost:
         """内部 tick 实现：转换事件 → 注入 phase flag → 驱动 kernel → 按需持久化。"""
         host_event = self._event(event)
         flags = list(dict.fromkeys([phase, *host_event.flags]))
-        surface = self.kernel.tick(
+        surface: dict[str, Any] = self.kernel.tick(
             AlphaKernelEvent(
                 text=host_event.text,
                 values=dict(host_event.values),
@@ -218,6 +218,6 @@ class SylanneAlphaHost:
             now=float(payload.get("now") or 0.0),
             values=dict(payload.get("values") or {}),
             event_time=dict(
-                payload.get("event_time") if isinstance(payload.get("event_time"), dict) else {}
+                payload.get("event_time") if isinstance(payload.get("event_time"), dict) else {}  # type: ignore[arg-type]
             ),
         )

@@ -10,7 +10,7 @@ logger = logging.getLogger("sylanne_core")
 
 
 def safe_ensure_future(
-    coro: Any, name: str = "task", task_list: list | None = None
+    coro: Any, name: str = "task", task_list: list[Any] | None = None
 ) -> asyncio.Task[Any]:
     loop = asyncio.get_running_loop()
     task = loop.create_task(coro)
