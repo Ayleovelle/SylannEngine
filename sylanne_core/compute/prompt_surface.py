@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 def render_prompt_fragment(
-    kernel: "AlphaKernel", decision: dict[str, Any], guard: dict[str, Any]
+    kernel: AlphaKernel, decision: dict[str, Any], guard: dict[str, Any]
 ) -> str:
     """渲染完整的 prompt 注入片段，供 host 注入到 LLM 请求中。
 
@@ -98,9 +98,7 @@ def render_prompt_fragment(
         arbitrated_expression_drive = comp_expression_drive
     else:
         # 小分歧：取平均
-        arbitrated_expression_drive = (
-            comp_expression_drive + body_expression_drive
-        ) / 2.0
+        arbitrated_expression_drive = (comp_expression_drive + body_expression_drive) / 2.0
     # 表达强度信号：调制 LLM 回复语气
     expr_intensity = kernel.computation.expression.expression_intensity()
     if expr_intensity > 0.8:
@@ -132,7 +130,7 @@ SCHEMA_PROMPT_CONTEXT_BUS_VERSION = "sylanne.alpha.prompt_context_bus.v1"
 
 
 def render_prompt_context_bus(
-    kernel: "AlphaKernel", *, integrated_self: dict[str, Any]
+    kernel: AlphaKernel, *, integrated_self: dict[str, Any]
 ) -> dict[str, Any]:
     """组装 prompt 上下文总线载荷。
 
@@ -174,7 +172,7 @@ def render_prompt_context_bus(
 
 
 def render_host_payload(
-    kernel: "AlphaKernel", decision: dict[str, Any], guard: dict[str, Any]
+    kernel: AlphaKernel, decision: dict[str, Any], guard: dict[str, Any]
 ) -> dict[str, Any]:
     """构建完整的 host 载荷字典。
 
@@ -226,9 +224,7 @@ def render_host_payload(
         "reason_code": decision.get("reason_code", "life_rhythm"),
         "next_check_seconds": kernel._next_check_seconds(decision, guard),
         "relational_time": kernel.relational_time
-        or kernel._relational_time_layer(
-            current=kernel.last_event, previous=kernel.previous_event
-        ),
+        or kernel._relational_time_layer(current=kernel.last_event, previous=kernel.previous_event),
         "relationship_memory": kernel.body.relationship_memory(),
         "integrated_self": integrated_self,
         "affect_dynamics": affect_dynamics,
@@ -246,7 +242,7 @@ def render_host_payload(
 
 
 def render_diagnostics(
-    kernel: "AlphaKernel",
+    kernel: AlphaKernel,
     decision: dict[str, Any],
     guard: dict[str, Any],
     workset: dict[str, Any] | None = None,

@@ -11,7 +11,6 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
-
 # ======================================================================
 # 秘密状态层
 # ======================================================================
@@ -60,10 +59,7 @@ class HiddenStateManager:
     def get_bias_vector(self) -> dict[str, float]:
         if not self._secrets:
             return {}
-        return {
-            "hidden_tension": sum(s.intensity for s in self._secrets)
-            / len(self._secrets)
-        }
+        return {"hidden_tension": sum(s.intensity for s in self._secrets) / len(self._secrets)}
 
     def active_count(self) -> int:
         return len(self._secrets)
@@ -90,7 +86,7 @@ class HiddenStateManager:
         ]
 
     @classmethod
-    def from_dict(cls, data: list[dict]) -> "HiddenStateManager":
+    def from_dict(cls, data: list[dict]) -> HiddenStateManager:
         mgr = cls()
         for d in data:
             mgr._secrets.append(
@@ -161,9 +157,7 @@ class SelfNarrative:
             ("信任", "不信任"),
         ]
         for pos, neg in opposites:
-            if (pos in a and neg not in a and neg in b) or (
-                neg in a and pos in b and neg not in b
-            ):
+            if (pos in a and neg not in a and neg in b) or (neg in a and pos in b and neg not in b):
                 return True
         return False
 
@@ -182,7 +176,7 @@ class SelfNarrative:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "SelfNarrative":
+    def from_dict(cls, data: dict) -> SelfNarrative:
         sn = cls()
         sn._identity_core = data.get("identity_core", "")
         for fd in data.get("fragments", []):
@@ -233,9 +227,7 @@ class ContradictionDetector:
     def record_stance(self, topic: str, position: str, valence: float):
         self._stance_history.append(Stance(time.time(), topic, position, valence))
 
-    def check(
-        self, current_text: str, current_valence: float
-    ) -> ContradictionCandidate | None:
+    def check(self, current_text: str, current_valence: float) -> ContradictionCandidate | None:
         for stance in reversed(list(self._stance_history)):
             if len(stance.topic) < self.MIN_TOPIC_LEN:
                 continue
@@ -244,9 +236,7 @@ class ContradictionDetector:
                 if valence_diff > 0.6:
                     severity = min(1.0, valence_diff)
                     c_type = "emotional" if abs(stance.valence) > 0.3 else "behavioral"
-                    return ContradictionCandidate(
-                        current_text[:50], stance, severity, c_type
-                    )
+                    return ContradictionCandidate(current_text[:50], stance, severity, c_type)
         return None
 
     def is_playful_inconsistency(self, text: str, mode: str) -> bool:
@@ -276,7 +266,7 @@ class ContradictionDetector:
         ]
 
     @classmethod
-    def from_dict(cls, data: list[dict]) -> "ContradictionDetector":
+    def from_dict(cls, data: list[dict]) -> ContradictionDetector:
         det = cls()
         for d in data:
             det._stance_history.append(
@@ -285,9 +275,7 @@ class ContradictionDetector:
         return det
 
 
-def get_correction_strategy(
-    candidate: ContradictionCandidate, tolerance: float
-) -> str | None:
+def get_correction_strategy(candidate: ContradictionCandidate, tolerance: float) -> str | None:
     if candidate.severity < tolerance * 0.5:
         return None
     elif candidate.severity < tolerance:

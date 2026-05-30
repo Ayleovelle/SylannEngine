@@ -184,7 +184,7 @@ class TraitMemory:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TraitMemory":
+    def from_dict(cls, data: dict[str, Any]) -> TraitMemory:
         """从字典恢复 TraitMemory 实例。"""
         tm = cls(float(data.get("value", 0.5)))
         tm.fast_ema = float(data.get("fast_ema", 0.0))
@@ -261,9 +261,7 @@ class DriftSignalExtractor:
         # 情绪效价模式：需要窗口内多条消息持续正向
         valence = float(emotion.get("valence", 0.0))
         positive_count = sum(
-            1
-            for r in self._window
-            if float(r.get("emotion", {}).get("valence", 0.0)) > 0.3
+            1 for r in self._window if float(r.get("emotion", {}).get("valence", 0.0)) > 0.3
         )
         if positive_count >= 5:
             signals["sustained_positive_valence"] = min(1.0, positive_count / 7.0)
@@ -283,9 +281,7 @@ class DriftSignalExtractor:
         if surprise > 0.6 and valence < -0.3:
             signals["high_surprise_negative"] = min(1.0, surprise)
         # 持续低惊喜：窗口内大部分消息都无惊喜
-        low_surprise_count = sum(
-            1 for r in self._window if float(r.get("surprise", 0.0)) < 0.2
-        )
+        low_surprise_count = sum(1 for r in self._window if float(r.get("surprise", 0.0)) < 0.2)
         if low_surprise_count >= 8:
             signals["sustained_low_surprise"] = min(1.0, low_surprise_count / 10.0)
 
@@ -377,9 +373,7 @@ class DriftAttribution:
     def record(self, trigger: str, dimension: str, delta: float, new_value: float):
         """记录一次漂移事件（仅当变化量显著时）。"""
         if abs(delta) > 0.005:
-            self._events.append(
-                DriftEvent(time.time(), trigger, dimension, delta, new_value)
-            )
+            self._events.append(DriftEvent(time.time(), trigger, dimension, delta, new_value))
 
     def recent(self, n: int = 20) -> list[dict]:
         """返回最近 n 条漂移事件的字典列表。"""
@@ -515,11 +509,7 @@ def compute_embodiment_drift(
     # 速率限制：如果总变化量超过 _TICK_DRIFT_CAP，按比例缩放
     # 季节性调制也纳入预算，不绕过 drift cap
     seasonal_target = _get_seasonal_target()
-    if (
-        seasonal_target
-        and seasonal_target in traits
-        and not traits[seasonal_target].frozen
-    ):
+    if seasonal_target and seasonal_target in traits and not traits[seasonal_target].frozen:
         pending.append((seasonal_target, 0.01 * dt_scale, "_seasonal"))
 
     total_abs = sum(abs(d) for _, d, _ in pending)
@@ -637,9 +627,7 @@ def drift_sylanne_traits(
         "drift": {
             "mode": "slow_plasticity",
             "events": int(previous_drift.get("events") or 0) + 1,
-            "plasticity": round(
-                min(1.0, float(previous_drift.get("plasticity") or 0.0) + step), 6
-            ),
+            "plasticity": round(min(1.0, float(previous_drift.get("plasticity") or 0.0) + step), 6),
         },
     }
 
@@ -664,9 +652,7 @@ def drift_personality(
 # ---------------------------------------------------------------------------
 
 
-def initial_personality(
-    session_key: str, *, seed_text: str = "Sylanne Soulful"
-) -> dict[str, Any]:
+def initial_personality(session_key: str, *, seed_text: str = "Sylanne Soulful") -> dict[str, Any]:
     """生成初始人格状态。
 
     使用 blake2s 哈希从 session_key 和 seed_text 生成确定性签名，
@@ -783,9 +769,7 @@ def _voice(traits: dict[str, float]) -> dict[str, Any]:
         boundary: 边界强度（sovereignty_guard ≥ 0.6 → strong，否则 soft）
     """
     return {
-        "temperature": round(
-            (traits.get("warmth_bias", 0.5) + traits.get("edge", 0.5)) / 2, 6
-        ),
+        "temperature": round((traits.get("warmth_bias", 0.5) + traits.get("edge", 0.5)) / 2, 6),
         "cadence": "slow_burn" if traits.get("patience", 0.5) >= 0.5 else "quick_cut",
         "boundary": "strong" if traits.get("sovereignty_guard", 0.5) >= 0.6 else "soft",
     }
@@ -857,9 +841,7 @@ def apply_relationship_age_modulation(traits: dict, relationship_stage: str) -> 
             0.1, traits.get("expression_drive_trait", 0.5) - 0.1
         )
     elif relationship_stage == "young":  # 3-14天：逐渐开放
-        modulated["boundary_permeability"] = (
-            traits.get("boundary_permeability", 0.5) - 0.05
-        )
+        modulated["boundary_permeability"] = traits.get("boundary_permeability", 0.5) - 0.05
     elif relationship_stage == "mature":  # 14-90天：正常
         pass  # 不调整
     elif relationship_stage == "deep":  # 90天+：更大情绪波动和更直接表达
@@ -926,7 +908,7 @@ class EvolutionJournal:
         return {"checkpoints": self._checkpoints, "next_id": self._next_id}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "EvolutionJournal":
+    def from_dict(cls, data: dict) -> EvolutionJournal:
         """从字典恢复 EvolutionJournal 实例。"""
         ej = cls()
         ej._checkpoints = data.get("checkpoints", [])

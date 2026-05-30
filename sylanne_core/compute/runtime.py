@@ -39,9 +39,7 @@ class AlphaRuntime:
         self.root = Path(root)
         self._save_count: int = 0
 
-    def load(
-        self, session_key: str, legacy: dict[str, Any] | None = None
-    ) -> AlphaKernel:
+    def load(self, session_key: str, legacy: dict[str, Any] | None = None) -> AlphaKernel:
         """加载指定 session 的 kernel 状态。
 
         加载逻辑：
@@ -137,10 +135,7 @@ class AlphaRuntime:
     def _path(self, session_key: str) -> Path:
         """将 session_key 转换为文件系统安全的 .alpha.json 路径。"""
         safe = (
-            "".join(
-                ch if ch.isalnum() or ch in {"-", "_", "."} else "_"
-                for ch in session_key
-            )
+            "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in session_key)
             or "default"
         )
         return self.root / f"{safe}.alpha.json"
@@ -184,10 +179,7 @@ class AlphaRuntime:
     def _buffer_path(self, session_key: str) -> Path:
         """将 session_key 转换为文件系统安全的 .buffer.json 路径。"""
         safe = (
-            "".join(
-                ch if ch.isalnum() or ch in {"-", "_", "."} else "_"
-                for ch in session_key
-            )
+            "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in session_key)
             or "default"
         )
         return self.root / f"{safe}.buffer.json"
@@ -252,9 +244,7 @@ class AlphaRuntime:
                         f"Consistency check: scar modifier cache mismatch at dim {dim}: "
                         f"cached={old_val:.6f}, actual={new_val:.6f}. Cache rebuilt."
                     )
-                    corrections.append(
-                        f"scar_modifier[{dim}]: {old_val:.6f} -> {new_val:.6f}"
-                    )
+                    corrections.append(f"scar_modifier[{dim}]: {old_val:.6f} -> {new_val:.6f}")
         else:
             # 缓存本来就无效，重建即可
             scar_state._ensure_modifier_cache()
@@ -279,8 +269,7 @@ class AlphaRuntime:
 
         if corrections:
             logger.error(
-                f"Consistency check completed with {len(corrections)} correction(s): "
-                f"{corrections}"
+                f"Consistency check completed with {len(corrections)} correction(s): {corrections}"
             )
         return {"corrections": len(corrections), "details": corrections}
 

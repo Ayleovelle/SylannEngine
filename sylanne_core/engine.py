@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from .config import SylanneConfig
 from .types import EngineStatus, HealthStatus, Surface
@@ -86,9 +87,7 @@ class SylanneEngine:
     ) -> Surface:
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
-            assessment = (
-                await self._assess(text) if self._config.assessor_enabled else None
-            )
+            assessment = await self._assess(text) if self._config.assessor_enabled else None
             event = {
                 "text": text,
                 "confidence": confidence or (assessment or {}).get("confidence", 0.0),
