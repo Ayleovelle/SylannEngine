@@ -367,10 +367,13 @@ def project_attention_delta(result: dict[str, Any]) -> dict[str, float]:
     return dict(result.get("delta") or {})
 
 
+_SINGLETON_ATTENTION = TinyBodyAttention()
+
+
 def attention_delta(
     state: dict[str, float], event: dict[str, float]
 ) -> dict[str, float]:
-    return project_attention_delta(TinyBodyAttention().update(state, event))
+    return project_attention_delta(_SINGLETON_ATTENTION.update(state, event))
 
 
 # ---------------------------------------------------------------------------

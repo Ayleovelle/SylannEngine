@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from .config import SylanneConfig
-from .types import Surface
+from .types import EngineStatus, HealthStatus, Surface
 
 
 class SylanneEngine:
@@ -32,13 +32,13 @@ class SylanneEngine:
         self._llm = llm
         self._embedding = embedding
         self._config = config or SylanneConfig()
-        self._status: str = "init"
+        self._status: EngineStatus = "init"
         self._hosts: dict[str, Any] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._listeners: list[Callable[[str, Surface], Any]] = []
 
     @property
-    def status(self) -> str:
+    def status(self) -> EngineStatus:
         return self._status
 
     async def start(self) -> None:
@@ -53,7 +53,7 @@ class SylanneEngine:
         """移除推送监听器。"""
         self._listeners = [fn for fn in self._listeners if fn is not listener]
 
-    def health(self) -> dict[str, Any]:
+    def health(self) -> HealthStatus:
         """引擎健康检查，开发者用于判断计算模块是否正常。"""
         return {
             "status": self._status,

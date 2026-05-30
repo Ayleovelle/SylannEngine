@@ -282,21 +282,18 @@ class VoidSpace:
         contracted = 0
         for v in self.voids:
             before = len(v.boundary)
-            removed_vecs = [
-                b
-                for b in v.boundary
-                if self.similarity_fn(event_vec, b) >= self._contract_threshold
-            ]
+            kept = []
+            removed_vecs = []
+            for b in v.boundary:
+                if self.similarity_fn(event_vec, b) >= self._contract_threshold:
+                    removed_vecs.append(b)
+                else:
+                    kept.append(b)
             if removed_vecs:
                 v._last_boundary_hash = hash(bytes(removed_vecs[-1]))
-            v.boundary = [
-                b
-                for b in v.boundary
-                if self.similarity_fn(event_vec, b) < self._contract_threshold
-            ]
-            if len(v.boundary) < before:
+                v.boundary = kept
                 contracted += 1
-                removed = before - len(v.boundary)
+                removed = before - len(kept)
                 v.pressure *= 1.0 - removed / max(1, before)
         return contracted
 

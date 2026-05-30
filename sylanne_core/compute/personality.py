@@ -445,13 +445,15 @@ def compute_embodiment_drift(
     tick_count: int,
     oscillation_detector: OscillationDetector | None = None,
     drift_attribution: DriftAttribution | None = None,
+    dt: float = 30.0,
 ) -> None:
     """根据提取的信号对 Embodiment 特质施加漂移。
 
-    漂移公式: Δ = base_rate × √signal × inertia × homeostatic × asymmetric
+    漂移公式: Δ = base_rate × dt_scale × √signal × inertia × homeostatic × asymmetric
 
     各因子含义：
     - base_rate (0.003): 基础漂移速率，保证变化足够缓慢
+    - dt_scale: 真实时间缩放因子，dt/30 归一化（30s 为基准间隔）
     - √signal: 信号强度的平方根，压缩极端值的影响
     - inertia: 惯性因子，随 tick 数增加而递减（越老越稳定）
     - homeostatic: 恒稳态阻力，偏离设定点越远阻力越大
@@ -466,8 +468,10 @@ def compute_embodiment_drift(
         tick_count: 当前总 tick 数（用于计算惯性）
         oscillation_detector: 可选的震荡检测器
         drift_attribution: 可选的漂移归因追踪器
+        dt: 距上次漂移计算的真实秒数（默认 30s 即基准间隔）
     """
     base_rate = 0.003
+    dt_scale = min(max(dt, 1.0) / 30.0, 8.0)
     # 惯性：随时间对数增长而递减，使人格越来越稳定
     inertia = 1.0 / (1.0 + math.log(1.0 + tick_count / 500.0))
 
@@ -499,6 +503,7 @@ def compute_embodiment_drift(
 
             raw_delta = (
                 base_rate
+                * dt_scale
                 * signal_magnitude
                 * weight
                 * inertia
@@ -515,11 +520,12 @@ def compute_embodiment_drift(
         and seasonal_target in traits
         and not traits[seasonal_target].frozen
     ):
-        pending.append((seasonal_target, 0.01, "_seasonal"))
+        pending.append((seasonal_target, 0.01 * dt_scale, "_seasonal"))
 
     total_abs = sum(abs(d) for _, d, _ in pending)
-    if total_abs > _TICK_DRIFT_CAP:
-        scale = _TICK_DRIFT_CAP / total_abs
+    effective_cap = _TICK_DRIFT_CAP * dt_scale
+    if total_abs > effective_cap:
+        scale = effective_cap / total_abs
         pending = [(name, delta * scale, sig) for name, delta, sig in pending]
 
     # 第二遍：应用缩放后的 delta

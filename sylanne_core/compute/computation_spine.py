@@ -25,6 +25,7 @@ from .personality import (
     DriftSignalExtractor,
     OscillationDetector,
     TraitMemory,
+    _REVERSE_LEGACY_MAP,
     compute_embodiment_drift,
     normalize_personality,
 )
@@ -112,6 +113,15 @@ class LayerRegistry:
     @classmethod
     def has_custom(cls, name: str) -> bool:
         return name in cls._custom_layers
+
+
+_L1_PAYLOAD_FALLBACK: dict[str, object] = {
+    "ones_ratio": 0.0,
+    "total_bits": 0,
+    "sample_bits": [],
+    "prediction_similarity": 0.0,
+    "flip_ratio": 0.0,
+}
 
 
 class ComputationSpine:
@@ -599,13 +609,7 @@ class ComputationSpine:
         if not self._layer_enabled.get("gate", True):
             surprise = 0.0
             route = "fast"
-            l1_payload = {
-                "ones_ratio": 0.0,
-                "total_bits": 0,
-                "sample_bits": [],
-                "prediction_similarity": 0.0,
-                "flip_ratio": 0.0,
-            }
+            l1_payload = _L1_PAYLOAD_FALLBACK
             logger.debug("Layer gate DISABLED — using defaults")
         else:
             cb = self._circuit_breakers["gate"]
@@ -613,13 +617,7 @@ class ComputationSpine:
                 _gate_fallback = cb.fallback() or {"surprise": 0.0, "route": "fast"}
                 surprise = _gate_fallback["surprise"]
                 route = _gate_fallback["route"]
-                l1_payload = {
-                    "ones_ratio": 0.0,
-                    "total_bits": 0,
-                    "sample_bits": [],
-                    "prediction_similarity": 0.0,
-                    "flip_ratio": 0.0,
-                }
+                l1_payload = _L1_PAYLOAD_FALLBACK
                 logger.warning("Layer gate circuit OPEN — using fallback")
             else:
                 try:
@@ -627,13 +625,7 @@ class ComputationSpine:
                     if self._diagnostics_enabled:
                         l1_payload = self._l1_hdc_payload(text, h, surprise)
                     else:
-                        l1_payload = {
-                            "ones_ratio": 0.0,
-                            "total_bits": 0,
-                            "sample_bits": [],
-                            "prediction_similarity": 0.0,
-                            "flip_ratio": 0.0,
-                        }
+                        l1_payload = _L1_PAYLOAD_FALLBACK
                     route = self.gate.route(surprise)
                     self.gate.update(h, surprise)
                     cb.record_success({"surprise": surprise, "route": route})
@@ -642,13 +634,7 @@ class ComputationSpine:
                     _gate_fallback = cb.fallback() or {"surprise": 0.0, "route": "fast"}
                     surprise = _gate_fallback["surprise"]
                     route = _gate_fallback["route"]
-                    l1_payload = {
-                        "ones_ratio": 0.0,
-                        "total_bits": 0,
-                        "sample_bits": [],
-                        "prediction_similarity": 0.0,
-                        "flip_ratio": 0.0,
-                    }
+                    l1_payload = _L1_PAYLOAD_FALLBACK
                     logger.error("Layer gate failed: %s — using fallback", exc)
         self._last_route = route
         if route in self._route_counts:
@@ -826,7 +812,7 @@ class ComputationSpine:
                 "L4_Sheaf": l4_payload,
                 "L5_HGT": self._l5_payload(hgt_decision),
                 "L6_Boundary": self.boundary.to_dict(),
-                "L7_Expression": self.expression.state(),
+                "L7_Expression": result["expression_state"],
             }
             self._drift_embodiment(result)
             self._result_cache[cache_key] = result
@@ -912,7 +898,8 @@ class ComputationSpine:
         """
         # Drift rate limiting: skip if too soon since last drift
         timestamp = self._last_process_time
-        if timestamp - self._last_drift_time < self._drift_min_interval:
+        dt = timestamp - self._last_drift_time
+        if dt < self._drift_min_interval:
             self._drift_tick += 1
             return
         self._last_drift_time = timestamp
@@ -927,6 +914,7 @@ class ComputationSpine:
             self._drift_tick,
             oscillation_detector=self._oscillation_detector,
             drift_attribution=self._drift_attribution,
+            dt=dt,
         )
         self._drift_tick += 1
 
@@ -941,8 +929,6 @@ class ComputationSpine:
                 n: t.value for n, t in self._embodiment_traits.items()
             }
             # Rebuild personality dict with new embodiment values mapped to legacy names
-            from .personality import _REVERSE_LEGACY_MAP
-
             updated = dict(self._personality)
             for emb_name, tm in self._embodiment_traits.items():
                 legacy_name = _REVERSE_LEGACY_MAP.get(emb_name)
@@ -1285,8 +1271,7 @@ class ComputationSpine:
 
     def _emotion_to_boundary_force(self, emotion: dict[str, float]) -> list[float]:
         """将 8 维情感状态映射为 32 维边界力向量（平铺 + 缩放）。"""
-        # Map 8 emotion dims to 32-dim boundary space (tile + scale)
-        values = [
+        values = (
             emotion.get("warmth", 0.0),
             emotion.get("arousal", 0.0),
             emotion.get("valence", 0.0),
@@ -1295,11 +1280,8 @@ class ComputationSpine:
             emotion.get("repair_pressure", 0.0),
             emotion.get("expression_drive", 0.0),
             emotion.get("boundary_firmness", 0.0),
-        ]
-        force = []
-        for i in range(32):
-            force.append(values[i % 8] * 0.3)
-        return force
+        )
+        return [values[i & 7] * 0.3 for i in range(32)]
 
     def _build_result(
         self,

@@ -19,7 +19,6 @@
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,7 +26,7 @@ from .attention import attention_delta
 from .shadow_memory import (
     ShadowMemory,
 )
-from .vector import EVENT_AXES, STATE_AXES, linear_delta
+from .vector import EVENT_AXES, linear_delta
 from .vector import clamp as _clamp
 
 SCHEMA_VERSION = "sylanne.alpha.body.v1"
@@ -262,6 +261,7 @@ class AlphaBodyState:
         """从字典反序列化为 AlphaBodyState 实例。
 
         对每个子系统，只取 dataclass 声明的字段，忽略多余键。
+        单个子系统恢复失败时保留默认值，不影响其他子系统。
         """
         body = cls()
         for name, state_type in (
@@ -276,17 +276,22 @@ class AlphaBodyState:
         ):
             payload = data.get(name)
             if isinstance(payload, dict):
-                setattr(
-                    body,
-                    name,
-                    state_type(
-                        **{
-                            key: value
-                            for key, value in payload.items()
-                            if key in state_type.__dataclass_fields__
-                        }
-                    ),
-                )
+                try:
+                    fields = state_type.__dataclass_fields__
+                    safe = {}
+                    for key, value in payload.items():
+                        if key not in fields:
+                            continue
+                        ftype = fields[key].type
+                        if ftype == "bool":
+                            safe[key] = bool(value)
+                        elif ftype == "int":
+                            safe[key] = int(float(value))
+                        else:
+                            safe[key] = float(value)
+                    setattr(body, name, state_type(**safe))
+                except (TypeError, ValueError, OverflowError):
+                    pass
         if isinstance(data.get("needs"), dict):
             body.needs.update(
                 {str(key): _clamp(float(value)) for key, value in data["needs"].items()}
@@ -325,13 +330,9 @@ class AlphaBodyState:
                 body.memory["_memory_system"] = dict(memory_system)
         return body
 
-    def state_vector(self) -> dict[str, float]:
-        """将当前身体状态展平为 29 维状态向量字典。
-
-        键为 STATE_AXES 中定义的轴名，值为对应的浮点数。
-        用于 kernel 的决策计算和 codec 的二进制编码。
-        """
-        vector = {
+    def _raw_state_vector(self) -> dict[str, float]:
+        """内部快速路径：返回未 round 的原始状态向量。"""
+        return {
             "pulse.beat": self.pulse.beat,
             "pulse.rhythm": self.pulse.rhythm,
             "pulse.strain": self.pulse.strain,
@@ -362,7 +363,16 @@ class AlphaBodyState:
             "mortality.exhaustion": self.mortality.exhaustion,
             "mortality.recovery_debt": self.mortality.recovery_debt,
         }
-        return {axis: round(float(vector[axis]), 6) for axis in STATE_AXES}
+
+    def state_vector(self) -> dict[str, float]:
+        """将当前身体状态展平为 29 维状态向量字典。
+
+        键为 STATE_AXES 中定义的轴名，值为对应的浮点数。
+        用于 kernel 的决策计算和 codec 的二进制编码。
+        """
+        return {
+            axis: round(float(v), 6) for axis, v in self._raw_state_vector().items()
+        }
 
     def event_vector(
         self,
@@ -406,7 +416,7 @@ class AlphaBodyState:
         组合线性权重矩阵投影 + 注意力机制的非线性修正。
         """
         delta = linear_delta(event)
-        for axis, value in attention_delta(self.state_vector(), event).items():
+        for axis, value in attention_delta(self._raw_state_vector(), event).items():
             delta[axis] = delta.get(axis, 0.0) + value
         return delta
 
@@ -643,6 +653,28 @@ class AlphaBodyState:
             "memory": memory_payload,
         }
 
+    def _passive_decay(self, elapsed: float) -> None:
+        """基于真实时间流逝的被动衰减/恢复。
+
+        elapsed 未截断，反映两次事件之间的真实秒数。
+        衰减速率以"每小时"为基准，按 elapsed 线性缩放，上限 4 小时防止溢出。
+        """
+        hours = min(elapsed / 3600.0, 4.0)
+        if hours < 0.001:
+            return
+        self.immunity.cooldown = _clamp(self.immunity.cooldown - 0.6 * hours)
+        self.muscle.fatigue = _clamp(self.muscle.fatigue - 0.15 * hours)
+        self.pulse.strain = _clamp(self.pulse.strain - 0.1 * hours)
+        self.mortality.exhaustion = _clamp(self.mortality.exhaustion - 0.08 * hours)
+        self.mortality.recovery_debt = _clamp(
+            self.mortality.recovery_debt - 0.05 * hours
+        )
+        if self.wound.open > 0.0:
+            self.wound.open = _clamp(self.wound.open - 0.04 * hours)
+        self.immunity.interruption_budget = _clamp(
+            self.immunity.interruption_budget + 0.2 * hours
+        )
+
     def apply(
         self,
         *,
@@ -683,6 +715,8 @@ class AlphaBodyState:
         )
         self.apply_vector_delta(self.vector_delta(event), now=now)
         self.nerve.repetition = repetition
+
+        self._passive_decay(elapsed)
 
         self.muscle.fatigue = _clamp(
             self.muscle.fatigue + (0.06 if self.needs["need_contact"] > 0.65 else 0.0)
@@ -727,60 +761,3 @@ class AlphaBodyState:
             self.memory["traces"] = self.memory["traces"][-50:]
             self._observe_relationship_signal(flags=flags, text=text)
             self.observe_shadow_signal(text=text, flags=flags)
-
-
-# ---------------------------------------------------------------------------
-# Item 97: 能量管理模型
-# ---------------------------------------------------------------------------
-
-
-class EnergyPool:
-    """Sylanne 的能量池：模拟认知负荷/情感消耗/恢复周期。"""
-
-    def __init__(self, max_energy: float = 1.0):
-        self._energy: float = max_energy
-        self._max: float = max_energy
-        self._last_tick: float = time.time()
-
-    @property
-    def energy(self) -> float:
-        return self._energy
-
-    @property
-    def is_fatigued(self) -> bool:
-        return self._energy < 0.3
-
-    def consume(self, amount: float):
-        """消耗能量（对话、情感处理、LLM 调用等）。"""
-        self._energy = max(0.0, self._energy - amount)
-
-    def recover(self, dt: float):
-        """自然恢复。dt 为距上次 tick 的秒数。"""
-        # 每小时恢复 0.2 能量
-        recovery = dt / 3600 * 0.2
-        self._energy = min(self._max, self._energy + recovery)
-
-    def tick(self):
-        """每轮对话调用。"""
-        now = time.time()
-        dt = now - self._last_tick
-        self._last_tick = now
-        self.recover(dt)
-
-    def get_fatigue_hint(self) -> str | None:
-        """疲劳时返回风格提示。"""
-        if self._energy < 0.15:
-            return "非常疲惫，回复极简短温和"
-        elif self._energy < 0.3:
-            return "有些疲惫，回复简短但保持温度"
-        return None
-
-    def to_dict(self) -> dict:
-        return {"energy": self._energy, "last_tick": self._last_tick}
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "EnergyPool":
-        pool = cls()
-        pool._energy = data.get("energy", 1.0)
-        pool._last_tick = data.get("last_tick", time.time())
-        return pool
