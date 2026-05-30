@@ -1,4 +1,19 @@
-"""Type definitions for Sylanne-Core SDK output."""
+"""Type definitions for Sylanne-Core SDK output.
+
+All public API methods return typed dicts defined here. The Surface type
+is the primary output of engine.process() and engine.tick().
+
+Type hierarchy::
+
+    Surface
+    ├── state: AffectiveState (8 subsystems + needs)
+    ├── personality: PersonalityState (deep 5D + surface 6D)
+    ├── decision: Decision (action + confidence + urgency)
+    ├── guard: Guard (allowed + constraints)
+    ├── memory: MemoryResult (recalled traces)
+    ├── dynamics: dict (affect/moral/uncertainty/relational_time)
+    └── debug: dict | None (pipeline internals, if diagnostics=True)
+"""
 
 from __future__ import annotations
 

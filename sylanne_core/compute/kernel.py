@@ -58,6 +58,13 @@ def _as_dict(val: Any) -> dict[str, Any]:
     return dict(val) if isinstance(val, dict) else {}
 
 
+def _safe_int(val: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(float(val)))
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 @dataclass(slots=True)
 class AlphaKernelEvent:
     """Kernel 层事件数据类。
@@ -119,7 +126,7 @@ class AlphaKernel:
             session_key=str(snapshot.get("session_key") or "default"),
             body=AlphaBodyState.from_dict(_as_dict(snapshot.get("body"))),
             audit=_as_dict(snapshot.get("audit")),
-            turns=max(0, int(snapshot.get("turns") or 0)),
+            turns=_safe_int(snapshot.get("turns")),
             last_event=_as_dict(snapshot.get("last_event")),
             previous_event=_as_dict(snapshot.get("previous_event")),
             relational_time=_as_dict(snapshot.get("relational_time")),
