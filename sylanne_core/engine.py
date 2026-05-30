@@ -35,6 +35,7 @@ class SylanneEngine:
         self._status: str = "init"
         self._hosts: dict[str, Any] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._listeners: list[Callable[[str, Surface], Any]] = []
 
     @property
     def status(self) -> str:
@@ -43,6 +44,14 @@ class SylanneEngine:
     async def start(self) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._status = "running"
+
+    def on(self, listener: Callable[[str, Surface], Any]) -> None:
+        """注册推送监听器。每次 process() 完成后，listener(session_id, surface) 会被调用。"""
+        self._listeners.append(listener)
+
+    def off(self, listener: Callable[[str, Surface], Any]) -> None:
+        """移除推送监听器。"""
+        self._listeners = [fn for fn in self._listeners if fn is not listener]
 
     def health(self) -> dict[str, Any]:
         """引擎健康检查，开发者用于判断计算模块是否正常。"""
@@ -85,7 +94,9 @@ class SylanneEngine:
             }
             result = host.on_request(event, assessment=assessment)
             self._persist(host)
-            return self._to_surface(session_id, host, result)
+            surface = self._to_surface(session_id, host, result)
+            await self._notify(session_id, surface)
+            return surface
 
     async def tick(
         self,
@@ -127,6 +138,15 @@ class SylanneEngine:
             del self._locks[session_id]
 
     # --- internal ---
+
+    async def _notify(self, session_id: str, surface: Surface) -> None:
+        for listener in self._listeners:
+            try:
+                ret = listener(session_id, surface)
+                if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
+                    await ret
+            except Exception:
+                pass
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         if session_id not in self._locks:
