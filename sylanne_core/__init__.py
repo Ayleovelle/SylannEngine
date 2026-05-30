@@ -6,8 +6,8 @@
 
 from __future__ import annotations
 
-from .engine import SylanneEngine
 from .config import SylanneConfig
+from .engine import SylanneEngine
 from .types import EngineStatus, HealthStatus, Surface
 
 __all__ = [

@@ -257,7 +257,7 @@ class AlphaBodyState:
     memory: dict[str, Any] = field(default_factory=lambda: {"traces": []})
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AlphaBodyState":
+    def from_dict(cls, data: dict[str, Any]) -> AlphaBodyState:
         """从字典反序列化为 AlphaBodyState 实例。
 
         对每个子系统，只取 dataclass 声明的字段，忽略多余键。
@@ -305,24 +305,14 @@ class AlphaBodyState:
                 else {}
             )
             shadow = (
-                memory_data.get("shadow")
-                if isinstance(memory_data.get("shadow"), dict)
-                else {}
+                memory_data.get("shadow") if isinstance(memory_data.get("shadow"), dict) else {}
             )
-            events = (
-                shadow.get("events", [])
-                if isinstance(shadow.get("events"), list)
-                else []
-            )
+            events = shadow.get("events", []) if isinstance(shadow.get("events"), list) else []
             body.memory = {
-                "traces": [dict(item) for item in traces if isinstance(item, dict)][
-                    -50:
-                ],
+                "traces": [dict(item) for item in traces if isinstance(item, dict)][-50:],
                 "relationship": dict(relationship),
                 "shadow": {
-                    "events": [dict(item) for item in events if isinstance(item, dict)][
-                        -24:
-                    ]
+                    "events": [dict(item) for item in events if isinstance(item, dict)][-24:]
                 },
             }
             memory_system = memory_data.get("_memory_system")
@@ -370,9 +360,7 @@ class AlphaBodyState:
         键为 STATE_AXES 中定义的轴名，值为对应的浮点数。
         用于 kernel 的决策计算和 codec 的二进制编码。
         """
-        return {
-            axis: round(float(v), 6) for axis, v in self._raw_state_vector().items()
-        }
+        return {axis: round(float(v), 6) for axis, v in self._raw_state_vector().items()}
 
     def event_vector(
         self,
@@ -443,9 +431,7 @@ class AlphaBodyState:
         self.needs["need_expression"] = _clamp(
             self.needs["need_expression"] + delta.get("needs.need_expression", 0.0)
         )
-        self.nerve.plasticity = _clamp(
-            self.nerve.plasticity + delta.get("nerve.plasticity", 0.0)
-        )
+        self.nerve.plasticity = _clamp(self.nerve.plasticity + delta.get("nerve.plasticity", 0.0))
         self.nerve.sensitivity = _clamp(
             self.nerve.sensitivity + delta.get("nerve.sensitivity", 0.0)
         )
@@ -458,18 +444,12 @@ class AlphaBodyState:
         self.bloodflow.memory_flow = _clamp(
             self.bloodflow.memory_flow + delta.get("bloodflow.memory_flow", 0.0)
         )
-        self.bloodflow.warmth = _clamp(
-            self.bloodflow.warmth + delta.get("bloodflow.warmth", 0.0)
-        )
+        self.bloodflow.warmth = _clamp(self.bloodflow.warmth + delta.get("bloodflow.warmth", 0.0))
         self.muscle.trained_reach = _clamp(
             self.muscle.trained_reach + delta.get("muscle.trained_reach", 0.0)
         )
-        self.muscle.fatigue = _clamp(
-            self.muscle.fatigue + delta.get("muscle.fatigue", 0.0)
-        )
-        self.muscle.readiness = _clamp(
-            self.muscle.readiness + delta.get("muscle.readiness", 0.0)
-        )
+        self.muscle.fatigue = _clamp(self.muscle.fatigue + delta.get("muscle.fatigue", 0.0))
+        self.muscle.readiness = _clamp(self.muscle.readiness + delta.get("muscle.readiness", 0.0))
         self.temperature.warmth = _clamp(
             self.temperature.warmth + delta.get("temperature.warmth", 0.0)
         )
@@ -486,8 +466,7 @@ class AlphaBodyState:
             self.wound.sensitivity + delta.get("wound.sensitivity", 0.0)
         )
         self.immunity.boundary_pressure = _clamp(
-            self.immunity.boundary_pressure
-            + delta.get("immunity.boundary_pressure", 0.0)
+            self.immunity.boundary_pressure + delta.get("immunity.boundary_pressure", 0.0)
         )
         self.immunity.sovereignty = _clamp(
             self.immunity.sovereignty + delta.get("immunity.sovereignty", 0.0)
@@ -496,12 +475,9 @@ class AlphaBodyState:
             self.immunity.cooldown + delta.get("immunity.cooldown", 0.0)
         )
         self.immunity.interruption_budget = _clamp(
-            self.immunity.interruption_budget
-            + delta.get("immunity.interruption_budget", 0.0)
+            self.immunity.interruption_budget + delta.get("immunity.interruption_budget", 0.0)
         )
-        self.mortality.load = _clamp(
-            self.mortality.load + delta.get("mortality.load", 0.0)
-        )
+        self.mortality.load = _clamp(self.mortality.load + delta.get("mortality.load", 0.0))
         self.mortality.exhaustion = _clamp(
             self.mortality.exhaustion + delta.get("mortality.exhaustion", 0.0)
         )
@@ -538,9 +514,7 @@ class AlphaBodyState:
     def decay_memory(self, factor: float = 0.95) -> None:
         factor = _clamp(factor)
         for trace in self.memory.get("traces", []):
-            trace["weight"] = round(
-                _clamp(float(trace.get("weight") or 0.0) * factor), 6
-            )
+            trace["weight"] = round(_clamp(float(trace.get("weight") or 0.0) * factor), 6)
 
     # Legacy: superseded by MemorySystem
     def compress_memory(self, *, limit: int = 50) -> None:
@@ -621,19 +595,13 @@ class AlphaBodyState:
         self.memory["shadow"] = shadow.to_raw()
 
     def to_dict(self) -> dict[str, Any]:
-        shadow = (
-            self.memory.get("shadow")
-            if isinstance(self.memory.get("shadow"), dict)
-            else {}
-        )
+        shadow = self.memory.get("shadow") if isinstance(self.memory.get("shadow"), dict) else {}
         memory_payload = {
             "traces": list(self.memory.get("traces", []))[-50:],
             "relationship": dict(self.memory.get("relationship") or {}),
             "shadow": {
                 "events": [
-                    dict(item)
-                    for item in shadow.get("events", [])
-                    if isinstance(item, dict)
+                    dict(item) for item in shadow.get("events", []) if isinstance(item, dict)
                 ][-24:]
             },
         }
@@ -666,14 +634,10 @@ class AlphaBodyState:
         self.muscle.fatigue = _clamp(self.muscle.fatigue - 0.15 * hours)
         self.pulse.strain = _clamp(self.pulse.strain - 0.1 * hours)
         self.mortality.exhaustion = _clamp(self.mortality.exhaustion - 0.08 * hours)
-        self.mortality.recovery_debt = _clamp(
-            self.mortality.recovery_debt - 0.05 * hours
-        )
+        self.mortality.recovery_debt = _clamp(self.mortality.recovery_debt - 0.05 * hours)
         if self.wound.open > 0.0:
             self.wound.open = _clamp(self.wound.open - 0.04 * hours)
-        self.immunity.interruption_budget = _clamp(
-            self.immunity.interruption_budget + 0.2 * hours
-        )
+        self.immunity.interruption_budget = _clamp(self.immunity.interruption_budget + 0.2 * hours)
 
     def apply(
         self,
@@ -701,9 +665,7 @@ class AlphaBodyState:
         flags = list(flags or [])
         text = text.strip()
         elapsed = max(0.0, now - self.pulse.last_tick) if now else 1.0
-        previous = [
-            str(item.get("text") or "") for item in self.memory.get("traces", [])
-        ]
+        previous = [str(item.get("text") or "") for item in self.memory.get("traces", [])]
         repetition = previous.count(text) + 1 if text else 0
 
         event = self.event_vector(
@@ -722,22 +684,16 @@ class AlphaBodyState:
             self.muscle.fatigue + (0.06 if self.needs["need_contact"] > 0.65 else 0.0)
         )
         self.muscle.readiness = _clamp(
-            0.2
-            + self.muscle.trained_reach
-            + self.needs["need_expression"]
-            - self.muscle.fatigue
+            0.2 + self.muscle.trained_reach + self.needs["need_expression"] - self.muscle.fatigue
         )
         self.wound.repair = _clamp(
-            self.wound.repair
-            + (0.02 if self.wound.open > 0.0 and "repair" not in flags else 0.0)
+            self.wound.repair + (0.02 if self.wound.open > 0.0 and "repair" not in flags else 0.0)
         )
         self.wound.scar = _clamp(
             self.wound.scar + max(0.0, self.wound.open - self.wound.repair) * 0.05
         )
         self.wound.sensitivity = _clamp(self.wound.sensitivity + self.wound.scar * 0.02)
-        self.immunity.paused = (
-            "pause" in flags or self.immunity.paused and "resume" not in flags
-        )
+        self.immunity.paused = "pause" in flags or self.immunity.paused and "resume" not in flags
         if "reset" in flags:
             self.immunity.interruption_budget = 1.0
             self.immunity.cooldown = 0.0
@@ -745,9 +701,7 @@ class AlphaBodyState:
         target_flow = _clamp(
             len(self.memory.get("traces", [])) / 50.0 + self.nerve.plasticity * 0.2
         )
-        self.bloodflow.memory_flow = _clamp(
-            self.bloodflow.memory_flow * 0.9 + target_flow * 0.1
-        )
+        self.bloodflow.memory_flow = _clamp(self.bloodflow.memory_flow * 0.9 + target_flow * 0.1)
 
         if text:
             self.memory.setdefault("traces", []).append(

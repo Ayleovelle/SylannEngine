@@ -118,16 +118,10 @@ class PhaseTransitionExpression:
             return 0.0
         sigma_call = 0.6 * theta_group if self._social_signals.name_mentioned else 0.0
 
-        sigma_sheaf = (
-            self._social_signals.sheaf_coupling
-            * params.get("sheaf_coupling", 0.3)
-            * 0.3
-        )
+        sigma_sheaf = self._social_signals.sheaf_coupling * params.get("sheaf_coupling", 0.3) * 0.3
 
         sigma_void = (
-            self._social_signals.social_void_pressure
-            * params.get("void_coupling", 0.3)
-            * 0.2
+            self._social_signals.social_void_pressure * params.get("void_coupling", 0.3) * 0.2
         )
 
         theta_eff = theta_group - sigma_call - sigma_sheaf - sigma_void

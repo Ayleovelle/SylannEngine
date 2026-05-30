@@ -124,9 +124,7 @@ WEIGHTS: dict[str, dict[str, float]] = {
 WEIGHT_TERMS: tuple[tuple[int, tuple[tuple[int, float], ...]], ...] = tuple(
     (
         STATE_INDEX[axis],
-        tuple(
-            (EVENT_INDEX[event_axis], weight) for event_axis, weight in weights.items()
-        ),
+        tuple((EVENT_INDEX[event_axis], weight) for event_axis, weight in weights.items()),
     )
     for axis, weights in WEIGHTS.items()
 )

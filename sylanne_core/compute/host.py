@@ -137,9 +137,7 @@ class SylanneAlphaHost:
             self.kernel.body.immunity.interruption_budget = max(
                 0.0, self.kernel.body.immunity.interruption_budget - 0.2
             )
-            self.kernel.body.immunity.cooldown = max(
-                self.kernel.body.immunity.cooldown, 0.35
-            )
+            self.kernel.body.immunity.cooldown = max(self.kernel.body.immunity.cooldown, 0.35)
             self._dirty = True
             self._flush()
         return surface
@@ -180,10 +178,7 @@ class SylanneAlphaHost:
         """按间隔或 tick 数阈值决定是否落盘。"""
         now = time.time()
         elapsed = now - self._last_flush_time
-        if (
-            self._ticks_since_flush >= _FLUSH_TICK_THRESHOLD
-            or elapsed >= _FLUSH_INTERVAL
-        ):
+        if self._ticks_since_flush >= _FLUSH_TICK_THRESHOLD or elapsed >= _FLUSH_INTERVAL:
             self._flush(now)
 
     def _flush(self, now: float = 0.0) -> None:
@@ -212,9 +207,7 @@ class SylanneAlphaHost:
             return "我在听，你继续说。"
         return "嗯，我记下了。"
 
-    def _event(
-        self, event: SylanneAlphaHostEvent | dict[str, Any] | None
-    ) -> SylanneAlphaHostEvent:
+    def _event(self, event: SylanneAlphaHostEvent | dict[str, Any] | None) -> SylanneAlphaHostEvent:
         if isinstance(event, SylanneAlphaHostEvent):
             return event
         payload = event or {}
@@ -225,8 +218,6 @@ class SylanneAlphaHost:
             now=float(payload.get("now") or 0.0),
             values=dict(payload.get("values") or {}),
             event_time=dict(
-                payload.get("event_time")
-                if isinstance(payload.get("event_time"), dict)
-                else {}
+                payload.get("event_time") if isinstance(payload.get("event_time"), dict) else {}
             ),
         )

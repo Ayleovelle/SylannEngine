@@ -33,9 +33,7 @@ class BoundedDict(OrderedDict):
                 try:
                     self._on_evict(oldest, value_evicted)
                 except Exception as exc:
-                    logger.warning(
-                        "BoundedDict on_evict failed for %r: %s", oldest, exc
-                    )
+                    logger.warning("BoundedDict on_evict failed for %r: %s", oldest, exc)
 
     def __getitem__(self, key: Any) -> Any:
         if self.ttl and key in self._ts:

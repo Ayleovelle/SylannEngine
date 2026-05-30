@@ -291,7 +291,7 @@ class RelationalComplex:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "RelationalComplex":
+    def from_dict(cls, data: dict[str, Any]) -> RelationalComplex:
         rc = cls()
         rc._vertices = list(data.get("vertices", [0]))
         rc._edges = [tuple(e) for e in data.get("edges", [])]
@@ -408,9 +408,7 @@ class ScarSheaf:
             self._rel_types.append(FRIENDLY)
             self._maturities.append(0.0)
             self._energy_costs.append(0.1)
-            self._presentation_matrices.append(
-                _mat_zeros(_VERTEX_STALK_DIM, _EDGE_STALK_DIM)
-            )
+            self._presentation_matrices.append(_mat_zeros(_VERTEX_STALK_DIM, _EDGE_STALK_DIM))
         self._rel_types[edge_idx] = rel_type
         self._maturities[edge_idx] = max(0.0, min(1.0, maturity))
         # Recompute presentation matrix for this relationship
@@ -458,23 +456,11 @@ class ScarSheaf:
           - conscientiousness/inner_order → 更紧的能量管理
         """
         self._personality = dict(personality)
-        e = float(
-            personality.get(
-                "extraversion", personality.get("expression_drive_trait", 0.5)
-            )
-        )
-        a = float(
-            personality.get("agreeableness", personality.get("relational_gravity", 0.5))
-        )
-        n = float(
-            personality.get("neuroticism", personality.get("perception_acuity", 0.5))
-        )
-        o = float(
-            personality.get("openness", personality.get("boundary_permeability", 0.5))
-        )
-        c = float(
-            personality.get("conscientiousness", personality.get("inner_order", 0.5))
-        )
+        e = float(personality.get("extraversion", personality.get("expression_drive_trait", 0.5)))
+        a = float(personality.get("agreeableness", personality.get("relational_gravity", 0.5)))
+        n = float(personality.get("neuroticism", personality.get("perception_acuity", 0.5)))
+        o = float(personality.get("openness", personality.get("boundary_permeability", 0.5)))
+        c = float(personality.get("conscientiousness", personality.get("inner_order", 0.5)))
 
         # 一致性约束 kappa(pi)——人格一致性公理
         # 高宜人性→低 kappa（各关系表现更一致）；高神经质→高 kappa（更多变）
@@ -508,12 +494,8 @@ class ScarSheaf:
         o = float(self._personality.get("openness", 0.5))
         n = float(self._personality.get("neuroticism", 0.5))
 
-        rel_type = (
-            self._rel_types[edge_idx] if edge_idx < len(self._rel_types) else FRIENDLY
-        )
-        maturity = (
-            self._maturities[edge_idx] if edge_idx < len(self._maturities) else 0.0
-        )
+        rel_type = self._rel_types[edge_idx] if edge_idx < len(self._rel_types) else FRIENDLY
+        maturity = self._maturities[edge_idx] if edge_idx < len(self._maturities) else 0.0
 
         # P_base：人格决定基线秩
         # 外向性→更多维度暴露（对角线值更高）
@@ -634,9 +616,7 @@ class ScarSheaf:
 
     def coboundary_1(self) -> list[list[float]]:
         """完整 delta^1：返回每个三角形的上边界向量列表。"""
-        return [
-            self._coboundary_1_at_triangle(i) for i in range(self.complex.n_triangles)
-        ]
+        return [self._coboundary_1_at_triangle(i) for i in range(self.complex.n_triangles)]
 
     # ------------------------------------------------------------------
     # 层拉普拉斯算子（定义 4）
@@ -663,9 +643,7 @@ class ScarSheaf:
             PPt_x = _mat_vec(PPt, self._vertex_stalk)
             # P_i * edge_stalk_i (project edge signal back to vertex space)
             edge_stalk = (
-                self._edge_stalks[i]
-                if i < len(self._edge_stalks)
-                else [0.0] * _EDGE_STALK_DIM
+                self._edge_stalks[i] if i < len(self._edge_stalks) else [0.0] * _EDGE_STALK_DIM
             )
             P_s = _mat_vec(P_i, edge_stalk)
             # Accumulate
@@ -862,11 +840,7 @@ class ScarSheaf:
             return {"propagated": False, "reason": "invalid_source"}
 
         # Energy check (Axiom S5)
-        cost = (
-            self._energy_costs[source_idx]
-            if source_idx < len(self._energy_costs)
-            else 0.1
-        )
+        cost = self._energy_costs[source_idx] if source_idx < len(self._energy_costs) else 0.1
         if self._energy < cost * dt:
             return {"propagated": False, "reason": "energy_depleted"}
 
@@ -890,8 +864,7 @@ class ScarSheaf:
             # P_s is (n0 x ne), we want P_s @ scar_event → n0-dim
             f_local = _mat_vec(
                 P_s,
-                scar_event[:_EDGE_STALK_DIM]
-                + [0.0] * max(0, _EDGE_STALK_DIM - len(scar_event)),
+                scar_event[:_EDGE_STALK_DIM] + [0.0] * max(0, _EDGE_STALK_DIM - len(scar_event)),
             )
         else:
             f_local = [0.0] * len(self._vertex_stalk)
@@ -929,9 +902,7 @@ class ScarSheaf:
                 contribution = edge_delta[d] * decay if d < len(edge_delta) else 0.0
                 if abs(contribution) > 1e-8:
                     self._edge_stalks[i][d] += contribution
-                    self._edge_stalks[i][d] = max(
-                        -2.0, min(2.0, self._edge_stalks[i][d])
-                    )
+                    self._edge_stalks[i][d] = max(-2.0, min(2.0, self._edge_stalks[i][d]))
                     propagated = True
             if propagated:
                 propagated_to.append(i)
@@ -1150,7 +1121,7 @@ class ScarSheaf:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ScarSheaf":
+    def from_dict(cls, data: dict[str, Any]) -> ScarSheaf:
         """从持久化状态恢复层。"""
         sheaf = cls()
         sheaf.complex = RelationalComplex.from_dict(data.get("complex", {}))
@@ -1168,9 +1139,7 @@ class ScarSheaf:
         sheaf._max_energy = float(data.get("max_energy", 1.0))
         sheaf._energy_costs = list(data.get("energy_costs", []))
         sheaf._propagation_rate = float(data.get("propagation_rate", 0.15))
-        sheaf._propagation_state = list(
-            data.get("propagation_state", [0.0] * _VERTEX_STALK_DIM)
-        )
+        sheaf._propagation_state = list(data.get("propagation_state", [0.0] * _VERTEX_STALK_DIM))
         sheaf._tick = int(data.get("tick", 0))
         sheaf._last_timestamp = float(data.get("last_timestamp", 0.0))
         sheaf._cached_h1 = 0

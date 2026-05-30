@@ -86,7 +86,7 @@ class Scar:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Scar":
+    def from_dict(cls, data: dict[str, Any]) -> Scar:
         return cls(
             dimension=data["dimension"],
             timestamp=data["timestamp"],
@@ -188,7 +188,7 @@ class ScarredState:
 
     def healing_duration(
         self,
-        stage: "HealingStage",
+        stage: HealingStage,
         dim: int | None = None,
         _dim_counts: dict[int, int] | None = None,
     ) -> int:
@@ -222,13 +222,9 @@ class ScarredState:
         hidden_dim = self._mlp_hidden_dim
 
         # Layer 1: hidden_dim x input_dim
-        self._mlp_w1 = [
-            [rng.gauss(0, 0.5) for _ in range(input_dim)] for _ in range(hidden_dim)
-        ]
+        self._mlp_w1 = [[rng.gauss(0, 0.5) for _ in range(input_dim)] for _ in range(hidden_dim)]
         # Layer 2: n_dims x hidden_dim
-        self._mlp_w2 = [
-            [rng.gauss(0, 0.5) for _ in range(hidden_dim)] for _ in range(self.n_dims)
-        ]
+        self._mlp_w2 = [[rng.gauss(0, 0.5) for _ in range(hidden_dim)] for _ in range(self.n_dims)]
         # Apply spectral normalization to both weight matrices
         self._mlp_w1 = self._spectral_normalize(self._mlp_w1, max_sigma=0.7)
         self._mlp_w2 = self._spectral_normalize(self._mlp_w2, max_sigma=0.7)
@@ -419,9 +415,7 @@ class ScarredState:
             # 新伤痕产生，使 modifier 缓存失效
             self._invalidate_modifier_cache()
             self._recent_scar_ticks.append(self._tick)
-            self._recent_scar_ticks = [
-                t for t in self._recent_scar_ticks if self._tick - t <= 10
-            ]
+            self._recent_scar_ticks = [t for t in self._recent_scar_ticks if self._tick - t <= 10]
             if len(self._recent_scar_ticks) >= 5 and not self._circuit_breaker_active:
                 self._circuit_breaker_active = True
                 self._circuit_breaker_remaining = 30
@@ -438,9 +432,7 @@ class ScarredState:
             # Time-aware healing: grant bonus ticks for real-time silence
             if timestamp > 0 and self._last_step_time > 0:
                 elapsed_minutes = (timestamp - self._last_step_time) / 60.0
-                bonus_ticks = int(
-                    elapsed_minutes / 5.0
-                )  # 1 bonus tick per 5 min silence
+                bonus_ticks = int(elapsed_minutes / 5.0)  # 1 bonus tick per 5 min silence
                 bonus_ticks = min(bonus_ticks, 10)  # cap at 10 bonus ticks
                 for _ in range(bonus_ticks):
                     self._heal_one_tick(existing_count, healed, _dim_counts)
@@ -461,9 +453,7 @@ class ScarredState:
             # Prune excess FADED scars to prevent unbounded growth
             faded = [s for s in self.scars if s.stage == HealingStage.FADED]
             if len(faded) > 50:
-                self.scars = [
-                    s for s in self.scars if s.stage != HealingStage.FADED
-                ] + faded[-50:]
+                self.scars = [s for s in self.scars if s.stage != HealingStage.FADED] + faded[-50:]
 
             # 愈合/修剪导致伤痕阶段变化或数量变化，使缓存失效
             if healed or len(faded) > 50:
@@ -595,7 +585,7 @@ class ScarredState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ScarredState":
+    def from_dict(cls, data: dict[str, Any]) -> ScarredState:
         state = cls(n_dims=data["n_dims"], wound_threshold=data["wound_threshold"])
         state.base = list(data["base"])
         state.scars = [Scar.from_dict(s) for s in data.get("scars", [])]

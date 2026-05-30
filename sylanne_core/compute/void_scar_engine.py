@@ -12,7 +12,8 @@ repair_pressure, expression_drive, boundary_firmness。
 from __future__ import annotations
 
 import math
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .scar_algebra import ScarredState
 from .void_calculus import VoidSpace
@@ -41,9 +42,7 @@ class SocialVoid:
         depth = self.group_activity
         beta = self.topic_boundary
         if depth > 0 and self.silence_ticks > 0:
-            self.pressure += (
-                depth * math.log(self.silence_ticks + 1) * (1.0 - beta) * 0.1
-            )
+            self.pressure += depth * math.log(self.silence_ticks + 1) * (1.0 - beta) * 0.1
         self.pressure = min(5.0, self.pressure)
 
     def reset(self):
@@ -160,9 +159,7 @@ class VoidScarEngine:
 
         # --- Coupling Φ: Scars → Void sensitivity ---
         # Numbed dimensions lower void detection threshold, but respect personality floor
-        numbed_count = sum(
-            1 for d in range(self.scar_state.n_dims) if self.scar_state.is_numbed(d)
-        )
+        numbed_count = sum(1 for d in range(self.scar_state.n_dims) if self.scar_state.is_numbed(d))
         if numbed_count > 0:
             # Phi coupling: numbed dims lower detection threshold, but respect floor
             personality_base = self.void_space._detection_threshold
@@ -178,9 +175,7 @@ class VoidScarEngine:
         for coupling in void_result["coupling_events"]:
             wound_event = [0.0] * self.scar_state.n_dims
             dim_hint = int(coupling.get("dim_hint", 0)) % self.scar_state.n_dims
-            wound_event[dim_hint] = (
-                coupling["pressure"] * self._void_pressure_coupling_rate
-            )
+            wound_event[dim_hint] = coupling["pressure"] * self._void_pressure_coupling_rate
             wound_result = self.scar_state.step(wound_event, timestamp, heal=False)
             coupling_wounds.append(wound_result)
 
@@ -242,9 +237,7 @@ class VoidScarEngine:
           - void_drive: 虚空总压力归一化后乘以权重
           - social_drive: 社交虚空压力归一化后乘以权重
         """
-        scar_drive = (
-            abs(self.scar_state.base[6]) if len(self.scar_state.base) > 6 else 0.0
-        )
+        scar_drive = abs(self.scar_state.base[6]) if len(self.scar_state.base) > 6 else 0.0
         void_drive = min(1.0, self.void_space.total_pressure() / 50.0)
         social_drive = min(1.0, self.social_void.pressure / 3.0)
         return min(

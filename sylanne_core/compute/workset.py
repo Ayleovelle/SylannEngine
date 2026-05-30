@@ -50,9 +50,7 @@ def build_fragment_workset(
     """
     # 清洗碎片：去除空白、合并多余空格
     clean_fragments = [
-        " ".join(str(fragment).split())
-        for fragment in fragments or []
-        if str(fragment).strip()
+        " ".join(str(fragment).split()) for fragment in fragments or [] if str(fragment).strip()
     ]
     current_intent = " ".join(clean_fragments).strip()
     shadow = dict(shadow or {})
@@ -60,9 +58,7 @@ def build_fragment_workset(
 
     # 当前意图权重最高
     if current_intent:
-        items.append(
-            {"kind": "current_intent", "text": current_intent[:500], "weight": 1.0}
-        )
+        items.append({"kind": "current_intent", "text": current_intent[:500], "weight": 1.0})
     # 影子连续性：上一轮的延续摘要，权重略低
     if shadow.get("summary"):
         items.append(
@@ -147,9 +143,7 @@ def _evidence(
         ("dialogue", dialogue, "fast"),
         (
             "memory",
-            {"matches": memory_matches, "count": len(memory_matches)}
-            if memory_matches
-            else None,
+            {"matches": memory_matches, "count": len(memory_matches)} if memory_matches else None,
             "fast",
         ),
         ("personality", personality, "slow"),
@@ -191,12 +185,8 @@ def _coordination(
         )
     return {
         "primary_department": primary,
-        "fast_path": [
-            item["department"] for item in evidence if item["path"] == "fast"
-        ],
-        "slow_path": [
-            item["department"] for item in evidence if item["path"] == "slow"
-        ],
+        "fast_path": [item["department"] for item in evidence if item["path"] == "fast"],
+        "slow_path": [item["department"] for item in evidence if item["path"] == "slow"],
         "policy": "fast_path_never_waits_for_slow_path",
     }
 
@@ -226,9 +216,7 @@ def _truncate_payload_values(payload: dict[str, Any]) -> dict[str, Any]:
     return clean
 
 
-def _render_blackboard(
-    evidence: list[dict[str, Any]], coordination: dict[str, Any]
-) -> str:
+def _render_blackboard(evidence: list[dict[str, Any]], coordination: dict[str, Any]) -> str:
     """将黑板模式的证据渲染为 prompt 文本片段。"""
     if not evidence:
         return "Sylanne blackboard: empty."

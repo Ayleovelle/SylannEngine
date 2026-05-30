@@ -102,9 +102,7 @@ class AutopoieticBoundary:
             if len(self._phase_transitions) > 20:
                 self._phase_transitions = self._phase_transitions[-20:]
         else:
-            self.boundary_integrity = max(
-                0.0, self.boundary_integrity - penetration * 0.1
-            )
+            self.boundary_integrity = max(0.0, self.boundary_integrity - penetration * 0.1)
             self.internal_entropy = min(1.0, self.internal_entropy + penetration * 0.05)
 
         return {
@@ -126,14 +124,10 @@ class AutopoieticBoundary:
         if self._last_penetration > 0.4:
             # Wound still open: slow healing, don't restore integrity yet
             self._last_penetration *= 0.8  # Gradually decay penetration memory
-            self.internal_entropy = max(
-                0.0, self.internal_entropy - self.repair_rate * 0.2
-            )
+            self.internal_entropy = max(0.0, self.internal_entropy - self.repair_rate * 0.2)
             return
         # Normal repair — floor at 0.3 to prevent positive feedback collapse
-        self.boundary_integrity = max(
-            0.3, min(1.0, self.boundary_integrity + self.repair_rate)
-        )
+        self.boundary_integrity = max(0.3, min(1.0, self.boundary_integrity + self.repair_rate))
         self.internal_entropy = max(0.0, self.internal_entropy - self.repair_rate * 0.5)
         # Re-normalize identity kernel only if it was perturbed
         if self.internal_entropy > 0.01:
@@ -164,9 +158,7 @@ class AutopoieticBoundary:
         self.internal_entropy = float(data.get("internal_entropy", 0.0))
         self.repair_rate = float(data.get("repair_rate", 0.05))
         self._last_penetration = float(data.get("last_penetration", 0.0))
-        if "phase_transition_log" in data and isinstance(
-            data["phase_transition_log"], list
-        ):
+        if "phase_transition_log" in data and isinstance(data["phase_transition_log"], list):
             self._phase_transitions = data["phase_transition_log"]
         if "identity_kernel" in data and isinstance(data["identity_kernel"], list):
             self.identity_kernel = [float(x) for x in data["identity_kernel"]]
