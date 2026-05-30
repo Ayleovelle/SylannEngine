@@ -15,12 +15,16 @@ SylanneAlphaHost 是每个会话的顶层容器，持有：
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .kernel import AlphaKernelEvent
 from .runtime import AlphaRuntime
+
+_FLUSH_INTERVAL: float = 5.0
+_FLUSH_TICK_THRESHOLD: int = 8
 
 
 @dataclass(slots=True)
@@ -70,10 +74,14 @@ class SylanneAlphaHost:
     legacy: dict[str, Any] | None = None
     runtime: AlphaRuntime = field(init=False)
     kernel: Any = field(init=False)
+    _dirty: bool = field(init=False, default=False)
+    _ticks_since_flush: int = field(init=False, default=0)
+    _last_flush_time: float = field(init=False, default=0.0)
 
     def __post_init__(self) -> None:
         self.runtime = AlphaRuntime(Path(self.root))
         self.kernel = self.runtime.load(self.session_key, legacy=self.legacy)
+        self._last_flush_time = time.time()
 
     def on_request(
         self,
@@ -132,7 +140,7 @@ class SylanneAlphaHost:
             self.kernel.body.immunity.cooldown = max(
                 self.kernel.body.immunity.cooldown, 0.35
             )
-            self.runtime.save(self.kernel)
+            self._flush()
         return surface
 
     def diagnostics(self) -> dict[str, Any]:
@@ -148,7 +156,7 @@ class SylanneAlphaHost:
         phase: str,
         assessment: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """内部 tick 实现：转换事件 → 注入 phase flag → 驱动 kernel → 持久化。"""
+        """内部 tick 实现：转换事件 → 注入 phase flag → 驱动 kernel → 按需持久化。"""
         host_event = self._event(event)
         flags = list(dict.fromkeys([phase, *host_event.flags]))
         surface = self.kernel.tick(
@@ -162,8 +170,32 @@ class SylanneAlphaHost:
             ),
             assessment=assessment,
         )["surface"]
-        self.runtime.save(self.kernel)
+        self._dirty = True
+        self._ticks_since_flush += 1
+        self._maybe_flush()
         return surface
+
+    def _maybe_flush(self) -> None:
+        """按间隔或 tick 数阈值决定是否落盘。"""
+        now = time.time()
+        elapsed = now - self._last_flush_time
+        if (
+            self._ticks_since_flush >= _FLUSH_TICK_THRESHOLD
+            or elapsed >= _FLUSH_INTERVAL
+        ):
+            self._flush(now)
+
+    def _flush(self, now: float = 0.0) -> None:
+        if not self._dirty:
+            return
+        self.runtime.save(self.kernel)
+        self._dirty = False
+        self._ticks_since_flush = 0
+        self._last_flush_time = now or time.time()
+
+    def flush(self) -> None:
+        """外部强制落盘入口。"""
+        self._flush()
 
     def _reply_text(self, surface: dict[str, Any]) -> str:
         """根据 decision/guard 生成简短的内置回复文本（on_chat 专用）。"""
