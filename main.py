@@ -54,7 +54,7 @@ class SylannEnginePlugin(Star):
 
     async def initialize(self):
         import sylanne_core
-        from sylanne_core import SylanneEngine, SylanneConfig
+        from sylanne_core import SylanneConfig, SylanneEngine
 
         engine = SylanneEngine(
             data_dir="./data/sylannengine",

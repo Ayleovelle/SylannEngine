@@ -68,9 +68,7 @@ class TestHostEvent:
 
     def test_typed_event(self, tmp_path: Path):
         host = SylanneAlphaHost(root=tmp_path, session_key="s1")
-        event = SylanneAlphaHostEvent(
-            text="hello", confidence=0.5, flags=["safe"], now=1.0
-        )
+        event = SylanneAlphaHostEvent(text="hello", confidence=0.5, flags=["safe"], now=1.0)
         surface = host.on_request(event)
         assert "decision" in surface
 
@@ -83,7 +81,5 @@ class TestHostEvent:
 class TestHostProactive:
     def test_proactive_check(self, tmp_path: Path):
         host = SylanneAlphaHost(root=tmp_path, session_key="s1")
-        surface = host.on_proactive_check(
-            {"text": "", "flags": ["proactive"], "now": time.time()}
-        )
+        surface = host.on_proactive_check({"text": "", "flags": ["proactive"], "now": time.time()})
         assert "host_payload" in surface

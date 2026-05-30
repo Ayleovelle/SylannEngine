@@ -88,29 +88,47 @@ class TestDriftSignalExtractor:
 
 class TestComputeEmbodimentDrift:
     def test_no_signals_no_drift(self):
-        traits = {name: TraitMemory(0.5) for name in (
-            "expression_drive_trait", "perception_acuity",
-            "boundary_permeability", "inner_order", "relational_gravity",
-        )}
+        traits = {
+            name: TraitMemory(0.5)
+            for name in (
+                "expression_drive_trait",
+                "perception_acuity",
+                "boundary_permeability",
+                "inner_order",
+                "relational_gravity",
+            )
+        }
         compute_embodiment_drift(traits, {}, tick_count=10)
         for tm in traits.values():
             assert abs(tm.value - 0.5) < 0.02
 
     def test_signal_causes_drift(self):
-        traits = {name: TraitMemory(0.5) for name in (
-            "expression_drive_trait", "perception_acuity",
-            "boundary_permeability", "inner_order", "relational_gravity",
-        )}
+        traits = {
+            name: TraitMemory(0.5)
+            for name in (
+                "expression_drive_trait",
+                "perception_acuity",
+                "boundary_permeability",
+                "inner_order",
+                "relational_gravity",
+            )
+        }
         signals = {"feedback_accepted": 1.0}
         compute_embodiment_drift(traits, signals, tick_count=10)
         assert traits["expression_drive_trait"].value > 0.5
 
     def test_dt_scale_amplifies(self):
         def run_drift(dt: float) -> float:
-            traits = {name: TraitMemory(0.5) for name in (
-                "expression_drive_trait", "perception_acuity",
-                "boundary_permeability", "inner_order", "relational_gravity",
-            )}
+            traits = {
+                name: TraitMemory(0.5)
+                for name in (
+                    "expression_drive_trait",
+                    "perception_acuity",
+                    "boundary_permeability",
+                    "inner_order",
+                    "relational_gravity",
+                )
+            }
             signals = {"feedback_accepted": 1.0}
             compute_embodiment_drift(traits, signals, tick_count=10, dt=dt)
             return traits["expression_drive_trait"].value
@@ -120,10 +138,16 @@ class TestComputeEmbodimentDrift:
         assert val_240s > val_30s
 
     def test_drift_cap(self):
-        traits = {name: TraitMemory(0.5) for name in (
-            "expression_drive_trait", "perception_acuity",
-            "boundary_permeability", "inner_order", "relational_gravity",
-        )}
+        traits = {
+            name: TraitMemory(0.5)
+            for name in (
+                "expression_drive_trait",
+                "perception_acuity",
+                "boundary_permeability",
+                "inner_order",
+                "relational_gravity",
+            )
+        }
         signals = {
             "feedback_accepted": 1.0,
             "high_tension": 1.0,
@@ -138,9 +162,7 @@ class TestComputeEmbodimentDrift:
 class TestDriftSylanneTraits:
     def test_basic_drift(self):
         personality = initial_personality("test")
-        result = drift_sylanne_traits(
-            personality, event={"text": "温柔", "confidence": 0.8}
-        )
+        result = drift_sylanne_traits(personality, event={"text": "温柔", "confidence": 0.8})
         assert "traits" in result
         assert result["traits"]["warmth_bias"] >= personality["traits"]["warmth_bias"]
 
