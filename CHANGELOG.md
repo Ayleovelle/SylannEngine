@@ -1,5 +1,42 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [v1.0.0a1] - 2026-05-31
+
+### ✨ New Features
+
+- 完整的 7 层情感计算管线（body → personality → moral → fallibility → relational → decision → guard）
+- 29 维身体状态向量，8 个子系统协同演化
+- 双 EMA 人格漂移系统，支持 dt_scale 时间感知
+- Void-Scar Engine / HDC / HGT 底层计算引擎
+- 异步 `SylanneEngine` 高层 API（start/process/tick/shutdown）
+- `SylanneAlphaHost` 中间层，支持持久化、快照、诊断
+- `AlphaKernel` 核心调度器，带 circuit breaker 容错
+- 会话运行时（Runtime）：原子写入、JSON 恢复、路径安全
+- PEP 561 类型标记（py.typed）
+- 事件监听器系统（sync/async listeners）
+
+### 🧪 Testing
+
+- 140 个单元测试覆盖全部核心模块
+- pytest-asyncio 异步引擎测试
+- GitHub Actions CI：Python 3.10-3.13 矩阵测试
+- 性能回归检测（500 ticks < 10ms/tick）
+
+### 🐛 Bug Fixes
+
+- 修复 `_L1_PAYLOAD_FALLBACK` 共享可变字典污染 bug
+- tick 异常时添加 fallback 日志记录
+
+### 🔧 Maintenance
+
+- ruff 0.14.2 格式化全部源码
+- pyproject.toml 完整打包配置（hatchling）
+- mypy non-strict 类型检查（CI continue-on-error）
+
 ## [v0.1.0-preview] - 2026-05-29
 
 ### Initial Preview Release
