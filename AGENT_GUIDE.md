@@ -22,9 +22,72 @@
 
 ## 1. 调用方式
 
+### 1.0 安装与初始化
+
+SylannEngine 有两种使用方式，选择适合你的：
+
+#### 插件版（推荐）— 通过 AstrBot 插件系统安装
+
+在 AstrBot WebUI 安装 SylannEngine 前置插件后，你的插件里直接 import：
+
+```python
+from astrbot.api.star import Context, Star, register
+from sylanne_core import SylanneEngine, SylanneConfig
+
+
+@register("my_plugin", "Author", "desc", "1.0.0")
+class MyPlugin(Star):
+    def __init__(self, context: Context):
+        super().__init__(context)
+        self._engine = SylanneEngine(
+            data_dir="./data/sylannengine",
+            llm=self._llm_call,
+            config=SylanneConfig(),
+        )
+
+    async def initialize(self):
+        await self._engine.start()
+
+    async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
+        response = await self.context.provider_manager.text_chat(
+            prompt=user_prompt, system_prompt=system_prompt,
+        )
+        return response.completion_text
+```
+
+前置插件安装地址：`https://github.com/Ayleovelle/SylannEngine.git`
+
+#### SDK 版 — 直接嵌入你的项目
+
+用 `sdk` 分支作为 submodule 或直接复制 `sylanne_core/` 目录：
+
+```bash
+git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
+```
+
+```python
+import sys
+sys.path.insert(0, "./deps/sylannengine")
+
+from sylanne_core import SylanneEngine, SylanneConfig
+
+engine = SylanneEngine(
+    data_dir="./data/sylannengine",
+    llm=your_llm_callback,  # async (system_prompt, user_prompt) -> str
+    config=SylanneConfig(),
+)
+await engine.start()
+```
+
+SDK 版需要你自己提供 LLM 回调函数，不依赖 AstrBot。
+
+---
+
+### 1.1 拉模式与推模式
+
 SylannEngine 支持两种集成模式：
 
-### 拉模式（Pull）— 你主动问引擎要结果
+#### 拉模式（Pull）— 你主动问引擎要结果
 
 ```python
 surface = await engine.process(session_id="user_123", text="你好")
@@ -271,8 +334,6 @@ if needs["expression"] > 0.7:
 ```
 
 ---
-
-## 4. 双层人格系统 (personality)
 
 ## 4. 双层人格系统 (personality)
 
@@ -735,16 +796,18 @@ class EmotionAwareSystem:
 
 ### 一句话告诉 AI 你要干什么
 
-> "帮我接入 SylannEngine 情感计算引擎。它是一个纯 SDK，`from sylanne_core import SylanneEngine` 然后传入 LLM 回调。每条用户消息调一次 `process(session_id, text)`，返回一个 dict。"
+> "帮我接入 SylannEngine 情感计算引擎。如果我用 AstrBot，先安装前置插件 `https://github.com/Ayleovelle/SylannEngine.git`，然后 `from sylanne_core import SylanneEngine`。如果不用 AstrBot，用 sdk 分支做 submodule。每条用户消息调一次 `process(session_id, text)`，返回一个 dict。"
 
 ### 最小可用代码
+
+**插件版**（已通过 AstrBot 安装前置插件）：
 
 ```python
 from sylanne_core import SylanneEngine, SylanneConfig
 
 engine = SylanneEngine(
     data_dir="./data/sylannengine",
-    llm=your_llm_callback,       # async (system_prompt, user_prompt) -> str
+    llm=self._llm_call,          # 通过 AstrBot provider_manager
     config=SylanneConfig(),
 )
 await engine.start()
@@ -757,6 +820,25 @@ action = surface["decision"]["action"]          # express/withdraw/recover/explo
 allowed = surface["guard"]["allowed"]           # True/False
 warmth = surface["state"]["valence"]["warmth"]  # 0.0 ~ 1.0
 personality = surface["personality"]["surface"]  # 当前人格表现
+```
+
+**SDK 版**（submodule 或复制 sylanne_core/）：
+
+```python
+import sys
+sys.path.insert(0, "./deps/sylannengine")
+
+from sylanne_core import SylanneEngine, SylanneConfig
+
+engine = SylanneEngine(
+    data_dir="./data/sylannengine",
+    llm=your_llm_callback,       # 自己实现 async (str, str) -> str
+    config=SylanneConfig(),
+)
+await engine.start()
+
+surface = await engine.process(session_id="user_123", text="你好")
+```
 ```
 
 ### 给 AI 的 prompt 模板
