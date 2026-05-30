@@ -341,3 +341,5 @@ await engine.start()
 ## 许可证
 
 GNU Affero General Public License v3.0 - 详见 [LICENSE](LICENSE) 文件。
+
+**本计算引擎开源免费，禁止商用。** 任何商业用途（包括但不限于将本引擎嵌入商业产品、提供付费服务、或用于商业盈利目的）均未获授权。
