@@ -1,9 +1,9 @@
-"""SylannEngine SDK — AstrBot 共享插件。
+"""SylannEngine — AstrBot 前置插件。
 
 本插件的唯一作用：把 sylanne_core 包注册到 Python 路径中，
 让同一 AstrBot 实例下的其他插件可以直接 `from sylanne_core import SylanneEngine`。
 
-不处理消息、不注入 prompt、不注册命令。纯依赖提供者。
+不处理消息、不注入 prompt、不注册命令、不监听事件。纯前置依赖。
 """
 
 from __future__ import annotations
@@ -39,24 +39,13 @@ except ImportError:
 @register(
     "astrbot_plugin_sylannengine",
     "Ayleovelle",
-    "SylannEngine SDK 共享插件，提供情感计算引擎供其他插件调用",
+    "SylannEngine 前置插件 — 提供情感计算引擎供其他插件 import 使用",
     "0.1.0-preview",
 )
 class SylannEnginePlugin(Star):
-    """共享 SDK 插件。不处理消息，只确保 sylanne_core 可被其他插件 import。"""
+    """前置依赖插件。不做任何事，只确保 sylanne_core 可被其他插件 import。"""
 
     def __init__(self, context: Context):
         super().__init__(context)
-        logger.info(
-            "SylannEngine SDK v%s loaded. "
-            "Other plugins can now: from sylanne_core import SylanneEngine",
-            self._get_version(),
-        )
-
-    @staticmethod
-    def _get_version() -> str:
-        try:
-            from sylanne_core import __version__
-            return __version__
-        except ImportError:
-            return "unknown"
+        from sylanne_core import __version__
+        logger.info("SylannEngine SDK v%s ready — other plugins can now: from sylanne_core import SylanneEngine", __version__)
