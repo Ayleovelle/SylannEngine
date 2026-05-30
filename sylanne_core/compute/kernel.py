@@ -193,17 +193,31 @@ class AlphaKernel:
         """
         self._cached_vector_summary = None
         event = self._event(event)
+        try:
+            return self._tick_inner(event, assessment)
+        except Exception:
+            return {
+                "state": self.body,
+                "decision": self.last_decision or self._decide(),
+                "guard": self.last_guard
+                or self._guard(self.last_decision or self._decide()),
+                "surface": self.surface(),
+            }
+
+    def _tick_inner(
+        self,
+        event: AlphaKernelEvent,
+        assessment: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         self.body.apply(
             text=event.text,
             flags=event.flags,
             confidence=event.confidence,
             now=event.now,
         )
-        # Derive computation parameters from current personality
         personality = self._personality()
         if personality:
             self.computation.apply_personality(personality.get("traits", personality))
-        # Run computation spine for emotion/expression state
         self._last_computation_result = self.computation.process(
             event.text, event.now, assessment=assessment
         )
@@ -374,41 +388,22 @@ class AlphaKernel:
         repair_events = int(self.moral_repair.get("events") or 0)
         if "repair" in flags:
             repair_events += 1
-        self.moral_repair = {
-            "schema_version": SCHEMA_MORAL_REPAIR_VERSION,
-            "kind": "moral_repair_state",
-            "internal_only": True,
-            "read_only": True,
-            "state": "repairing" if repair_events else "stable",
-            "events": repair_events,
-            "repair_need": round(self.body.needs["need_repair"], 6),
-            "constraints": [
-                "brief_repair_only",
-                "no_guilt_loop",
-                "current_user_text_priority",
-            ],
-        }
+        mr = self._moral_repair_state()
+        mr["state"] = "repairing" if repair_events else "stable"
+        mr["events"] = repair_events
+        mr["repair_need"] = round(self.body.needs["need_repair"], 6)
+        self.moral_repair = mr
+
         fallibility_events = int(self.fallibility.get("events") or 0)
         if "fallibility" in flags or event.confidence < 0.45:
             fallibility_events += 1
-        self.fallibility = {
-            "schema_version": SCHEMA_FALLIBILITY_VERSION,
-            "kind": "fallibility_state",
-            "internal_only": True,
-            "read_only": True,
-            "events": fallibility_events,
-            "claim_caution": round(
-                max(
-                    0.0, min(1.0, (1.0 - event.confidence) + fallibility_events * 0.12)
-                ),
-                6,
-            ),
-            "constraints": [
-                "admit_uncertainty",
-                "correct_once",
-                "no_performative_self_blame",
-            ],
-        }
+        fb = self._fallibility_state()
+        fb["events"] = fallibility_events
+        fb["claim_caution"] = round(
+            max(0.0, min(1.0, (1.0 - event.confidence) + fallibility_events * 0.12)),
+            6,
+        )
+        self.fallibility = fb
 
     def _personality(self) -> dict[str, Any]:
         if not self.personality:
@@ -451,14 +446,14 @@ class AlphaKernel:
         return dict(self.fallibility)
 
     def _affect_dynamics(self) -> dict[str, Any]:
-        body = self.body.to_dict()
+        body = self.body
         repair_drive = max(
-            body["needs"]["need_repair"],
-            body["wound"]["repair"],
-            body["wound"]["open"] * 0.5,
+            body.needs["need_repair"],
+            body.wound.repair,
+            body.wound.open * 0.5,
         )
         expression_drive = max(
-            body["needs"]["need_expression"], body["temperature"]["warmth"] * 0.3
+            body.needs["need_expression"], body.temperature.warmth * 0.3
         )
         return {
             "schema_version": SCHEMA_AFFECT_DYNAMICS_VERSION,
@@ -470,8 +465,8 @@ class AlphaKernel:
                 "expression_drive": round(expression_drive, 6),
                 "quiet_drive": round(
                     max(
-                        body["needs"]["need_quiet"],
-                        body["immunity"]["boundary_pressure"],
+                        body.needs["need_quiet"],
+                        body.immunity.boundary_pressure,
                     ),
                     6,
                 ),
@@ -883,12 +878,11 @@ class AlphaKernel:
         }
 
     def _risk_score(self) -> float:
-        vector = self.body.state_vector()
         return round(
             max(
-                vector["immunity.boundary_pressure"],
-                vector["mortality.exhaustion"],
-                vector["wound.open"],
+                self.body.immunity.boundary_pressure,
+                self.body.mortality.exhaustion,
+                self.body.wound.open,
                 1.0 - self.body.immunity.sovereignty,
             ),
             6,

@@ -135,9 +135,10 @@ class AutopoieticBoundary:
             0.3, min(1.0, self.boundary_integrity + self.repair_rate)
         )
         self.internal_entropy = max(0.0, self.internal_entropy - self.repair_rate * 0.5)
-        # Re-normalize identity kernel
-        norm = math.sqrt(sum(x * x for x in self.identity_kernel) + 1e-12)
-        self.identity_kernel = [x / norm for x in self.identity_kernel]
+        # Re-normalize identity kernel only if it was perturbed
+        if self.internal_entropy > 0.01:
+            norm = math.sqrt(sum(x * x for x in self.identity_kernel) + 1e-12)
+            self.identity_kernel = [x / norm for x in self.identity_kernel]
 
     def stability(self) -> float:
         """整体稳定性评分：高 = 抗变化能力强。公式：完整性 × (1 - 熵)。"""

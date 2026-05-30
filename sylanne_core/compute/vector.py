@@ -23,7 +23,10 @@ def clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     Returns:
         限制后的浮点数
     """
-    return max(lo, min(hi, float(value)))
+    v = float(value)
+    if v != v or v == float("inf") or v == float("-inf"):
+        return lo
+    return max(lo, min(hi, v))
 
 
 # 身体状态向量的 29 个维度轴，按子系统分组：

@@ -8,10 +8,17 @@ from __future__ import annotations
 
 from .engine import SylanneEngine
 from .config import SylanneConfig
-from .types import Surface
+from .types import EngineStatus, HealthStatus, Surface
 
-__all__ = ["SylanneEngine", "SylanneConfig", "Surface", "get_engine"]
-__version__ = "0.1.0-preview"
+__all__ = [
+    "SylanneEngine",
+    "SylanneConfig",
+    "Surface",
+    "EngineStatus",
+    "HealthStatus",
+    "get_engine",
+]
+__version__ = "1.0.0a1"
 
 _shared_engine: SylanneEngine | None = None
 

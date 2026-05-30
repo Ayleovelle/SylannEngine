@@ -94,6 +94,7 @@ class VoidScarEngine:
         "_accepted_decay",
         "_ignored_deepening",
         "_personality_detection_floor",
+        "_cached_observe",
     )
 
     def __init__(
@@ -121,6 +122,7 @@ class VoidScarEngine:
         self._accepted_decay = 0.7
         self._ignored_deepening = 0.05
         self._personality_detection_floor: float = 0.1
+        self._cached_observe: dict[str, float] | None = None
 
     def process(
         self,
@@ -148,6 +150,7 @@ class VoidScarEngine:
             包含伤痕状态、虚空状态、耦合信息和一致性的综合结果
         """
         self._tick += 1
+        self._cached_observe = None
 
         # Compute similarity to previous event (for void detection)
         prev_sim = 0.0
@@ -214,12 +217,12 @@ class VoidScarEngine:
         curiosity, repair_pressure, expression_drive, boundary_firmness）
         加上 coherence, void_pressure, active_voids, ghost_count 等元信息。
         """
+        if self._cached_observe is not None:
+            return self._cached_observe
         raw = self.scar_state.observe()
         obs: dict[str, float] = {}
-        # Map dim_N → named dimensions
         for i, name in enumerate(self._DIM_NAMES):
             obs[name] = raw.get(f"dim_{i}", 0.0)
-        # Keep sensitivity values under named keys
         for i, name in enumerate(self._DIM_NAMES):
             obs[f"sensitivity_{name}"] = raw.get(f"sensitivity_{i}", 1.0)
         obs["total_scars"] = raw.get("total_scars", 0.0)
@@ -228,6 +231,7 @@ class VoidScarEngine:
         obs["void_pressure"] = self.void_space.total_pressure()
         obs["active_voids"] = float(len(self.void_space.voids))
         obs["ghost_count"] = float(len(self.void_space.ghosts))
+        self._cached_observe = obs
         return obs
 
     def expression_drive(self) -> float:
@@ -278,6 +282,7 @@ class VoidScarEngine:
         'ignored' → 增加虚空深度，负向伤痕输入（退缩）
         'rejected' → 创伤事件注入伤痕状态（伤害）
         """
+        self._cached_observe = None
         if outcome == "accepted":
             for v in self.void_space.voids:
                 v.pressure *= self._accepted_decay
