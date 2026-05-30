@@ -140,6 +140,7 @@ class SylanneAlphaHost:
             self.kernel.body.immunity.cooldown = max(
                 self.kernel.body.immunity.cooldown, 0.35
             )
+            self._dirty = True
             self._flush()
         return surface
 
