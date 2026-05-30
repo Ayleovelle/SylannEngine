@@ -65,7 +65,11 @@ class SylanneEngine:
 
     async def shutdown(self) -> None:
         for host in self._hosts.values():
-            host.flush()
+            try:
+                host.flush()
+            except Exception:
+                if self._status == "running":
+                    self._status = "degraded"
         self._hosts.clear()
         self._locks.clear()
         self._status = "closed"

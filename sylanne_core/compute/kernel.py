@@ -95,9 +95,7 @@ class AlphaKernel:
     fallibility: dict[str, Any] = field(default_factory=dict)
     computation: ComputationSpine = field(default_factory=ComputationSpine)
     _last_computation_result: dict[str, Any] = field(default_factory=dict)
-    _cached_vector_summary: dict[str, float] | None = field(
-        default=None, repr=False
-    )
+    _cached_vector_summary: dict[str, float] | None = field(default=None, repr=False)
 
     @classmethod
     def boot(
