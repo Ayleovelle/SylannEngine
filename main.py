@@ -71,6 +71,7 @@ class SylannEnginePlugin(Star):
 
     async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
         response = await self._context.provider_manager.text_chat(
-            prompt=user_prompt, system_prompt=system_prompt,
+            prompt=user_prompt,
+            system_prompt=system_prompt,
         )
         return response.completion_text
