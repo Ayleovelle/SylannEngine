@@ -105,6 +105,8 @@ jobs:
             --exclude '__pycache__/' \
             --exclude 'dist/' \
             --exclude 'build/' \
+            --exclude 'docs/' \
+            --exclude 'tests/' \
             --exclude '*.pyc' \
             --exclude '*.pyo' \
             --exclude '.DS_Store' \
