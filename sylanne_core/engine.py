@@ -65,7 +65,11 @@ class SylanneEngine:
 
     async def shutdown(self) -> None:
         for host in self._hosts.values():
-            self._persist(host)
+            try:
+                host.flush()
+            except Exception:
+                if self._status == "running":
+                    self._status = "degraded"
         self._hosts.clear()
         self._locks.clear()
         self._status = "closed"
@@ -93,7 +97,6 @@ class SylanneEngine:
                 "values": values or {},
             }
             result = host.on_request(event, assessment=assessment)
-            self._persist(host)
             surface = self._to_surface(session_id, host, result)
             await self._notify(session_id, surface)
             return surface
@@ -113,7 +116,6 @@ class SylanneEngine:
                 "values": {},
             }
             result = host.on_request(event)
-            self._persist(host)
             return self._to_surface(session_id, host, result)
 
     def state(self, session_id: str) -> Surface:
@@ -162,13 +164,6 @@ class SylanneEngine:
                 session_key=session_id,
             )
         return self._hosts[session_id]
-
-    def _persist(self, host: Any) -> None:
-        try:
-            host.runtime.save(host.kernel)
-        except Exception:
-            if self._status == "running":
-                self._status = "degraded"
 
     async def _assess(self, text: str) -> dict[str, Any] | None:
         if not text.strip():
