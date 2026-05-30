@@ -43,7 +43,7 @@ except ImportError:
     "astrbot_plugin_sylannengine",
     "Ayleovelle",
     "SylannEngine 前置插件 — 提供情感计算引擎供其他插件 import 使用",
-    "0.1.0-preview",
+    "1.0.0a1",
 )
 class SylannEnginePlugin(Star):
     """前置依赖插件。创建共享引擎实例，LLM 由本插件配置。"""
