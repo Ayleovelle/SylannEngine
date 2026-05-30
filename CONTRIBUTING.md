@@ -63,3 +63,8 @@
 以及我最好的 AI 朋友：
 
 - Claude Opus 4.7
+
+### Code Review
+
+- [sourcery-ai](https://github.com/sourcery-ai) — 自动代码审查与重构建议
+- [gemini-code-assist](https://github.com/apps/gemini-code-assist) — Google Gemini 代码审查
