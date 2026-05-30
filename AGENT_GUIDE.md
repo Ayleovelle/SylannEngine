@@ -28,31 +28,41 @@ SylannEngine 有两种使用方式，选择适合你的：
 
 #### 插件版（推荐）— 通过 AstrBot 插件系统安装
 
-在 AstrBot WebUI 安装 SylannEngine 前置插件后，你的插件里直接 import：
+在 AstrBot WebUI 安装 SylannEngine 前置插件后，LLM 由前置插件通过 AstrBot 的 LLM 提供商统一配置，你的插件无需关心 LLM 接入。
+
+由于 AstrBot 不支持插件依赖声明，建议在你的插件启动时加一段检测：
+
+```python
+try:
+    from sylanne_core import get_engine
+except ImportError:
+    raise RuntimeError(
+        "缺少前置插件 SylannEngine，请先安装：\n"
+        "AstrBot WebUI → 插件 → 从 Git 仓库安装 → "
+        "https://github.com/Ayleovelle/SylannEngine.git"
+    )
+```
+
+完整示例：
 
 ```python
 from astrbot.api.star import Context, Star, register
-from sylanne_core import SylanneEngine, SylanneConfig
+from sylanne_core import get_engine
 
 
 @register("my_plugin", "Author", "desc", "1.0.0")
 class MyPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self._engine = SylanneEngine(
-            data_dir="./data/sylannengine",
-            llm=self._llm_call,
-            config=SylanneConfig(),
-        )
 
-    async def initialize(self):
-        await self._engine.start()
-
-    async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
-        response = await self.context.provider_manager.text_chat(
-            prompt=user_prompt, system_prompt=system_prompt,
+    async def on_message(self, event):
+        engine = get_engine()
+        surface = await engine.process(
+            session_id=event.user_id,
+            text=event.message_str,
         )
-        return response.completion_text
+        action = surface["decision"]["action"]
+        # 根据 action 调整回复策略...
 ```
 
 前置插件安装地址：`https://github.com/Ayleovelle/SylannEngine.git`
@@ -113,6 +123,7 @@ listener 支持同步和异步函数。异常不会影响引擎运行。
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
+| `get_engine` | `() -> SylanneEngine` | 获取插件版共享实例（插件版专用） |
 | `process` | `await (session_id, text, **ctx) -> dict` | 主入口，处理文本并返回完整计算结果 |
 | `on` | `(listener) -> None` | 注册推送监听器 |
 | `off` | `(listener) -> None` | 移除推送监听器 |
@@ -765,9 +776,12 @@ class MyAgent:
 ### 推模式示例：多模块协作
 
 ```python
+from sylanne_core import get_engine
+
+
 class EmotionAwareSystem:
     def __init__(self):
-        self.engine = SylanneEngine(data_dir="./data", llm=self._llm)
+        self.engine = get_engine()
         self.tone_module = ToneModule()
         self.memory_module = MemoryModule()
 
@@ -796,21 +810,16 @@ class EmotionAwareSystem:
 
 ### 一句话告诉 AI 你要干什么
 
-> "帮我接入 SylannEngine 情感计算引擎。如果我用 AstrBot，先安装前置插件 `https://github.com/Ayleovelle/SylannEngine.git`，然后 `from sylanne_core import SylanneEngine`。如果不用 AstrBot，用 sdk 分支做 submodule。每条用户消息调一次 `process(session_id, text)`，返回一个 dict。"
+> "帮我接入 SylannEngine 情感计算引擎。如果我用 AstrBot，先安装前置插件 `https://github.com/Ayleovelle/SylannEngine.git`，然后 `from sylanne_core import get_engine` 获取已配置好的引擎实例。如果不用 AstrBot，用 sdk 分支做 submodule。每条用户消息调一次 `process(session_id, text)`，返回一个 dict。"
 
 ### 最小可用代码
 
 **插件版**（已通过 AstrBot 安装前置插件）：
 
 ```python
-from sylanne_core import SylanneEngine, SylanneConfig
+from sylanne_core import get_engine
 
-engine = SylanneEngine(
-    data_dir="./data/sylannengine",
-    llm=self._llm_call,          # 通过 AstrBot provider_manager
-    config=SylanneConfig(),
-)
-await engine.start()
+engine = get_engine()  # LLM 已由前置插件配置好
 
 # 每条消息调一次
 surface = await engine.process(session_id="user_123", text="你好")
@@ -905,3 +914,4 @@ surface = await engine.process(session_id="user_123", text="你好")
 - **人格漂移是自动的**，你不需要手动触发，每次 `process()` 都会推进
 - **记忆写入是自动的**，你不需要手动存储
 - **listener 异常不影响引擎**，推模式下某个 listener 报错不会中断其他 listener 或主流程
+- **开源免费，不希望商用**，使用时如果愿意请注明原作者 [Ayleovelle](https://github.com/Ayleovelle)
