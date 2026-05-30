@@ -66,5 +66,5 @@
 
 ### Code Review
 
-- [sourcery-ai](https://github.com/sourcery-ai) — 自动代码审查与重构建议
-- [gemini-code-assist](https://github.com/apps/gemini-code-assist) — Google Gemini 代码审查
+- [@sourcery-ai](https://github.com/sourcery-ai) — 自动代码审查与重构建议
+- [@gemini-code-assist](https://github.com/apps/gemini-code-assist) — Google Gemini 代码审查
