@@ -1,0 +1,23 @@
+name: astrbot_plugin_sylannengine
+display_name: SylannEngine SDK
+desc: "情感计算引擎 SDK 共享插件。安装一次，其他插件通过 from sylanne_core import SylanneEngine 直接使用，避免重复内置。"
+short_desc: "共享情感计算引擎 SDK"
+version: "0.1.0-preview"
+author: Ayleovelle
+license: AGPL-3.0-or-later
+repo: "https://github.com/Ayleovelle/SylannEngine"
+support_platforms: []
+astrbot_version: ">=4.9.2,<5.0.0"
+
+compatibility_matrix:
+  min_python: "3.10"
+  max_python: "3.13"
+  tested_platforms: ["linux", "windows"]
+resource_budget:
+  memory_mb: 50
+  cpu_percent: 2
+  disk_mb: 20
+personality_impact:
+  modifies_personality: false
+  modifies_memory: false
+  modifies_proactive: false
