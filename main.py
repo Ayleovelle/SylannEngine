@@ -1,7 +1,9 @@
 """SylannEngine — AstrBot 前置插件。
 
-本插件的唯一作用：把 sylanne_core 包注册到 Python 路径中，
-让同一 AstrBot 实例下的其他插件可以直接 `from sylanne_core import SylanneEngine`。
+本插件的作用：
+1. 把 sylanne_core 包注册到 Python 路径中
+2. 创建并管理共享引擎实例，LLM 由本插件通过 AstrBot provider_manager 配置
+3. 下游插件通过 `from sylanne_core import get_engine` 获取已配置好的引擎
 
 不处理消息、不注入 prompt、不注册命令、不监听事件。纯前置依赖。
 """
@@ -43,9 +45,31 @@ except ImportError:
     "0.1.0-preview",
 )
 class SylannEnginePlugin(Star):
-    """前置依赖插件。不做任何事，只确保 sylanne_core 可被其他插件 import。"""
+    """前置依赖插件。创建共享引擎实例，LLM 由本插件配置。"""
 
     def __init__(self, context: Context):
         super().__init__(context)
-        from sylanne_core import __version__
-        logger.info("SylannEngine SDK v%s ready — other plugins can now: from sylanne_core import SylanneEngine", __version__)
+        self._context = context
+
+    async def initialize(self):
+        import sylanne_core
+        from sylanne_core import SylanneEngine, SylanneConfig
+
+        engine = SylanneEngine(
+            data_dir="./data/sylannengine",
+            llm=self._llm_call,
+            config=SylanneConfig(),
+        )
+        await engine.start()
+
+        sylanne_core._shared_engine = engine
+        logger.info(
+            "SylannEngine SDK v%s ready — get_engine() now available",
+            sylanne_core.__version__,
+        )
+
+    async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
+        response = await self._context.provider_manager.text_chat(
+            prompt=user_prompt, system_prompt=system_prompt,
+        )
+        return response.completion_text

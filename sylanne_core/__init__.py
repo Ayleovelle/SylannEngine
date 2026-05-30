@@ -10,5 +10,23 @@ from .engine import SylanneEngine
 from .config import SylanneConfig
 from .types import Surface
 
-__all__ = ["SylanneEngine", "SylanneConfig", "Surface"]
+__all__ = ["SylanneEngine", "SylanneConfig", "Surface", "get_engine"]
 __version__ = "0.1.0-preview"
+
+_shared_engine: SylanneEngine | None = None
+
+
+def get_engine() -> SylanneEngine:
+    """获取插件版共享引擎实例。
+
+    插件版由 SylannEngine 前置插件创建并配置 LLM，
+    下游插件直接调用此函数获取即可，无需自行配置。
+    SDK 版用户请自行实例化 SylanneEngine。
+    """
+    if _shared_engine is None:
+        raise RuntimeError(
+            "SylannEngine 尚未初始化。请确认前置插件已安装并正常启动。\n"
+            "AstrBot WebUI → 插件 → 从 Git 仓库安装 → "
+            "https://github.com/Ayleovelle/SylannEngine.git"
+        )
+    return _shared_engine

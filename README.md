@@ -166,41 +166,27 @@ git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/syl
 通过 AstrBot 插件系统安装本仓库后，你的插件里直接 import 即可：
 ```
 
-### 初始化引擎
+### 使用引擎
+
+LLM 由 SylannEngine 前置插件统一配置（通过 AstrBot 的 LLM 提供商），下游插件无需关心 LLM 接入，直接获取引擎实例调用即可：
 
 ```python
 from astrbot.api.star import Context, Star
-from sylanne_core import SylanneEngine, SylanneConfig
+from sylanne_core import get_engine
 
 
 class MyPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self._engine = None
-
-    async def initialize(self):
-        self._engine = SylanneEngine(
-            data_dir="./data/sylannengine",
-            llm=self._llm_call,
-            config=SylanneConfig(),
-        )
-        await self._engine.start()
 
     async def on_message(self, event):
-        if self._engine:
-            surface = await self._engine.process(
-                session_id="user_123",
-                text=event.message_str,
-            )
-            action = surface["decision"]["action"]
-            warmth = surface["state"]["valence"]["warmth"]
-
-    async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
-        """你自己的 LLM 调用实现。"""
-        response = await self.context.provider_manager.text_chat(
-            prompt=user_prompt, system_prompt=system_prompt,
+        engine = get_engine()
+        surface = await engine.process(
+            session_id="user_123",
+            text=event.message_str,
         )
-        return response.completion_text
+        action = surface["decision"]["action"]
+        warmth = surface["state"]["valence"]["warmth"]
 ```
 
 ---
@@ -209,6 +195,7 @@ class MyPlugin(Star):
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
+| `get_engine` | `() -> SylanneEngine` | 获取插件版共享实例（插件版专用） |
 | `process` | `await (session_id, text, **ctx) -> dict` | 处理输入文本，返回完整计算结果 |
 | `on` | `(listener) -> None` | 注册推送监听器，process 完成后自动调用 listener(session_id, surface) |
 | `off` | `(listener) -> None` | 移除推送监听器 |
@@ -284,14 +271,38 @@ SylannEngine/
 
 ## 架构说明
 
+### 插件版架构
+
 ```mermaid
 graph TD
-    A["你的插件<br/>process(session_id, text)"] -->|"调用"| B
+    P["SylannEngine 前置插件<br/>main.py"] -->|"创建 & 配置 LLM"| B
+    P -->|"provider_manager"| LLM["AstrBot LLM 提供商"]
+    A["你的插件<br/>get_engine().process(session_id, text)"] -->|"调用"| B
     B -->|"Surface dict"| A
 
     B["SylanneEngine<br/>sylanne_core/engine.py"]
     B --> C
-    B -->|"LLM callback"| LLM["开发者提供的 LLM 接口"]
+
+    subgraph C["sylanne_core/compute/ — 7 层计算管线"]
+        direction LR
+        L1["L1 HDC"] --> L2["L2 Gate"] --> L3["L3 Absence-Impact"]
+        L3 --> L4["L4 Relational"] --> L5["L5 Fusion"]
+        L5 --> L6["L6 Boundary"] --> L7["L7 Expression"]
+    end
+
+    C --- E["Body (8子系统) + Personality (双层) + Memory (三层)"]
+```
+
+### SDK 版架构
+
+```mermaid
+graph TD
+    A["你的应用<br/>engine.process(session_id, text)"] -->|"调用"| B
+    B -->|"Surface dict"| A
+
+    B["SylanneEngine<br/>sylanne_core/engine.py"]
+    B --> C
+    B -->|"LLM callback"| LLM["开发者自行提供的 LLM 接口"]
 
     subgraph C["sylanne_core/compute/ — 7 层计算管线"]
         direction LR
@@ -310,10 +321,10 @@ graph TD
 ### Q: 怎么在我的插件里用？
 
 ```python
-from sylanne_core import SylanneEngine, SylanneConfig
+from sylanne_core import get_engine
 
-engine = SylanneEngine(data_dir="./data/sylannengine", llm=your_llm_call, config=SylanneConfig())
-await engine.start()
+engine = get_engine()  # 获取前置插件已配置好的共享实例
+surface = await engine.process(session_id="user_123", text="你好")
 ```
 
 ### Q: LLM 挂了会怎样？
@@ -326,7 +337,9 @@ await engine.start()
 
 ### Q: 我需要自己提供 LLM 吗？
 
-需要。开发者需要在插件配置页为 SylannEngine 提供可用的 LLM 接口。如果未配置或 LLM 不可用，引擎会自动退化为本地规则引擎，计算不会中断，但语义评估精度会下降。
+**插件版**：不需要。LLM 由 SylannEngine 前置插件通过 AstrBot 的 LLM 提供商统一配置，下游插件直接调用 `get_engine()` 即可。
+
+**SDK 版**：需要。你需要自己实现 `async (system_prompt, user_prompt) -> str` 回调并传给 `SylanneEngine(llm=...)`。
 
 ---
 
@@ -334,7 +347,6 @@ await engine.start()
 
 - **Preview 状态**：API 可能在正式版前发生变更
 - **Embedding 可选**：如果 AstrBot 未配置 Embedding 提供商，记忆召回退化为关键词匹配
-- **不上架插件市场**：仅通过仓库地址安装
 
 ---
 
