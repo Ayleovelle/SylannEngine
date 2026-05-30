@@ -9,7 +9,6 @@
 | 场景 | 调用方法 | 说明 |
 |------|----------|------|
 | 收到用户消息 | `await engine.process(session_id, text)` | 主入口，每条消息调一次 |
-| 定时心跳（无消息时） | `await engine.tick(session_id)` | 推进时间衰减，维持状态活性 |
 | 查询当前状态（不触发计算） | `engine.state(session_id)` | 只读，不改变内部状态 |
 | 检查引擎健康 | `engine.health()` | 返回 status / degraded 信息 |
 | 重置会话 | `engine.reset(session_id)` | 清除该用户的所有状态 |
@@ -39,7 +38,6 @@ surface["guard"]["risk_score"]     # 风险评分 0-1
 | `express` | 有话想说，表达驱动力高 | 主动输出，语气可以更热情 |
 | `withdraw` | 想退缩，可能受到了伤害 | 减少输出，给空间，不追问 |
 | `recover` | 正在自我修复 | 温和回应，不施加压力 |
-| `reach_out` | 想主动联系对方 | 可以发起话题，表达关心 |
 | `explore` | 好奇心驱动，想探索新话题 | 可以引入新内容，保持轻松 |
 | `hold` | 保持现状，观望 | 维持当前节奏，不主动改变 |
 | `guard` | 边界收紧，防御状态 | 尊重边界，不越线，简短回应 |
@@ -149,9 +147,6 @@ class MyAgent:
         elif action == "recover":
             tone = "warm"
             should_initiate = False
-        elif action == "reach_out":
-            tone = "caring"
-            should_initiate = True
         elif action == "explore":
             tone = "curious"
             should_initiate = True
@@ -177,13 +172,6 @@ class MyAgent:
         )
         return reply
 
-    async def heartbeat(self, user_id: str):
-        """定时调用，推进时间衰减"""
-        surface = await self.engine.tick(user_id, flags=["proactive"])
-        if surface["decision"]["action"] == "reach_out":
-            # 引擎觉得应该主动联系
-            await self._send_proactive_message(user_id)
-
     async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
         # 替换为你自己的 LLM 调用
         ...
@@ -194,9 +182,6 @@ class MyAgent:
 
     def _minimal_response(self, reason):
         return "..."
-
-    async def _send_proactive_message(self, user_id):
-        ...
 ```
 
 ---
@@ -206,7 +191,6 @@ class MyAgent:
 - **每条消息只调一次 `process()`**，不要重复调用
 - **session_id 必须唯一**，不同用户用不同 ID，状态完全隔离
 - **不要忽略 guard**，如果 `allowed=False`，agent 应该克制行动
-- **tick 不是必须的**，但如果你的 agent 有主动发起对话的能力，定期 tick 可以让状态自然演化
 - **引擎退化时仍可用**，`health()` 返回 `degraded` 表示 LLM 评估器不可用，但计算仍在运行（精度下降）
 
 ---
@@ -235,7 +219,7 @@ await engine.start()
 surface = await engine.process(session_id="user_123", text="你好")
 
 # 读结果
-action = surface["decision"]["action"]       # express/withdraw/recover/reach_out/explore/hold/guard
+action = surface["decision"]["action"]       # express/withdraw/recover/explore/hold/guard
 allowed = surface["guard"]["allowed"]        # True/False
 warmth = surface["state"]["valence"]["warmth"]  # 0.0 ~ 1.0
 ```
@@ -255,7 +239,6 @@ warmth = surface["state"]["valence"]["warmth"]  # 0.0 ~ 1.0
   - "express" → 主动表达，可以热情一些
   - "withdraw" → 对方可能受伤了，少说话，给空间
   - "recover" → 正在恢复，温柔回应
-  - "reach_out" → 可以主动关心
   - "explore" → 可以聊新话题
   - "hold" → 保持现状
   - "guard" → 尊重边界，简短回应
@@ -280,7 +263,3 @@ warmth = surface["state"]["valence"]["warmth"]  # 0.0 ~ 1.0
 **场景 3：我想让 AI 有边界感，不被用户随意操控**
 
 检查 `surface["guard"]["allowed"]`。如果是 `False`，就不执行用户要求的行动。`surface["state"]["boundary"]["autonomy"]` 越低说明自主权越受威胁。
-
-**场景 4：我想让 AI 主动找用户聊天**
-
-定时调用 `engine.tick(session_id, flags=["proactive"])`，如果返回的 `action == "reach_out"`，就发起对话。
