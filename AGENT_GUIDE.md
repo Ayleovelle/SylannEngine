@@ -920,3 +920,4 @@ surface = await engine.process(session_id="user_123", text="你好")
 - **人格漂移是自动的**，你不需要手动触发，每次 `process()` 都会推进
 - **记忆写入是自动的**，你不需要手动存储
 - **listener 异常不影响引擎**，推模式下某个 listener 报错不会中断其他 listener 或主流程
+- **开源免费，禁止商用**，本引擎以 AGPL-3.0 开源，任何商业用途未获授权
