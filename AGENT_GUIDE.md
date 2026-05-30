@@ -28,7 +28,22 @@ SylannEngine 有两种使用方式，选择适合你的：
 
 #### 插件版（推荐）— 通过 AstrBot 插件系统安装
 
-在 AstrBot WebUI 安装 SylannEngine 前置插件后，你的插件里直接 import：
+在 AstrBot WebUI 安装 SylannEngine 前置插件后，你的插件里直接 import。
+
+由于 AstrBot 不支持插件依赖声明，建议在你的插件启动时加一段检测：
+
+```python
+try:
+    from sylanne_core import SylanneEngine, SylanneConfig
+except ImportError:
+    raise RuntimeError(
+        "缺少前置插件 SylannEngine，请先安装：\n"
+        "AstrBot WebUI → 插件 → 从 Git 仓库安装 → "
+        "https://github.com/Ayleovelle/SylannEngine.git"
+    )
+```
+
+完整示例：
 
 ```python
 from astrbot.api.star import Context, Star, register
