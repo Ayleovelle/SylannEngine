@@ -1,0 +1,6 @@
+{
+  "reviews": {
+    "language": "zh-CN",
+    "custom_instructions": "始终使用简体中文撰写 review 评论和摘要。技术术语可保留英文原文，但解释性文字必须使用中文。"
+  }
+}
