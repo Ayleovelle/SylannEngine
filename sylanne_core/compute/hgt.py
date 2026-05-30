@@ -66,9 +66,7 @@ def _make_flat(seed: bytes, rows: int, cols: int, scale: float = 1.0) -> array.a
     return array.array("d", (f * xavier for f in floats))
 
 
-def _matmul_vec_flat(
-    mat: list[float], vec: list[float], rows: int, cols: int
-) -> list[float]:
+def _matmul_vec_flat(mat: list[float], vec: list[float], rows: int, cols: int) -> list[float]:
     """扁平化矩阵与向量的乘法：mat[rows×cols] × vec[cols] → result[rows]。"""
     result = [0.0] * rows
     idx = 0
@@ -185,9 +183,7 @@ class MultiHeadCrossAttention:
         self._wq: list[list[list[float]]] = []
         self._wk: list[list[list[float]]] = []
         self._wv: list[list[list[float]]] = []
-        self._attention_prior: list[list[float]] = [
-            [0.0] * _NUM_TYPES for _ in range(_NUM_TYPES)
-        ]
+        self._attention_prior: list[list[float]] = [[0.0] * _NUM_TYPES for _ in range(_NUM_TYPES)]
         self._gamma: list[float] = [1.0] * d_model
 
     def derive(self, base_seed: bytes, personality: dict[str, float]) -> None:
@@ -214,23 +210,13 @@ class MultiHeadCrossAttention:
         self._derive_attention_prior(personality)
 
     def _derive_attention_prior(self, personality: dict[str, float]) -> None:
-        N = float(
-            personality.get("neuroticism", personality.get("perception_acuity", 0.5))
-        )
-        E = float(
-            personality.get(
-                "extraversion", personality.get("expression_drive_trait", 0.5)
-            )
-        )
-        C = float(
-            personality.get("conscientiousness", personality.get("inner_order", 0.5))
-        )
+        N = float(personality.get("neuroticism", personality.get("perception_acuity", 0.5)))
+        E = float(personality.get("extraversion", personality.get("expression_drive_trait", 0.5)))
+        C = float(personality.get("conscientiousness", personality.get("inner_order", 0.5)))
         openness_val = float(
             personality.get("openness", personality.get("boundary_permeability", 0.5))
         )
-        A = float(
-            personality.get("agreeableness", personality.get("relational_gravity", 0.5))
-        )
+        A = float(personality.get("agreeableness", personality.get("relational_gravity", 0.5)))
         mu = [[1.0] * _NUM_TYPES for _ in range(_NUM_TYPES)]
         si, vi, bi, pi, sui, ei, ci = range(_NUM_TYPES)
         mu[si][vi] += N * 1.5
@@ -324,12 +310,7 @@ class MultiHeadCrossAttention:
                         scores[j] = float("-inf")
                     else:
                         kj = k_vecs[j]
-                        s = (
-                            qi[0] * kj[0]
-                            + qi[1] * kj[1]
-                            + qi[2] * kj[2]
-                            + qi[3] * kj[3]
-                        ) * scale
+                        s = (qi[0] * kj[0] + qi[1] * kj[1] + qi[2] * kj[2] + qi[3] * kj[3]) * scale
                         bias = prior[ti][tj]
                         if prior_drift is not None:
                             bias += prior_drift[ti][tj]
@@ -453,9 +434,7 @@ class MoELayer:
     def derive(self, base_seed: bytes) -> None:
         for i, name in enumerate(_EXPERT_NAMES):
             self.experts[i].derive(base_seed + name.encode())
-        self.router_flat = _make_flat(
-            base_seed + b"ROUTER", self.n_experts, self.d_model
-        )
+        self.router_flat = _make_flat(base_seed + b"ROUTER", self.n_experts, self.d_model)
         g_floats = _deterministic_floats(base_seed + b"GAMMA3", self.d_model)
         self.gamma = [0.8 + 0.4 * (f * 0.5 + 0.5) for f in g_floats]
 
@@ -543,9 +522,7 @@ class RouterAdaptation:
         self.activity_ema: list[float] = [0.2] * n_experts
         self.plasticity: float = 0.5
 
-    def adapt(
-        self, outcome: str, active_experts: list[int], gate_values: list[float]
-    ) -> None:
+    def adapt(self, outcome: str, active_experts: list[int], gate_values: list[float]) -> None:
         eta = 0.008 * self.plasticity
         for idx in active_experts:
             y = gate_values[idx]
@@ -627,9 +604,7 @@ class AttentionPriorAdaptation:
 
 def _derive_plasticity(personality: dict[str, float]) -> float:
     """从人格参数派生可塑性：开放性↑ → 可塑性↑，尽责性↑ → 可塑性↓。"""
-    openness_val = float(
-        personality.get("openness", personality.get("boundary_permeability", 0.5))
-    )
+    openness_val = float(personality.get("openness", personality.get("boundary_permeability", 0.5)))
     C = float(personality.get("conscientiousness", personality.get("inner_order", 0.5)))
     base = 0.3 + openness_val * 0.5 - C * 0.3
     return max(0.05, min(0.85, base))
@@ -782,18 +757,12 @@ class HeterogeneousGraphTransformer:
         decision = [max(-1.0, min(1.0, d)) for d in decision]
         return decision
 
-    def adapt(
-        self, outcome: str, attention_snapshot: list[list[float]] | None = None
-    ) -> None:
+    def adapt(self, outcome: str, attention_snapshot: list[list[float]] | None = None) -> None:
         if outcome not in ("accepted", "ignored", "rejected"):
             return
         if self._last_active_experts and self._last_gate_values:
-            self._router_adapt.adapt(
-                outcome, self._last_active_experts, self._last_gate_values
-            )
-        weights = (
-            attention_snapshot if attention_snapshot else self._last_attention_weights
-        )
+            self._router_adapt.adapt(outcome, self._last_active_experts, self._last_gate_values)
+        weights = attention_snapshot if attention_snapshot else self._last_attention_weights
         if weights and len(weights) == _NUM_TYPES:
             self._attn_adapt.adapt(outcome, weights)
 

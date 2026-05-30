@@ -20,6 +20,7 @@ from .bounded_dict import BoundedDict
 from .hdc import HDCEncoder
 from .hgt import HeterogeneousGraphTransformer
 from .personality import (
+    _REVERSE_LEGACY_MAP,
     EMBODIMENT_TRAITS,
     DriftAttribution,
     DriftSignalExtractor,
@@ -114,6 +115,15 @@ class LayerRegistry:
         return name in cls._custom_layers
 
 
+_L1_PAYLOAD_FALLBACK: dict[str, object] = {
+    "ones_ratio": 0.0,
+    "total_bits": 0,
+    "sample_bits": [],
+    "prediction_similarity": 0.0,
+    "flip_ratio": 0.0,
+}
+
+
 class ComputationSpine:
     """Sylanne-Embodiment 的统一计算管线。
 
@@ -168,9 +178,7 @@ class ComputationSpine:
     )
 
     def __init__(self, plugin: Any = None):
-        hdc_dim = getattr(plugin, "_cfg_int", lambda k, d: d)(
-            "sylanne_alpha_hdc_dimension", 2048
-        )
+        hdc_dim = getattr(plugin, "_cfg_int", lambda k, d: d)("sylanne_alpha_hdc_dimension", 2048)
         self.encoder = HDCEncoder(dim=hdc_dim)
         self.gate = PredictiveCodingGate(dim=hdc_dim)
         self.engine = VoidScarEngine(n_dims=8, similarity_fn=self._hdc_similarity)
@@ -220,9 +228,7 @@ class ComputationSpine:
         self._oscillation_detector = OscillationDetector()
         self._drift_attribution = DriftAttribution(maxlen=100)
         self._drift_tick = 0
-        self._last_embodiment_apply: dict[str, float] = {
-            name: 0.5 for name in EMBODIMENT_TRAITS
-        }
+        self._last_embodiment_apply: dict[str, float] = {name: 0.5 for name in EMBODIMENT_TRAITS}
         # Drift rate limiting
         self._last_drift_time: float = 0.0
         self._drift_min_interval: float = 30.0  # seconds
@@ -339,9 +345,7 @@ class ComputationSpine:
         t_raw = int(10 + neuroticism * 20)
         t_closing = int(40 + neuroticism * 60)
         t_scarred = int(150 + neuroticism * 100)
-        self.engine.scar_state.set_healing_rates(
-            t_raw, t_closing, t_scarred, neuroticism
-        )
+        self.engine.scar_state.set_healing_rates(t_raw, t_closing, t_scarred, neuroticism)
 
         # HGT: derive all transformer parameters from personality
         self.hgt.derive_params(personality)
@@ -493,9 +497,7 @@ class ComputationSpine:
         elif intent == "生气":
             # Anger → raise tension in base state
             if len(self.engine.scar_state.base) > 3:
-                self.engine.scar_state.base[3] = min(
-                    1.0, self.engine.scar_state.base[3] + 0.2
-                )
+                self.engine.scar_state.base[3] = min(1.0, self.engine.scar_state.base[3] + 0.2)
 
         # Arousal modulates expression drive accumulation rate
         if arousal > 0.7:
@@ -599,13 +601,7 @@ class ComputationSpine:
         if not self._layer_enabled.get("gate", True):
             surprise = 0.0
             route = "fast"
-            l1_payload = {
-                "ones_ratio": 0.0,
-                "total_bits": 0,
-                "sample_bits": [],
-                "prediction_similarity": 0.0,
-                "flip_ratio": 0.0,
-            }
+            l1_payload = dict(_L1_PAYLOAD_FALLBACK)
             logger.debug("Layer gate DISABLED — using defaults")
         else:
             cb = self._circuit_breakers["gate"]
@@ -613,13 +609,7 @@ class ComputationSpine:
                 _gate_fallback = cb.fallback() or {"surprise": 0.0, "route": "fast"}
                 surprise = _gate_fallback["surprise"]
                 route = _gate_fallback["route"]
-                l1_payload = {
-                    "ones_ratio": 0.0,
-                    "total_bits": 0,
-                    "sample_bits": [],
-                    "prediction_similarity": 0.0,
-                    "flip_ratio": 0.0,
-                }
+                l1_payload = dict(_L1_PAYLOAD_FALLBACK)
                 logger.warning("Layer gate circuit OPEN — using fallback")
             else:
                 try:
@@ -627,13 +617,7 @@ class ComputationSpine:
                     if self._diagnostics_enabled:
                         l1_payload = self._l1_hdc_payload(text, h, surprise)
                     else:
-                        l1_payload = {
-                            "ones_ratio": 0.0,
-                            "total_bits": 0,
-                            "sample_bits": [],
-                            "prediction_similarity": 0.0,
-                            "flip_ratio": 0.0,
-                        }
+                        l1_payload = dict(_L1_PAYLOAD_FALLBACK)
                     route = self.gate.route(surprise)
                     self.gate.update(h, surprise)
                     cb.record_success({"surprise": surprise, "route": route})
@@ -642,13 +626,7 @@ class ComputationSpine:
                     _gate_fallback = cb.fallback() or {"surprise": 0.0, "route": "fast"}
                     surprise = _gate_fallback["surprise"]
                     route = _gate_fallback["route"]
-                    l1_payload = {
-                        "ones_ratio": 0.0,
-                        "total_bits": 0,
-                        "sample_bits": [],
-                        "prediction_similarity": 0.0,
-                        "flip_ratio": 0.0,
-                    }
+                    l1_payload = dict(_L1_PAYLOAD_FALLBACK)
                     logger.error("Layer gate failed: %s — using fallback", exc)
         self._last_route = route
         if route in self._route_counts:
@@ -697,9 +675,7 @@ class ComputationSpine:
                         {"pressure": v.pressure, "depth": v.depth, "age": v.age}
                         for v in self.engine.void_space.voids
                     ]
-                    cb.record_success(
-                        {"emotion": emotion, "recalled": recalled, "holes": holes}
-                    )
+                    cb.record_success({"emotion": emotion, "recalled": recalled, "holes": holes})
                 except Exception as exc:
                     cb.record_failure()
                     _vs_fallback = cb.fallback() or {}
@@ -758,7 +734,9 @@ class ComputationSpine:
                 logger.warning("Layer hgt circuit OPEN — using fallback")
             else:
                 try:
-                    hdc_features = ssm_input  # 复用 L3 已计算的 8 维压缩（避免重复调用 _hdc_to_ssm_input）
+                    hdc_features = (
+                        ssm_input  # 复用 L3 已计算的 8 维压缩（避免重复调用 _hdc_to_ssm_input）
+                    )
                     hgt_tokens = self.hgt.build_tokens_from_spine(
                         scar_state=self.engine.scar_state,
                         void_space=self.engine.void_space,
@@ -792,9 +770,7 @@ class ComputationSpine:
             _elapsed = time.perf_counter_ns() - t0
             self._timings["expression"].append(_elapsed)
             if _elapsed > _LAYER_TIMEOUT_NS:
-                logger.warning(
-                    "Layer expression(fast) took %.1fms (>200ms)", _elapsed / 1e6
-                )
+                logger.warning("Layer expression(fast) took %.1fms (>200ms)", _elapsed / 1e6)
             # Fast path still perturbs boundary lightly (10% force)
             if self._layer_enabled.get("boundary", True):
                 fast_force = self._emotion_to_boundary_force(emotion)
@@ -802,9 +778,7 @@ class ComputationSpine:
             self.boundary.self_repair()
             # HGT d_3 inhibition can veto expression
             if self._layer_enabled.get("expression", True):
-                should_express_fast = (
-                    self.expression.should_express() and hgt_decision[3] < 0.5
-                )
+                should_express_fast = self.expression.should_express() and hgt_decision[3] < 0.5
             else:
                 should_express_fast = False
             if should_express_fast:
@@ -826,7 +800,7 @@ class ComputationSpine:
                 "L4_Sheaf": l4_payload,
                 "L5_HGT": self._l5_payload(hgt_decision),
                 "L6_Boundary": self.boundary.to_dict(),
-                "L7_Expression": self.expression.state(),
+                "L7_Expression": result["expression_state"],
             }
             self._drift_embodiment(result)
             self._result_cache[cache_key] = result
@@ -863,9 +837,7 @@ class ComputationSpine:
             # Apply HGT d_0 (expression drive correction)
             drive = max(0.0, min(1.0, drive + hgt_decision[0] * 0.3))
             if boundary_result.get("phase_transition"):
-                drive = min(
-                    1.0, drive + 0.4
-                )  # Phase transition boosts expression drive
+                drive = min(1.0, drive + 0.4)  # Phase transition boosts expression drive
             self.expression.accumulate(drive, dt=1.0)
             self.expression.silence_lowers_threshold(dt=dt)
 
@@ -912,7 +884,8 @@ class ComputationSpine:
         """
         # Drift rate limiting: skip if too soon since last drift
         timestamp = self._last_process_time
-        if timestamp - self._last_drift_time < self._drift_min_interval:
+        dt = timestamp - self._last_drift_time
+        if dt < self._drift_min_interval:
             self._drift_tick += 1
             return
         self._last_drift_time = timestamp
@@ -927,6 +900,7 @@ class ComputationSpine:
             self._drift_tick,
             oscillation_detector=self._oscillation_detector,
             drift_attribution=self._drift_attribution,
+            dt=dt,
         )
         self._drift_tick += 1
 
@@ -937,12 +911,8 @@ class ComputationSpine:
                 needs_reapply = True
                 break
         if needs_reapply:
-            self._last_embodiment_apply = {
-                n: t.value for n, t in self._embodiment_traits.items()
-            }
+            self._last_embodiment_apply = {n: t.value for n, t in self._embodiment_traits.items()}
             # Rebuild personality dict with new embodiment values mapped to legacy names
-            from .personality import _REVERSE_LEGACY_MAP
-
             updated = dict(self._personality)
             for emb_name, tm in self._embodiment_traits.items():
                 legacy_name = _REVERSE_LEGACY_MAP.get(emb_name)
@@ -979,9 +949,7 @@ class ComputationSpine:
             return self.expression.express(now=now)
         return {"intensity": 0.0, "urgency": 0.0, "mode": "hint", "ready": False}
 
-    def feedback(
-        self, outcome: str, dt: float = 1.0, session_key: str = ""
-    ) -> dict[str, float]:
+    def feedback(self, outcome: str, dt: float = 1.0, session_key: str = "") -> dict[str, float]:
         """注入表达结果反馈到虚空-伤痕引擎。
 
         同时更新：HGT 适应、Embodiment 人格漂移、每关系人格 delta。
@@ -1025,9 +993,7 @@ class ComputationSpine:
           - ignored: 对此人稍微更内向
         """
         if session_key not in self._relationship_deltas:
-            self._relationship_deltas[session_key] = {
-                name: 0.0 for name in self._personality
-            }
+            self._relationship_deltas[session_key] = {name: 0.0 for name in self._personality}
         delta = self._relationship_deltas[session_key]
         rate = 0.005  # very slow evolution
         if outcome == "accepted":
@@ -1138,9 +1104,7 @@ class ComputationSpine:
             for name, tm_data in data["embodiment_traits"].items():
                 if name in self._embodiment_traits and isinstance(tm_data, dict):
                     self._embodiment_traits[name] = TraitMemory.from_dict(tm_data)
-            self._last_embodiment_apply = {
-                n: t.value for n, t in self._embodiment_traits.items()
-            }
+            self._last_embodiment_apply = {n: t.value for n, t in self._embodiment_traits.items()}
         if "drift_tick" in data:
             self._drift_tick = int(data["drift_tick"])
         self._last_drift_time = float(data.get("last_drift_time", 0.0))
@@ -1187,9 +1151,7 @@ class ComputationSpine:
             result.append((density - 0.5) * 2.0 * surprise)
         return result
 
-    def _l1_hdc_payload(
-        self, text: str, h: bytearray, surprise: float
-    ) -> dict[str, Any]:
+    def _l1_hdc_payload(self, text: str, h: bytearray, surprise: float) -> dict[str, Any]:
         """L1 层诊断数据：基于实际 HDC 向量的可序列化信息。"""
         ones = sum(b.bit_count() for b in h)
         total_bits = max(1, len(h) * 8)
@@ -1212,9 +1174,7 @@ class ComputationSpine:
             "byte_len": len(h),
             "density": round(ones / total_bits, 4),
             "flip_ratio": round(max(0.0, min(1.0, flip_ratio)), 4),
-            "prediction_similarity": round(
-                max(0.0, min(1.0, prediction_similarity)), 4
-            ),
+            "prediction_similarity": round(max(0.0, min(1.0, prediction_similarity)), 4),
             "sample_bits": sample_bits[:1024],
             "sample_rows": 16,
             "sample_cols": 64,
@@ -1237,19 +1197,14 @@ class ComputationSpine:
             item = void.to_dict() if hasattr(void, "to_dict") else {}
             item["concept"] = f"void_{idx}"
             item["boundary_count"] = int(
-                item.get("boundary_count", len(getattr(void, "boundary", []) or []))
-                or 0
+                item.get("boundary_count", len(getattr(void, "boundary", []) or [])) or 0
             )
-            item["depth"] = round(
-                float(item.get("depth", getattr(void, "depth", 0.0)) or 0.0), 4
-            )
+            item["depth"] = round(float(item.get("depth", getattr(void, "depth", 0.0)) or 0.0), 4)
             item["pressure"] = round(
                 float(item.get("pressure", getattr(void, "pressure", 0.0)) or 0.0), 4
             )
             item["age"] = int(item.get("age", getattr(void, "age", 0)) or 0)
-            item["beta"] = round(
-                float(item.get("beta", getattr(void, "beta", 0.0)) or 0.0), 4
-            )
+            item["beta"] = round(float(item.get("beta", getattr(void, "beta", 0.0)) or 0.0), 4)
             voids.append(item)
         return {
             "source": "void_scar_engine",
@@ -1285,8 +1240,7 @@ class ComputationSpine:
 
     def _emotion_to_boundary_force(self, emotion: dict[str, float]) -> list[float]:
         """将 8 维情感状态映射为 32 维边界力向量（平铺 + 缩放）。"""
-        # Map 8 emotion dims to 32-dim boundary space (tile + scale)
-        values = [
+        values = (
             emotion.get("warmth", 0.0),
             emotion.get("arousal", 0.0),
             emotion.get("valence", 0.0),
@@ -1295,11 +1249,8 @@ class ComputationSpine:
             emotion.get("repair_pressure", 0.0),
             emotion.get("expression_drive", 0.0),
             emotion.get("boundary_firmness", 0.0),
-        ]
-        force = []
-        for i in range(32):
-            force.append(values[i % 8] * 0.3)
-        return force
+        )
+        return [values[i & 7] * 0.3 for i in range(32)]
 
     def _build_result(
         self,

@@ -74,7 +74,7 @@ class MemoryItem:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "MemoryItem":
+    def from_dict(cls, d: dict) -> MemoryItem:
         return cls(
             id=d["id"],
             text=d["text"],
@@ -108,7 +108,9 @@ class MemoryResult:
     created_at: float  # 记忆创建时间戳，用于生成相对时间标签
     recall_count: int = 0  # 被召回次数，用于 Ebbinghaus 遗忘曲线计算
     emotional_weight: float = 0.5  # 情感权重 [0,1]，用于遗忘曲线稳定性
-    recall_reason: str = ""  # 召回原因: keyword_match / vector_similarity / temporal_proximity / association_graph
+    recall_reason: str = (
+        ""  # 召回原因: keyword_match / vector_similarity / temporal_proximity / association_graph
+    )
 
     # ------------------------------------------------------------------
     # 记忆温度（Item 147）
@@ -174,7 +176,7 @@ class GraphNode:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "GraphNode":
+    def from_dict(cls, d: dict) -> GraphNode:
         return cls(
             id=d["id"],
             label=d["label"],
@@ -210,7 +212,7 @@ class GraphEdge:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "GraphEdge":
+    def from_dict(cls, d: dict) -> GraphEdge:
         return cls(
             source=d["source"],
             target=d["target"],
@@ -288,7 +290,7 @@ class ConversationBuffer:
         }
 
     @classmethod
-    def from_dict(cls, d: dict) -> "ConversationBuffer":
+    def from_dict(cls, d: dict) -> ConversationBuffer:
         buf = cls(session_key=d["session_key"])
         buf.messages = d.get("messages", [])
         buf.last_activity = d.get("last_activity", 0.0)
@@ -327,9 +329,7 @@ def _tokenize(text: str) -> set[str]:
         return set()
     if _jieba is not None:
         return set(
-            w
-            for w in _jieba.cut(text)
-            if len(w.strip()) >= 1 and w.strip() not in _STOPWORDS
+            w for w in _jieba.cut(text) if len(w.strip()) >= 1 and w.strip() not in _STOPWORDS
         )
     # Fallback: 空格分词（英文）+ 字符 bigram（中文）
     tokens: set[str] = set()
@@ -379,9 +379,7 @@ class AnniversaryDetector:
                 "important_events": [],
             }
 
-    def record_important_event(
-        self, session_key: str, event: str, timestamp: float
-    ) -> None:
+    def record_important_event(self, session_key: str, event: str, timestamp: float) -> None:
         if session_key in self._milestones:
             self._milestones[session_key]["important_events"].append(
                 {"event": event, "timestamp": timestamp}
@@ -409,7 +407,7 @@ class AnniversaryDetector:
         return dict(self._milestones)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "AnniversaryDetector":
+    def from_dict(cls, data: dict) -> AnniversaryDetector:
         det = cls()
         det._milestones = data
         return det
@@ -510,13 +508,9 @@ class MemorySystem:
         - 高开放性(O) → 高 reconsolidation 率（记忆更容易被重写）
         - 高宜人性(A) → 正向记忆召回偏好更强
         """
-        openness_val = personality.get(
-            "openness", personality.get("boundary_permeability", 0.5)
-        )
+        openness_val = personality.get("openness", personality.get("boundary_permeability", 0.5))
         C = personality.get("conscientiousness", personality.get("inner_order", 0.5))
-        _E = personality.get(
-            "extraversion", personality.get("expression_drive_trait", 0.5)
-        )  # noqa: F841
+        _E = personality.get("extraversion", personality.get("expression_drive_trait", 0.5))  # noqa: F841
         A = personality.get("agreeableness", personality.get("relational_gravity", 0.5))
         N = personality.get("neuroticism", personality.get("perception_acuity", 0.5))
 
@@ -583,9 +577,7 @@ class MemorySystem:
         temperature: float = 0.0,
     ) -> None:
         """v1 兼容接口：直接写入 L1。v2 中仅用于迁移/测试。"""
-        self.write_summary(
-            text=text, source_turns=1, embedding=embedding, temperature=temperature
-        )
+        self.write_summary(text=text, source_turns=1, embedding=embedding, temperature=temperature)
 
     # ------------------------------------------------------------------
     # 12h 整理（v2）
@@ -617,9 +609,7 @@ class MemorySystem:
             maxlen=self._L1_CAPACITY,
         )
 
-    def clear_unconfirmed(
-        self, keep_recent_hours: float = CONSOLIDATION_KEEP_RECENT_HOURS
-    ) -> int:
+    def clear_unconfirmed(self, keep_recent_hours: float = CONSOLIDATION_KEEP_RECENT_HOURS) -> int:
         """清除 L1 中未确认的条目。
 
         规则：
@@ -636,17 +626,12 @@ class MemorySystem:
         )
         # 如果清除后仍然满了，丢弃最早的未确认条目
         if len(kept) >= self._L1_CAPACITY:
-            unconfirmed = [
-                (i, item) for i, item in enumerate(kept) if not item.confirmed
-            ]
+            unconfirmed = [(i, item) for i, item in enumerate(kept) if not item.confirmed]
             if unconfirmed:
                 # 按时间排序，丢弃最早的
                 unconfirmed.sort(key=lambda x: x[1].created_at)
                 drop_count = len(kept) - self._L1_CAPACITY + 5  # 腾出 5 个位置
-                drop_ids = {
-                    unconfirmed[i][1].id
-                    for i in range(min(drop_count, len(unconfirmed)))
-                }
+                drop_ids = {unconfirmed[i][1].id for i in range(min(drop_count, len(unconfirmed)))}
                 kept = deque(
                     (item for item in kept if item.id not in drop_ids),
                     maxlen=self._L1_CAPACITY,
@@ -712,9 +697,7 @@ class MemorySystem:
                 except (ValueError, TypeError):
                     days_since = 0
                 if days_since > node.staleness_threshold:
-                    staleness = 1 + 0.5 * math.log(
-                        (days_since - node.staleness_threshold) / 30 + 1
-                    )
+                    staleness = 1 + 0.5 * math.log((days_since - node.staleness_threshold) / 30 + 1)
                     node.clarity *= 0.998 / staleness
                 else:
                     node.clarity *= 0.998
@@ -729,9 +712,7 @@ class MemorySystem:
     def _gc_l3(self) -> None:
         """回收 L3 中 clarity 低于阈值的节点和边，强制节点数上限。"""
         gc_threshold = 0.1
-        dead_nodes = [
-            nid for nid, node in self._l3_nodes.items() if node.clarity < gc_threshold
-        ]
+        dead_nodes = [nid for nid, node in self._l3_nodes.items() if node.clarity < gc_threshold]
         for nid in dead_nodes:
             del self._l3_nodes[nid]
 
@@ -854,9 +835,7 @@ class MemorySystem:
             if relevance <= 0.0:
                 continue
             emotion_bias = 1.0 - abs(item.temperature - current_warmth) * mood_weight
-            final_score = (
-                self._LAYER_WEIGHTS["L2"] * item.weight * relevance * emotion_bias
-            )
+            final_score = self._LAYER_WEIGHTS["L2"] * item.weight * relevance * emotion_bias
             if item.temperature > 0:
                 final_score += (positive_recall_bias - 1.0) * relevance
             result = MemoryResult(
@@ -1013,9 +992,7 @@ class MemorySystem:
                     src_label = self._l3_nodes.get(edge.source)
                     tgt_label = self._l3_nodes.get(edge.target)
                     if src_label and tgt_label:
-                        fragment = (
-                            f"{src_label.label} {edge.relation} {tgt_label.label}"
-                        )
+                        fragment = f"{src_label.label} {edge.relation} {tgt_label.label}"
                         connected_texts.append(fragment)
 
             text = node.label
@@ -1027,9 +1004,7 @@ class MemorySystem:
             )
 
             emotion_bias = 1.0 - abs(node.emotion_weight - current_warmth) * mood_weight
-            final_score = (
-                self._LAYER_WEIGHTS["L3"] * node.clarity * relevance * emotion_bias
-            )
+            final_score = self._LAYER_WEIGHTS["L3"] * node.clarity * relevance * emotion_bias
 
             node.recall_count += 1
             node.clarity = min(node.clarity + 0.05, 1.0)
@@ -1075,9 +1050,7 @@ class MemorySystem:
         lines = ["[记忆参考]"]
         for r in results[:max_items]:
             # 记忆温度前缀（Item 148）
-            temp_prefix = self._TEMPERATURE_PREFIXES.get(
-                r.memory_temperature, "（之前聊过）"
-            )
+            temp_prefix = self._TEMPERATURE_PREFIXES.get(r.memory_temperature, "（之前聊过）")
             # 根据来源层添加可信度/模糊度后缀
             if r.layer == "L3" and r.clarity < 0.7:
                 prefix = f"{temp_prefix[:-1]}/模糊印象）"
@@ -1124,9 +1097,7 @@ class MemorySystem:
 
     def compress_check(self) -> list[MemoryItem]:
         """v2: 返回 L2 中 30 天未被召回的条目（按 age_ticks 判断）。"""
-        return [
-            item for item in self._l2 if item.age_ticks >= L2_COMPRESSION_AGE_TICKS
-        ][:10]
+        return [item for item in self._l2 if item.age_ticks >= L2_COMPRESSION_AGE_TICKS][:10]
 
     def remove_compressed(self, item_ids: list[str]) -> None:
         """压缩完成后，从 L2 中移除已压缩的条目。"""
@@ -1230,18 +1201,13 @@ class MemorySystem:
     ) -> GraphEdge:
         if not hasattr(self, "_l3_edge_index"):
             self._l3_edge_index = {
-                (e.source, e.target, e.relation): i
-                for i, e in enumerate(self._l3_edges)
+                (e.source, e.target, e.relation): i for i, e in enumerate(self._l3_edges)
             }
         key = (source, target, relation)
         idx = self._l3_edge_index.get(key)
         if idx is not None and idx < len(self._l3_edges):
             edge = self._l3_edges[idx]
-            if (
-                edge.source == source
-                and edge.target == target
-                and edge.relation == relation
-            ):
+            if edge.source == source and edge.target == target and edge.relation == relation:
                 edge.emotion_weight = (edge.emotion_weight + emotion_weight) / 2
                 edge.clarity = max(edge.clarity, clarity)
                 return edge
@@ -1259,8 +1225,7 @@ class MemorySystem:
             self._l3_edges.sort(key=lambda e: e.clarity, reverse=True)
             self._l3_edges = self._l3_edges[:1500]
             self._l3_edge_index = {
-                (e.source, e.target, e.relation): i
-                for i, e in enumerate(self._l3_edges)
+                (e.source, e.target, e.relation): i for i, e in enumerate(self._l3_edges)
             }
         return edge
 
@@ -1328,13 +1293,13 @@ class MemorySystem:
             "l3_edges": [edge.to_dict() for edge in self._l3_edges],
         }
 
-    def from_dict(self, data: dict) -> "MemorySystem":
+    def from_dict(self, data: dict) -> MemorySystem:
         """从 dict 恢复全部三层状态（就地修改并返回 self）。"""
         self._restore_from_data(data)
         return self
 
     @classmethod
-    def create_from_dict(cls, data: dict) -> "MemorySystem":
+    def create_from_dict(cls, data: dict) -> MemorySystem:
         """从 dict 创建新的 MemorySystem 实例。"""
         mem = cls()
         mem._restore_from_data(data)
@@ -1353,9 +1318,7 @@ class MemorySystem:
             nid: GraphNode.from_dict(nd) for nid, nd in data.get("l3_nodes", {}).items()
         }
         self._l3_edges = [GraphEdge.from_dict(ed) for ed in data.get("l3_edges", [])]
-        self._l3_label_index: dict[str, str] = {
-            n.label: nid for nid, n in self._l3_nodes.items()
-        }
+        self._l3_label_index: dict[str, str] = {n.label: nid for nid, n in self._l3_nodes.items()}
         self._l3_edge_index: dict[tuple[str, str, str], int] = {
             (e.source, e.target, e.relation): i for i, e in enumerate(self._l3_edges)
         }
@@ -1428,9 +1391,7 @@ class ArchaeologyEngine:
                     word_freq[word] = word_freq.get(word, 0) + 1
 
         # 高频词 = 被遗忘的模式
-        patterns = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[
-            :max_findings
-        ]
+        patterns = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:max_findings]
         findings = [
             {
                 "pattern": p[0],
@@ -1465,12 +1426,8 @@ if __name__ == "__main__":
     )
 
     # v2: write summaries
-    mem.write_summary(
-        "聊了关于猫的话题，用户说家里有两只猫", source_turns=5, temperature=0.6
-    )
-    mem.write_summary(
-        "讨论了期末考试压力，用户说下周有三门考试", source_turns=8, temperature=0.3
-    )
+    mem.write_summary("聊了关于猫的话题，用户说家里有两只猫", source_turns=5, temperature=0.6)
+    mem.write_summary("讨论了期末考试压力，用户说下周有三门考试", source_turns=8, temperature=0.3)
     mem.write_summary(
         "用户提到喜欢开放世界游戏，特别是地平线系列",
         source_turns=3,
@@ -1503,9 +1460,7 @@ if __name__ == "__main__":
     # Serialization roundtrip
     data = mem.to_dict()
     mem2 = MemorySystem.create_from_dict(data)
-    print(
-        f"Restored: L1={len(mem2._l1)}, L2={len(mem2._l2)}, version={data['version']}"
-    )
+    print(f"Restored: L1={len(mem2._l1)}, L2={len(mem2._l2)}, version={data['version']}")
 
     # Graph ingestion
     mem.ingest_graph_triples(

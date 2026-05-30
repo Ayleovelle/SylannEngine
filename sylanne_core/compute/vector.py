@@ -23,7 +23,10 @@ def clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     Returns:
         限制后的浮点数
     """
-    return max(lo, min(hi, float(value)))
+    v = float(value)
+    if v != v or v == float("inf") or v == float("-inf"):
+        return lo
+    return max(lo, min(hi, v))
 
 
 # 身体状态向量的 29 个维度轴，按子系统分组：
@@ -121,9 +124,7 @@ WEIGHTS: dict[str, dict[str, float]] = {
 WEIGHT_TERMS: tuple[tuple[int, tuple[tuple[int, float], ...]], ...] = tuple(
     (
         STATE_INDEX[axis],
-        tuple(
-            (EVENT_INDEX[event_axis], weight) for event_axis, weight in weights.items()
-        ),
+        tuple((EVENT_INDEX[event_axis], weight) for event_axis, weight in weights.items()),
     )
     for axis, weights in WEIGHTS.items()
 )

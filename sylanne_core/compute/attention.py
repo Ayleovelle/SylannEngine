@@ -45,9 +45,7 @@ class BodyToken:
 
 
 def _token(name: str, family: str, *values: float) -> BodyToken:
-    return BodyToken(
-        name=name, family=family, values=tuple(_clamp(value) for value in values[:4])
-    )
+    return BodyToken(name=name, family=family, values=tuple(_clamp(value) for value in values[:4]))
 
 
 def body_tokens(state: dict[str, float], event: dict[str, float]) -> list[BodyToken]:
@@ -145,9 +143,7 @@ class TinyBodyAttention:
     系数经过精心调校以保持生理合理性（每个增量 clamp 在 [-0.08, 0.08]）。
     """
 
-    def __init__(
-        self, *, hidden_dim: int = 32, heads: int = 2, layers: int = 1
-    ) -> None:
+    def __init__(self, *, hidden_dim: int = 32, heads: int = 2, layers: int = 1) -> None:
         self.hidden_dim = min(32, max(8, int(hidden_dim)))
         self.heads = min(2, max(1, int(heads)))
         self.layers = 1 if layers != 0 else 0
@@ -157,9 +153,7 @@ class TinyBodyAttention:
         """设置人格参数，影响伤害敏感度系数。"""
         self._boundary_permeability = max(0.0, min(1.0, boundary_permeability))
 
-    def update(
-        self, state: dict[str, float], event: dict[str, float]
-    ) -> dict[str, Any]:
+    def update(self, state: dict[str, float], event: dict[str, float]) -> dict[str, Any]:
         tokens = body_tokens(state, event)
         attention = self._attention(tokens)
         delta = self._project(tokens, attention)
@@ -234,9 +228,7 @@ class TinyBodyAttention:
             0.028 * has_text + 0.022 * idle + 0.018 * safe - 0.035 * hurt,
         )
         add("muscle.fatigue", 0.018 * idle + 0.012 * boundary - 0.02 * safe)
-        add(
-            "immunity.boundary_pressure", 0.065 * boundary + 0.025 * hurt - 0.028 * safe
-        )
+        add("immunity.boundary_pressure", 0.065 * boundary + 0.025 * hurt - 0.028 * safe)
         add("immunity.cooldown", 0.025 * idle + 0.018 * boundary - 0.02 * safe)
         add("immunity.interruption_budget", 0.012 * safe + 0.001 * idle)
         add(
@@ -246,9 +238,7 @@ class TinyBodyAttention:
         add("mortality.exhaustion", 0.016 * idle + 0.012 * boundary - 0.018 * safe)
 
         return {
-            axis: max(-0.08, min(0.08, value))
-            for axis, value in delta.items()
-            if abs(value) > 0.0
+            axis: max(-0.08, min(0.08, value)) for axis, value in delta.items() if abs(value) > 0.0
         }
 
 
@@ -279,8 +269,7 @@ def focus_information_flood(
     clean_events = [
         processed
         for event in events
-        if (processed := _flood_event(event, interests=interests))["text"]
-        or processed["flags"]
+        if (processed := _flood_event(event, interests=interests))["text"] or processed["flags"]
     ]
     pressure = min(1.0, len(clean_events) / max(1, int(max_events)))
     speakers: dict[str, dict[str, Any]] = {}
@@ -342,9 +331,7 @@ def _flood_event(
     confidence = _clamp(float(event.get("confidence") or 0.0))
     text = " ".join(str(event.get("text") or "").split())[:240]
     matches = [key for key in interests or {} if key and key in text]
-    interest_boost = min(
-        0.5, sum(_clamp((interests or {})[key]) for key in matches) * 0.25
-    )
+    interest_boost = min(0.5, sum(_clamp((interests or {})[key]) for key in matches) * 0.25)
     urgency = (
         confidence
         + interest_boost
@@ -367,10 +354,11 @@ def project_attention_delta(result: dict[str, Any]) -> dict[str, float]:
     return dict(result.get("delta") or {})
 
 
-def attention_delta(
-    state: dict[str, float], event: dict[str, float]
-) -> dict[str, float]:
-    return project_attention_delta(TinyBodyAttention().update(state, event))
+_SINGLETON_ATTENTION = TinyBodyAttention()
+
+
+def attention_delta(state: dict[str, float], event: dict[str, float]) -> dict[str, float]:
+    return project_attention_delta(_SINGLETON_ATTENTION.update(state, event))
 
 
 # ---------------------------------------------------------------------------
@@ -378,9 +366,7 @@ def attention_delta(
 # ---------------------------------------------------------------------------
 
 
-def importance_tagger(
-    text: str, valence: float, is_first: bool, is_question: bool
-) -> str:
+def importance_tagger(text: str, valence: float, is_first: bool, is_question: bool) -> str:
     """为消息打重要性标签。"""
     if is_first:
         return "landmark"  # 首条消息

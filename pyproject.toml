@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sylanne-core"
+version = "1.0.0a1"
+description = "Affective computation engine SDK for AstrBot"
+readme = "README.md"
+license = "AGPL-3.0-only"
+requires-python = ">=3.10"
+authors = [{ name = "Ayleovelle" }]
+keywords = ["affective-computing", "emotion", "astrbot", "sdk"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/Ayleovelle/SylannEngine"
+Repository = "https://github.com/Ayleovelle/SylannEngine"
+Issues = "https://github.com/Ayleovelle/SylannEngine/issues"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff==0.14.2", "mypy>=1.10"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["sylanne_core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["B007", "B905", "SIM102", "SIM103", "SIM105", "SIM108", "SIM109", "UP035", "E501"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+packages = ["sylanne_core"]

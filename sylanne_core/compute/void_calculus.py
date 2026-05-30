@@ -13,8 +13,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 class SilenceTexture:
@@ -200,9 +201,7 @@ class VoidSpace:
         self._cooldown_duration = 3
         self._pressure_cap = 5.0
 
-    def process(
-        self, event_vec: bytes, surprise: float, prev_similarity: float
-    ) -> dict[str, Any]:
+    def process(self, event_vec: bytes, surprise: float, prev_similarity: float) -> dict[str, Any]:
         """主入口：处理一个事件通过虚空空间。
 
         按顺序执行：老化 → 收缩 → 加深 → 创生 → 收割 → 合并 → 分裂。
@@ -282,21 +281,18 @@ class VoidSpace:
         contracted = 0
         for v in self.voids:
             before = len(v.boundary)
-            removed_vecs = [
-                b
-                for b in v.boundary
-                if self.similarity_fn(event_vec, b) >= self._contract_threshold
-            ]
+            kept = []
+            removed_vecs = []
+            for b in v.boundary:
+                if self.similarity_fn(event_vec, b) >= self._contract_threshold:
+                    removed_vecs.append(b)
+                else:
+                    kept.append(b)
             if removed_vecs:
                 v._last_boundary_hash = hash(bytes(removed_vecs[-1]))
-            v.boundary = [
-                b
-                for b in v.boundary
-                if self.similarity_fn(event_vec, b) < self._contract_threshold
-            ]
-            if len(v.boundary) < before:
+                v.boundary = kept
                 contracted += 1
-                removed = before - len(v.boundary)
+                removed = before - len(kept)
                 v.pressure *= 1.0 - removed / max(1, before)
         return contracted
 
@@ -315,9 +311,7 @@ class VoidSpace:
                     break
         return deepened
 
-    def _should_create_void(
-        self, event_vec: bytes, surprise: float, prev_sim: float
-    ) -> bool:
+    def _should_create_void(self, event_vec: bytes, surprise: float, prev_sim: float) -> bool:
         """虚空创生条件判断：检测话题的突然偏转。
 
         条件：高惊讶 + 与前一事件低相似度 = 话题突然转向（可能在回避什么）。
@@ -454,9 +448,9 @@ class VoidSpace:
         far = [b for b in v.boundary if self.similarity_fn(b, pivot) <= 0.5]
         if not near or not far:
             return None, None
-        avg_inter = sum(
-            self.similarity_fn(n, f) for n in near[:3] for f in far[:3]
-        ) / max(1, min(9, len(near) * len(far)))
+        avg_inter = sum(self.similarity_fn(n, f) for n in near[:3] for f in far[:3]) / max(
+            1, min(9, len(near) * len(far))
+        )
         if avg_inter < self._split_threshold:
             return near, far
         return None, None

@@ -64,9 +64,7 @@ class ShadowMemory:
         signal_kind = kind or shadow_kind(text, flags)
         if not signal_kind:
             return
-        self._events.append(
-            {"kind": signal_kind, "weight": round(shadow_weight(signal_kind), 6)}
-        )
+        self._events.append({"kind": signal_kind, "weight": round(shadow_weight(signal_kind), 6)})
         self._events = self._events[-24:]
 
     def state(self) -> dict[str, Any]:
@@ -92,9 +90,7 @@ class ShadowMemory:
             / 8.0
         )
         # 边界需求：边界信号+纠正的累积
-        boundary_need = _clamp(
-            (counts["boundary_count"] + counts["correction_count"]) / 6.0
-        )
+        boundary_need = _clamp((counts["boundary_count"] + counts["correction_count"]) / 6.0)
         return {
             "schema_version": SHADOW_MEMORY_SCHEMA_VERSION,
             "kind": "shadow_memory",
@@ -128,7 +124,7 @@ class ShadowMemory:
         return {"events": [dict(e) for e in self._events]}
 
     @classmethod
-    def from_raw(cls, data: dict[str, Any] | None) -> "ShadowMemory":
+    def from_raw(cls, data: dict[str, Any] | None) -> ShadowMemory:
         """从 body.memory['shadow'] 字典恢复实例。"""
         if not isinstance(data, dict):
             return cls()
@@ -187,8 +183,7 @@ def shadow_kind(text: str, flags: list[str]) -> str:
     ):
         return "followup"
     if "correction" in flag_set or any(
-        marker in text
-        for marker in ("不是", "不对", "错了", "理解错", "你误会", "别当成")
+        marker in text for marker in ("不是", "不对", "错了", "理解错", "你误会", "别当成")
     ):
         return "correction"
     if (
@@ -197,13 +192,9 @@ def shadow_kind(text: str, flags: list[str]) -> str:
         or "joke" in lowered
     ):
         return "joke_or_bit"
-    if "boundary" in flag_set or any(
-        marker in text for marker in ("别", "不要", "停", "边界")
-    ):
+    if "boundary" in flag_set or any(marker in text for marker in ("别", "不要", "停", "边界")):
         return "boundary"
-    if "repair" in flag_set or any(
-        marker in text for marker in ("道歉", "修复", "补救")
-    ):
+    if "repair" in flag_set or any(marker in text for marker in ("道歉", "修复", "补救")):
         return "repair"
     return ""
 

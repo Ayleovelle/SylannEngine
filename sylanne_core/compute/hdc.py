@@ -36,7 +36,7 @@ _SEED_CACHE_EVICT_COUNT = 1000
 # 使用 SHA-256 哈希链确保确定性（与纯 Python 路径的 atom() 结果一致）。
 
 
-def _build_char_lut(dim: int) -> "np.ndarray":
+def _build_char_lut(dim: int) -> np.ndarray:
     """构建字符查找表：shape [256, dim], dtype uint8, 每个元素为 0 或 1。
 
     对每个字节值 b (0-255)，用 SHA-256 哈希链生成 dim 个随机比特。
@@ -50,9 +50,7 @@ def _build_char_lut(dim: int) -> "np.ndarray":
         parts = []
         chunk = 0
         while len(b"".join(parts)) < byte_dim:
-            parts.append(
-                hashlib.sha256(token_bytes + struct.pack("<I", chunk)).digest()
-            )
+            parts.append(hashlib.sha256(token_bytes + struct.pack("<I", chunk)).digest())
             chunk += 1
         raw = b"".join(parts)[:byte_dim]
         # 将 packed bytes 展开为 dim 个独立比特（little-endian 位序）
@@ -111,7 +109,7 @@ class HDCEncoder:
         self._shift_masks = _build_shift_masks(self._byte_dim, dim)
         # numpy 加速路径：预计算字符查找表
         # 查找表只在首次需要时构建（lazy init），避免 import 时的开销
-        self._np_char_lut: "np.ndarray | None" = None
+        self._np_char_lut: np.ndarray | None = None
 
     def atom(self, token: str) -> bytearray:
         """为单个 token 生成确定性随机二进制向量（packed bytes 格式）。
@@ -313,7 +311,7 @@ class HDCEncoder:
         # 步骤 5：将 dim 维比特数组打包为 bytearray（little-endian 位序）
         return self._np_bits_to_bytearray(result_bits)
 
-    def _np_bits_to_bytearray(self, bits: "np.ndarray") -> bytearray:
+    def _np_bits_to_bytearray(self, bits: np.ndarray) -> bytearray:
         """将 dim 维 0/1 numpy 数组打包为 bytearray（little-endian 位序）。
 
         位序约定：bits[byte_idx*8 + bit_idx] 对应输出字节 byte_idx 的第 bit_idx 位。
