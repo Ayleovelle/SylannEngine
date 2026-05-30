@@ -118,16 +118,10 @@ class PhaseTransitionExpression:
             return 0.0
         sigma_call = 0.6 * theta_group if self._social_signals.name_mentioned else 0.0
 
-        sigma_sheaf = (
-            self._social_signals.sheaf_coupling
-            * params.get("sheaf_coupling", 0.3)
-            * 0.3
-        )
+        sigma_sheaf = self._social_signals.sheaf_coupling * params.get("sheaf_coupling", 0.3) * 0.3
 
         sigma_void = (
-            self._social_signals.social_void_pressure
-            * params.get("void_coupling", 0.3)
-            * 0.2
+            self._social_signals.social_void_pressure * params.get("void_coupling", 0.3) * 0.2
         )
 
         theta_eff = theta_group - sigma_call - sigma_sheaf - sigma_void
@@ -206,7 +200,18 @@ class PhaseTransitionExpression:
 
     def _current_mode(self) -> str:
         """从当前强度推导表达模式：silent / hint / normal / urgent。"""
-        intensity = self.expression_intensity()
+        return self._mode_from_intensity(self.expression_intensity())
+
+    def _intensity_from_threshold(self, threshold: float) -> float:
+        if threshold < 1e-6:
+            return 1.0 if self.pressure > 0 else 0.0
+        half_threshold = threshold * 0.5
+        if self.pressure < half_threshold:
+            return 0.0
+        return (self.pressure - half_threshold) / threshold
+
+    @staticmethod
+    def _mode_from_intensity(intensity: float) -> str:
         if intensity < 0.3:
             return "silent"
         elif intensity < 0.7:
@@ -219,14 +224,16 @@ class PhaseTransitionExpression:
         """当前状态快照（用于诊断和 UI 展示）。"""
         eff_threshold = self.effective_threshold()
         is_group = bool(self._social_signals and self._social_signals.is_group)
+        half = eff_threshold * 0.5
+        intensity = self._intensity_from_threshold(eff_threshold)
         result = {
             "pressure": round(self.pressure, 4),
             "threshold": round(self.threshold, 4),
             "effective_threshold": round(eff_threshold, 4),
             "ratio": round(self.pressure / max(0.01, eff_threshold), 3),
             "silence_duration": round(self.silence_duration, 1),
-            "ready": self.should_express(),
-            "mode": self._current_mode(),
+            "ready": self.pressure > half,
+            "mode": self._mode_from_intensity(intensity),
             "expression_count": self._expression_count,
             "is_group": is_group,
         }

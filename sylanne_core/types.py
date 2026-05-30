@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
+
+EngineStatus = Literal["init", "running", "degraded", "closed"]
 
 
 class RhythmState(TypedDict):
@@ -126,6 +128,14 @@ class MemoryResult(TypedDict):
     total_stored: int
 
 
+class HealthStatus(TypedDict):
+    status: EngineStatus
+    active_sessions: int
+    data_dir_exists: bool
+    llm_configured: bool
+    embedding_configured: bool
+
+
 class Surface(TypedDict):
     schema_version: str
     session_id: str
@@ -138,3 +148,4 @@ class Surface(TypedDict):
     memory: MemoryResult
     pipeline: dict[str, Any]
     dynamics: dict[str, Any]
+    debug: dict[str, Any] | None

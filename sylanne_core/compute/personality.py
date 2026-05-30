@@ -184,7 +184,7 @@ class TraitMemory:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TraitMemory":
+    def from_dict(cls, data: dict[str, Any]) -> TraitMemory:
         """从字典恢复 TraitMemory 实例。"""
         tm = cls(float(data.get("value", 0.5)))
         tm.fast_ema = float(data.get("fast_ema", 0.0))
@@ -261,9 +261,7 @@ class DriftSignalExtractor:
         # 情绪效价模式：需要窗口内多条消息持续正向
         valence = float(emotion.get("valence", 0.0))
         positive_count = sum(
-            1
-            for r in self._window
-            if float(r.get("emotion", {}).get("valence", 0.0)) > 0.3
+            1 for r in self._window if float(r.get("emotion", {}).get("valence", 0.0)) > 0.3
         )
         if positive_count >= 5:
             signals["sustained_positive_valence"] = min(1.0, positive_count / 7.0)
@@ -283,9 +281,7 @@ class DriftSignalExtractor:
         if surprise > 0.6 and valence < -0.3:
             signals["high_surprise_negative"] = min(1.0, surprise)
         # 持续低惊喜：窗口内大部分消息都无惊喜
-        low_surprise_count = sum(
-            1 for r in self._window if float(r.get("surprise", 0.0)) < 0.2
-        )
+        low_surprise_count = sum(1 for r in self._window if float(r.get("surprise", 0.0)) < 0.2)
         if low_surprise_count >= 8:
             signals["sustained_low_surprise"] = min(1.0, low_surprise_count / 10.0)
 
@@ -377,9 +373,7 @@ class DriftAttribution:
     def record(self, trigger: str, dimension: str, delta: float, new_value: float):
         """记录一次漂移事件（仅当变化量显著时）。"""
         if abs(delta) > 0.005:
-            self._events.append(
-                DriftEvent(time.time(), trigger, dimension, delta, new_value)
-            )
+            self._events.append(DriftEvent(time.time(), trigger, dimension, delta, new_value))
 
     def recent(self, n: int = 20) -> list[dict]:
         """返回最近 n 条漂移事件的字典列表。"""
@@ -445,13 +439,15 @@ def compute_embodiment_drift(
     tick_count: int,
     oscillation_detector: OscillationDetector | None = None,
     drift_attribution: DriftAttribution | None = None,
+    dt: float = 30.0,
 ) -> None:
     """根据提取的信号对 Embodiment 特质施加漂移。
 
-    漂移公式: Δ = base_rate × √signal × inertia × homeostatic × asymmetric
+    漂移公式: Δ = base_rate × dt_scale × √signal × inertia × homeostatic × asymmetric
 
     各因子含义：
     - base_rate (0.003): 基础漂移速率，保证变化足够缓慢
+    - dt_scale: 真实时间缩放因子，dt/30 归一化（30s 为基准间隔）
     - √signal: 信号强度的平方根，压缩极端值的影响
     - inertia: 惯性因子，随 tick 数增加而递减（越老越稳定）
     - homeostatic: 恒稳态阻力，偏离设定点越远阻力越大
@@ -466,8 +462,10 @@ def compute_embodiment_drift(
         tick_count: 当前总 tick 数（用于计算惯性）
         oscillation_detector: 可选的震荡检测器
         drift_attribution: 可选的漂移归因追踪器
+        dt: 距上次漂移计算的真实秒数（默认 30s 即基准间隔）
     """
     base_rate = 0.003
+    dt_scale = min(max(dt, 1.0) / 30.0, 8.0)
     # 惯性：随时间对数增长而递减，使人格越来越稳定
     inertia = 1.0 / (1.0 + math.log(1.0 + tick_count / 500.0))
 
@@ -499,6 +497,7 @@ def compute_embodiment_drift(
 
             raw_delta = (
                 base_rate
+                * dt_scale
                 * signal_magnitude
                 * weight
                 * inertia
@@ -510,16 +509,13 @@ def compute_embodiment_drift(
     # 速率限制：如果总变化量超过 _TICK_DRIFT_CAP，按比例缩放
     # 季节性调制也纳入预算，不绕过 drift cap
     seasonal_target = _get_seasonal_target()
-    if (
-        seasonal_target
-        and seasonal_target in traits
-        and not traits[seasonal_target].frozen
-    ):
-        pending.append((seasonal_target, 0.01, "_seasonal"))
+    if seasonal_target and seasonal_target in traits and not traits[seasonal_target].frozen:
+        pending.append((seasonal_target, 0.01 * dt_scale, "_seasonal"))
 
     total_abs = sum(abs(d) for _, d, _ in pending)
-    if total_abs > _TICK_DRIFT_CAP:
-        scale = _TICK_DRIFT_CAP / total_abs
+    effective_cap = _TICK_DRIFT_CAP * dt_scale
+    if total_abs > effective_cap:
+        scale = effective_cap / total_abs
         pending = [(name, delta * scale, sig) for name, delta, sig in pending]
 
     # 第二遍：应用缩放后的 delta
@@ -631,9 +627,7 @@ def drift_sylanne_traits(
         "drift": {
             "mode": "slow_plasticity",
             "events": int(previous_drift.get("events") or 0) + 1,
-            "plasticity": round(
-                min(1.0, float(previous_drift.get("plasticity") or 0.0) + step), 6
-            ),
+            "plasticity": round(min(1.0, float(previous_drift.get("plasticity") or 0.0) + step), 6),
         },
     }
 
@@ -658,9 +652,7 @@ def drift_personality(
 # ---------------------------------------------------------------------------
 
 
-def initial_personality(
-    session_key: str, *, seed_text: str = "Sylanne Soulful"
-) -> dict[str, Any]:
+def initial_personality(session_key: str, *, seed_text: str = "Sylanne Soulful") -> dict[str, Any]:
     """生成初始人格状态。
 
     使用 blake2s 哈希从 session_key 和 seed_text 生成确定性签名，
@@ -777,9 +769,7 @@ def _voice(traits: dict[str, float]) -> dict[str, Any]:
         boundary: 边界强度（sovereignty_guard ≥ 0.6 → strong，否则 soft）
     """
     return {
-        "temperature": round(
-            (traits.get("warmth_bias", 0.5) + traits.get("edge", 0.5)) / 2, 6
-        ),
+        "temperature": round((traits.get("warmth_bias", 0.5) + traits.get("edge", 0.5)) / 2, 6),
         "cadence": "slow_burn" if traits.get("patience", 0.5) >= 0.5 else "quick_cut",
         "boundary": "strong" if traits.get("sovereignty_guard", 0.5) >= 0.6 else "soft",
     }
@@ -851,9 +841,7 @@ def apply_relationship_age_modulation(traits: dict, relationship_stage: str) -> 
             0.1, traits.get("expression_drive_trait", 0.5) - 0.1
         )
     elif relationship_stage == "young":  # 3-14天：逐渐开放
-        modulated["boundary_permeability"] = (
-            traits.get("boundary_permeability", 0.5) - 0.05
-        )
+        modulated["boundary_permeability"] = traits.get("boundary_permeability", 0.5) - 0.05
     elif relationship_stage == "mature":  # 14-90天：正常
         pass  # 不调整
     elif relationship_stage == "deep":  # 90天+：更大情绪波动和更直接表达
@@ -920,7 +908,7 @@ class EvolutionJournal:
         return {"checkpoints": self._checkpoints, "next_id": self._next_id}
 
     @classmethod
-    def from_dict(cls, data: dict) -> "EvolutionJournal":
+    def from_dict(cls, data: dict) -> EvolutionJournal:
         """从字典恢复 EvolutionJournal 实例。"""
         ej = cls()
         ej._checkpoints = data.get("checkpoints", [])

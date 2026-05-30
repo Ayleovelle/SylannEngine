@@ -10,7 +10,6 @@ import time
 from collections import deque
 from dataclasses import dataclass
 
-
 # ======================================================================
 # 关系弹性模型
 # ======================================================================
@@ -26,18 +25,10 @@ class RelationalResilience:
         age_bonus = min(relationship_age_days / 90, 1.0) * 0.2
         repair_bonus = min(self._repair_history * 0.05, 0.3)
         strain_penalty = self._unresolved_strains * 0.08
-        raw = (
-            self._base_resilience
-            + age_bonus
-            + repair_bonus
-            - strain_penalty
-            + trust * 0.2
-        )
+        raw = self._base_resilience + age_bonus + repair_bonus - strain_penalty + trust * 0.2
         return max(0.1, min(1.0, raw))
 
-    def can_absorb(
-        self, impact: float, relationship_age_days: float, trust: float
-    ) -> bool:
+    def can_absorb(self, impact: float, relationship_age_days: float, trust: float) -> bool:
         return impact <= self.resilience(relationship_age_days, trust)
 
     def record_repair(self) -> None:
@@ -58,7 +49,7 @@ class RelationalResilience:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "RelationalResilience":
+    def from_dict(cls, data: dict) -> RelationalResilience:
         r = cls()
         r._base_resilience = float(data.get("base", 0.5))
         r._repair_history = int(data.get("repairs", 0))
@@ -120,7 +111,7 @@ class RepairStrategy:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "RepairStrategy":
+    def from_dict(cls, data: dict) -> RepairStrategy:
         rs = cls(conflict_threshold=int(data.get("threshold", 3)))
         rs._consecutive_conflicts = int(data.get("consecutive_conflicts", 0))
         rs._last_strategy = str(data.get("last_strategy", ""))
@@ -166,9 +157,7 @@ class DynamicBoundary:
             recent_rejects = sum(
                 1
                 for p in self._probe_history
-                if p.dimension == dimension
-                and not p.accepted
-                and now - p.timestamp < 3600
+                if p.dimension == dimension and not p.accepted and now - p.timestamp < 3600
             )
             self._probe_cooldowns[dimension] = now + 600 * (1 + recent_rejects)
 
@@ -192,7 +181,7 @@ class DynamicBoundary:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "DynamicBoundary":
+    def from_dict(cls, data: dict) -> DynamicBoundary:
         db = cls()
         db._levels = data.get("levels", {d: 0.3 for d in cls.DIMENSIONS})
         db._probe_cooldowns = data.get("cooldowns", {d: 0 for d in cls.DIMENSIONS})
