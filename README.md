@@ -10,6 +10,12 @@
   <img src="https://img.shields.io/badge/Status-Preview-yellow.svg" alt="Status: Preview">
 </p>
 
+<p align="center">
+  <a href="SPEC.md"><strong>📐 标准规范</strong></a> ·
+  <a href="AGENT_GUIDE.md"><strong>🤖 开发者指南</strong></a> ·
+  <a href="CHANGELOG.md"><strong>📋 更新日志</strong></a>
+</p>
+
 ---
 
 情感计算引擎 SDK，为其他 AstrBot 插件提供结构化的情感状态计算服务。文本输入，数据输出。不上架插件市场，仅供开发者通过仓库地址安装。
@@ -26,7 +32,8 @@
 - [常见问题](#常见问题)
 - [已知限制](#已知限制)
 - [许可证](#许可证)
-- [Agent 集成指南](AGENT_GUIDE.md) — 给 AI agent 和 vibe coding 开发者的接入手册
+- [标准规范](SPEC.md) — 完整接口协议、输出 Schema、错误处理
+- [开发者指南](AGENT_GUIDE.md) — 所有功能模块详解与集成示例
 
 ---
 
