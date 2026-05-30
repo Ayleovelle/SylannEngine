@@ -10,8 +10,8 @@ from typing import Any
 logger = logging.getLogger("sylanne_core")
 
 
-class BoundedDict(OrderedDict):
-    def __init__(self, maxsize: int = 200, ttl: float = 0, on_evict=None):
+class BoundedDict(OrderedDict[Any, Any]):
+    def __init__(self, maxsize: int = 200, ttl: float = 0, on_evict: Any = None) -> None:
         super().__init__()
         self.maxsize = maxsize
         self.ttl = ttl

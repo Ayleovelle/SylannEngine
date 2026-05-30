@@ -370,12 +370,12 @@ class DriftAttribution:
     def __init__(self, maxlen: int = 100):
         self._events: deque[DriftEvent] = deque(maxlen=maxlen)
 
-    def record(self, trigger: str, dimension: str, delta: float, new_value: float):
+    def record(self, trigger: str, dimension: str, delta: float, new_value: float) -> None:
         """记录一次漂移事件（仅当变化量显著时）。"""
         if abs(delta) > 0.005:
             self._events.append(DriftEvent(time.time(), trigger, dimension, delta, new_value))
 
-    def recent(self, n: int = 20) -> list[dict]:
+    def recent(self, n: int = 20) -> list[dict[str, Any]]:
         """返回最近 n 条漂移事件的字典列表。"""
         return [
             {
@@ -816,7 +816,7 @@ def should_explore(curiosity: float, info_entropy: float, energy: float) -> bool
 # ---------------------------------------------------------------------------
 
 
-def apply_relationship_age_modulation(traits: dict, relationship_stage: str) -> dict:
+def apply_relationship_age_modulation(traits: dict[str, Any], relationship_stage: str) -> dict[str, Any]:
     """根据关系阶段调整人格参数。
 
     关系阶段定义：
@@ -872,11 +872,11 @@ class EvolutionJournal:
     """
 
     def __init__(self, max_checkpoints: int = 50):
-        self._checkpoints: list[dict] = []  # [{id, timestamp, traits, trigger}]
+        self._checkpoints: list[dict[str, Any]] = []  # [{id, timestamp, traits, trigger}]
         self._max = max_checkpoints
         self._next_id: int = 0
 
-    def checkpoint(self, traits: dict, trigger: str) -> int:
+    def checkpoint(self, traits: dict[str, Any], trigger: str) -> int:
         """保存当前人格快照。返回 checkpoint_id。"""
         cp_id = self._next_id
         self._next_id += 1
@@ -892,23 +892,23 @@ class EvolutionJournal:
             self._checkpoints.pop(0)
         return cp_id
 
-    def rollback_to(self, checkpoint_id: int) -> dict | None:
+    def rollback_to(self, checkpoint_id: int) -> dict[str, Any] | None:
         """回退到指定快照。返回该快照的 traits 或 None。"""
         for cp in self._checkpoints:
             if cp["id"] == checkpoint_id:
                 return dict(cp["traits"])
         return None
 
-    def recent(self, n: int = 10) -> list[dict]:
+    def recent(self, n: int = 10) -> list[dict[str, Any]]:
         """返回最近 n 条快照。"""
         return self._checkpoints[-n:]
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """序列化为字典。"""
         return {"checkpoints": self._checkpoints, "next_id": self._next_id}
 
     @classmethod
-    def from_dict(cls, data: dict) -> EvolutionJournal:
+    def from_dict(cls, data: dict[str, Any]) -> EvolutionJournal:
         """从字典恢复 EvolutionJournal 实例。"""
         ej = cls()
         ej._checkpoints = data.get("checkpoints", [])

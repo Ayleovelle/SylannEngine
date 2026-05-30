@@ -28,13 +28,13 @@ class SocialVoid:
 
     __slots__ = ("pressure", "silence_ticks", "group_activity", "topic_boundary")
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.pressure = 0.0
         self.silence_ticks = 0
         self.group_activity = 0.0
         self.topic_boundary = 0.5
 
-    def tick(self, group_active: bool = True):
+    def tick(self, group_active: bool = True) -> None:
         if not group_active:
             self.pressure *= 0.95
             return
@@ -45,11 +45,11 @@ class SocialVoid:
             self.pressure += depth * math.log(self.silence_ticks + 1) * (1.0 - beta) * 0.1
         self.pressure = min(5.0, self.pressure)
 
-    def reset(self):
+    def reset(self) -> None:
         self.silence_ticks = 0
         self.pressure *= 0.3
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "pressure": self.pressure,
             "silence_ticks": self.silence_ticks,
@@ -57,7 +57,7 @@ class SocialVoid:
             "topic_boundary": self.topic_boundary,
         }
 
-    def from_dict(self, data: dict):
+    def from_dict(self, data: dict[str, Any]) -> None:
         self.pressure = float(data.get("pressure", 0.0))
         self.silence_ticks = int(data.get("silence_ticks", 0))
         self.group_activity = float(data.get("group_activity", 0.0))
@@ -318,7 +318,7 @@ class VoidScarEngine:
         social_drive_weight: float,
         accepted_decay: float,
         ignored_deepening: float,
-    ):
+    ) -> None:
         self._void_pressure_coupling_rate = coupling_rate
         self.void_space._pressure_threshold = pressure_threshold
         self._void_drive_weight = void_drive_weight
