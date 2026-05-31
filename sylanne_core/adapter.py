@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .types import Surface
+from .types import Dynamics, Surface
 
 _SCHEMA_VERSION = "sylanne.core.v1"
 
@@ -193,7 +193,7 @@ def _map_pipeline(kernel: Any) -> dict[str, Any]:
     }
 
 
-def _map_dynamics(kernel: Any) -> dict[str, Any]:
+def _map_dynamics(kernel: Any) -> Dynamics:
     body = kernel.body.to_dict()
     needs = body.get("needs", {})
     moral = kernel.moral_repair or {}
@@ -225,16 +225,16 @@ def _map_dynamics(kernel: Any) -> dict[str, Any]:
 def _map_debug(kernel: Any, raw: dict[str, Any]) -> dict[str, Any]:
     spine = kernel.computation
     breakers = {}
-    if hasattr(spine, "_breakers"):
-        for name, cb in spine._breakers.items():
+    if hasattr(spine, "_circuit_breakers"):
+        for name, cb in spine._circuit_breakers.items():
             breakers[name] = {
                 "open": cb.is_open(),
                 "failures": cb._failures,
             }
 
     timing = {}
-    if hasattr(spine, "_timing"):
-        for name, deq in spine._timing.items():
+    if hasattr(spine, "_timings"):
+        for name, deq in spine._timings.items():
             if deq:
                 avg_ms = sum(deq) / len(deq) / 1_000_000
                 timing[name] = round(avg_ms, 2)

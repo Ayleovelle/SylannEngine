@@ -33,7 +33,7 @@ __all__ = [
     "HealthStatus",
     "get_engine",
 ]
-__version__ = "1.0.0rc1"
+__version__ = "1.0.0rc2"
 
 _shared_engine: SylanneEngine | None = None
 

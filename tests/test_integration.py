@@ -43,8 +43,8 @@ class TestPluginLifecycle:
         # Phase 4: Tick (periodic background tick)
         await engine.tick("user_001")
 
-        # Phase 5: State query (sync)
-        state = engine.state("user_001")
+        # Phase 5: State query
+        state = await engine.state("user_001")
         assert state is not None
 
         # Phase 6: Second session is isolated
@@ -71,7 +71,7 @@ class TestPluginLifecycle:
         # Second boot (same data_dir)
         engine2 = SylanneEngine(data_dir=tmp_path, llm=llm)
         await engine2.start()
-        state = engine2.state("user_001")
+        state = await engine2.state("user_001")
         assert state is not None
         surface = await engine2.process("user_001", "重启后继续")
         assert surface["turns"] >= 3
@@ -111,7 +111,7 @@ class TestPluginLifecycle:
 
         await engine.process("user_001", "hello")
         await engine.process("user_001", "world")
-        engine.reset("user_001")
+        await engine.reset("user_001")
 
         surface = await engine.process("user_001", "fresh start")
         assert surface["turns"] == 1
@@ -126,7 +126,7 @@ class TestPluginLifecycle:
 
         await engine.process("user_001", "hello")
         await engine.process("user_001", "world")
-        engine.destroy("user_001")
+        await engine.destroy("user_001")
 
         surface = await engine.process("user_001", "after destroy")
         assert surface["turns"] == 1

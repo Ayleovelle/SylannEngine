@@ -11,7 +11,7 @@ Type hierarchy::
     ├── decision: Decision (action + confidence + urgency)
     ├── guard: Guard (allowed + constraints)
     ├── memory: MemoryResult (recalled traces)
-    ├── dynamics: dict (affect/moral/uncertainty/relational_time)
+    ├── dynamics: Dynamics (affect/moral/uncertainty/relational_time)
     └── debug: dict | None (pipeline internals, if diagnostics=True)
 """
 
@@ -143,6 +143,35 @@ class MemoryResult(TypedDict):
     total_stored: int
 
 
+class AffectDynamics(TypedDict):
+    recovery_drive: float
+    expression_drive: float
+    quiet_drive: float
+
+
+class MoralState(TypedDict):
+    state: str
+    events: int
+
+
+class UncertaintyState(TypedDict):
+    claim_caution: float
+    events: int
+
+
+class RelationalTime(TypedDict):
+    interval_seconds: float
+    total_duration: float
+    phase: str
+
+
+class Dynamics(TypedDict):
+    affect: AffectDynamics
+    moral_state: MoralState
+    uncertainty: UncertaintyState
+    relational_time: RelationalTime
+
+
 class HealthStatus(TypedDict):
     status: EngineStatus
     active_sessions: int
@@ -162,5 +191,5 @@ class Surface(TypedDict):
     guard: Guard
     memory: MemoryResult
     pipeline: dict[str, Any]
-    dynamics: dict[str, Any]
+    dynamics: Dynamics
     debug: dict[str, Any] | None

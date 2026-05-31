@@ -134,10 +134,7 @@ class AlphaRuntime:
 
     def _path(self, session_key: str) -> Path:
         """将 session_key 转换为文件系统安全的 .alpha.json 路径。"""
-        safe = (
-            "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in session_key)
-            or "default"
-        )
+        safe = self._safe_filename(session_key)
         return self.root / f"{safe}.alpha.json"
 
     def save_buffer(self, session_key: str, buffer_data: dict[str, Any]) -> None:
@@ -158,6 +155,7 @@ class AlphaRuntime:
             os.replace(tmp, path)
         except OSError:
             tmp.unlink(missing_ok=True)
+            raise
 
     def load_buffer(self, session_key: str) -> dict[str, Any] | None:
         """加载对话缓冲区数据。
@@ -179,11 +177,22 @@ class AlphaRuntime:
 
     def _buffer_path(self, session_key: str) -> Path:
         """将 session_key 转换为文件系统安全的 .buffer.json 路径。"""
-        safe = (
-            "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in session_key)
-            or "default"
-        )
+        safe = self._safe_filename(session_key)
         return self.root / f"{safe}.buffer.json"
+
+    @staticmethod
+    def _safe_filename(session_key: str) -> str:
+        """Convert session_key to filesystem-safe name using percent-encoding."""
+        if not session_key:
+            return "default"
+        safe_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
+        parts = []
+        for ch in session_key[:128]:
+            if ch in safe_chars:
+                parts.append(ch)
+            else:
+                parts.append(f"%{ord(ch):02X}")
+        return "".join(parts) or "default"
 
     def _consistency_check(self, kernel: AlphaKernel) -> dict[str, Any]:
         """状态一致性自检守护：检查内部状态合法性并自动修正。
