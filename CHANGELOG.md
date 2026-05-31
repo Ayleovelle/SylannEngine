@@ -128,3 +128,4 @@ Complete architectural redesign — sequential 7-layer pipeline replaced by full
 - 双层人格系统
 - 三层记忆系统（后移除）
 - LLM 语义评估器
+
