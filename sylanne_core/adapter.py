@@ -31,7 +31,6 @@ def to_surface(
         "personality": _map_personality(kernel),  # type: ignore[typeddict-item]
         "decision": _map_decision(decision),  # type: ignore[typeddict-item]
         "guard": _map_guard(guard),  # type: ignore[typeddict-item]
-        "memory": _map_memory(kernel),  # type: ignore[typeddict-item]
         "pipeline": _map_pipeline(kernel) if diagnostics else {},
         "dynamics": _map_dynamics(kernel),
         "debug": _map_debug(kernel, raw) if diagnostics else None,
@@ -155,28 +154,7 @@ def _map_guard(g: dict[str, Any]) -> dict[str, Any]:
         "allowed": g.get("allowed", True),
         "reason": g.get("reason", ""),
         "risk_score": g.get("risk_score", 0.0),
-        "constraints": g.get("constraints", []),
-    }
-
-
-def _map_memory(kernel: Any) -> dict[str, Any]:
-    traces: list[Any] = []
-    if hasattr(kernel.body, "traces"):
-        traces = kernel.body.traces or []
-    recalled = []
-    for t in traces[-5:]:
-        if isinstance(t, dict):
-            recalled.append(
-                {
-                    "text": t.get("text", ""),
-                    "relevance": t.get("relevance", 0.0),
-                    "created_at": t.get("created_at", 0.0),
-                    "layer": t.get("layer", "L1"),
-                }
-            )
-    return {
-        "recalled": recalled,
-        "total_stored": len(traces),
+        "constraints": g.get("flags", g.get("constraints", [])),
     }
 
 

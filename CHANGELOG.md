@@ -3,6 +3,34 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v1.0.0rc3] - 2026-05-31
+
+### 💥 Breaking Changes
+
+- 移除三层记忆系统（L1/L2/L3），Surface 输出不再包含 `memory` 字段
+- 移除 `SylanneConfig.memory_capacity` 配置项
+- 记忆功能将由独立适配插件提供
+
+### 🐛 Bug Fixes
+
+- 修复 `adapter._map_guard()` 读取 `constraints` 但 kernel 返回 `flags`，导致 guard constraints 永远为空
+- 修复 `metadata.yaml` license 标识与 pyproject.toml 不一致（`or-later` → `only`）
+- 修复 `metadata.yaml` personality_impact 三项全部标错为 false
+
+### 🔒 Robustness
+
+- 添加 `terminate()` 方法：插件卸载/热重载时正确关闭引擎并清理共享实例
+- `initialize()` 添加防御性检查：热重载时先关闭旧引擎再创建新实例
+
+### 📝 Documentation
+
+- README/SPEC/AGENT_GUIDE：`state`/`reset`/`destroy` 标注为 async
+- README/SPEC/AGENT_GUIDE：添加 `exists()` 方法文档
+- AGENT_GUIDE：补充缺失的 `reach_out` action
+- SPEC 版本从 `0.1.0-draft` 更新为 `1.0.0rc3`
+- `confidence` 默认值文档从 `0.0` 修正为 `None`
+- 移除所有记忆系统相关文档
+
 ## [v1.0.0rc2] - 2026-05-31
 
 ### ⚡ Performance

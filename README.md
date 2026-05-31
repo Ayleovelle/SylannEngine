@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/License-AGPL_3.0-blue.svg" alt="License: AGPL-3.0">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/AstrBot-v4.11.2+-orange.svg" alt="AstrBot v4.11.2+">
-  <img src="https://img.shields.io/badge/Status-1.0.0--alpha-yellow.svg" alt="Status: 1.0.0-alpha">
+  <img src="https://img.shields.io/badge/Status-1.0.0rc3-green.svg" alt="Status: 1.0.0rc3">
 </p>
 
 <p align="center">
@@ -60,7 +60,6 @@ git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/syl
 - **双层人格系统**：深层 5 维（计算驱动，缓慢漂移）+ 表层 6 维（文本驱动，快速漂移）
 - **7 种决策输出**：express / withdraw / recover / reach_out / explore / hold / guard
 - **边界守卫**：自主权保护、风险评分、约束列表
-- **三层记忆**：L1 热记忆 / L2 温记忆 / L3 冷记忆
 - **退化运行**：LLM 不可用时自动退化为本地规则引擎，保证计算不中断
 - **调试模式**：断路器状态、各层耗时、健康检查
 - **被动接收**：只有插件调用 `process()` 推数据进来才计算，不主动拉取任何数据
@@ -152,8 +151,7 @@ git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/syl
         "confidence": 0.75,
         "urgency": 0.3
     },
-    "guard": { "allowed": true, "risk_score": 0.1, "constraints": [] },
-    "memory": { "recalled": [...], "total_stored": 42 }
+    "guard": { "allowed": true, "risk_score": 0.1, "constraints": [] }
 }
 ```
 
@@ -200,16 +198,17 @@ class MyPlugin(Star):
 | `tick` | `await (session_id, flags?) -> Surface` | 空闲 tick（不含文本输入） |
 | `on` | `(listener) -> None` | 注册推送监听器，process 完成后自动调用 listener(session_id, surface) |
 | `off` | `(listener) -> None` | 移除推送监听器 |
-| `state` | `(session_id) -> Surface` | 查询当前状态（不触发计算） |
+| `state` | `await (session_id) -> Surface` | 查询当前状态（不触发计算） |
 | `health` | `() -> HealthStatus` | 引擎健康检查 |
-| `reset` | `(session_id) -> None` | 重置会话（保留 lock） |
-| `destroy` | `(session_id) -> None` | 彻底销毁会话（含 lock） |
+| `reset` | `await (session_id) -> None` | 重置会话（保留 lock） |
+| `destroy` | `await (session_id) -> None` | 彻底销毁会话（含 lock） |
+| `exists` | `(session_id) -> bool` | 检查会话是否存在 |
 
 ### 上下文参数 (**ctx)
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| `confidence` | `float` | `0.0` | 语义置信度，0 表示由内部评估器计算 |
+| `confidence` | `float \| None` | `None` | 语义置信度 [0,1]，None 表示由内部评估器计算 |
 | `flags` | `list[str]` | `[]` | 事件标签：positive/negative/boundary/recovery/idle/intimate/conflict/farewell/greeting |
 | `now` | `float` | `time.time()` | 事件时间戳 |
 | `values` | `dict[str, float]` | `{}` | 附加数值信号 |
@@ -225,7 +224,6 @@ class MyPlugin(Star):
 | `diagnostics` | `False` | 是否返回管线中间态和调试信息 |
 | `assessor_enabled` | `True` | 是否启用 LLM 语义评估器 |
 | `locale` | `"zh"` | 语言（影响内部评估器 prompt） |
-| `memory_capacity` | `500` | 记忆系统容量上限 |
 | `persistence_fsync` | `True` | 持久化写入时是否 fsync |
 | `tick_drift_cap` | `0.05` | 单次 tick 人格漂移上限 |
 
@@ -258,7 +256,6 @@ SylannEngine/
         ├── runtime.py               # 文件持久化
         ├── body.py                  # 8 子系统状态模型
         ├── personality.py           # 双层人格系统
-        ├── memory_system.py         # 三层记忆
         ├── hdc.py                   # L1 超维编码
         ├── predictive_coding.py     # L2 预测编码门控
         ├── void_calculus.py         # L3 缺失演算
@@ -349,8 +346,7 @@ surface = await engine.process(session_id="user_123", text="你好")
 
 ## 已知限制
 
-- **Alpha 状态**：API 基本稳定，但在 1.0 正式版前仍可能有小幅调整
-- **Embedding 可选**：如果 AstrBot 未配置 Embedding 提供商，记忆召回退化为关键词匹配
+- **RC 状态**：API 已稳定，1.0 正式版前仅修复 bug，不做 breaking change
 
 ---
 

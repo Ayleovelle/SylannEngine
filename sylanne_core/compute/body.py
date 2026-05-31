@@ -13,13 +13,13 @@
 核心职责：
 - 维护 29 维状态向量的读写
 - 通过 apply() 方法接收事件并演化状态
-- 管理记忆 traces（短期记忆池）
-- 提供关系记忆和影子记忆的观测接口
+- 提供关系信号和影子记忆的观测接口
 """
 
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -63,10 +63,10 @@ class AlphaPulseState:
 class AlphaBloodflowState:
     """血流子系统状态。
 
-    模拟情感温度和记忆循环。
+    模拟情感温度和信息循环。
     - warmth: 关系温暖感 [0,1]，safe 事件升高，hurt 降低
     - circulation: 循环活力 [0,1]，有文本交互时升高
-    - memory_flow: 记忆流动强度 [0,1]，随 traces 数量和可塑性增长
+    - memory_flow: 信息流动强度 [0,1]，随可塑性增长
     """
 
     warmth: float = 0.4
@@ -229,7 +229,7 @@ class AlphaMortalityState:
 class AlphaBodyState:
     """Sylanne-Embodiment 完整身体状态模型。
 
-    聚合 8 个子系统 + 需求字典 + 记忆存储，构成 Sylanne 的「身体」。
+    聚合 8 个子系统 + 需求字典 + 关系/影子状态，构成 Sylanne 的「身体」。
     是 kernel 的核心数据载体，所有状态演化最终都反映在这里。
 
     与其他组件的关系：
@@ -255,7 +255,8 @@ class AlphaBodyState:
             "need_expression": 0.0,
         }
     )
-    memory: dict[str, Any] = field(default_factory=lambda: {"traces": []})
+    memory: dict[str, Any] = field(default_factory=lambda: {"relationship": {}, "shadow": {}})
+    _recent_texts: deque[str] = field(default_factory=lambda: deque(maxlen=20))
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AlphaBodyState:
@@ -303,7 +304,6 @@ class AlphaBodyState:
             )
         if isinstance(data.get("memory"), dict):
             memory_data = data["memory"]
-            traces = memory_data.get("traces", [])
             relationship = (
                 memory_data.get("relationship")
                 if isinstance(memory_data.get("relationship"), dict)
@@ -312,17 +312,20 @@ class AlphaBodyState:
             shadow = (
                 memory_data.get("shadow") if isinstance(memory_data.get("shadow"), dict) else {}
             )
-            events = shadow.get("events", []) if isinstance(shadow.get("events"), list) else []
             body.memory = {
-                "traces": [dict(item) for item in traces if isinstance(item, dict)][-50:],
                 "relationship": dict(relationship),
                 "shadow": {
-                    "events": [dict(item) for item in events if isinstance(item, dict)][-24:]
+                    "events": [
+                        dict(item)
+                        for item in (
+                            shadow.get("events", [])
+                            if isinstance(shadow.get("events"), list)
+                            else []
+                        )
+                        if isinstance(item, dict)
+                    ][-24:]
                 },
             }
-            memory_system = memory_data.get("_memory_system")
-            if isinstance(memory_system, dict):
-                body.memory["_memory_system"] = dict(memory_system)
         return body
 
     def _raw_state_vector(self) -> dict[str, float]:
@@ -499,34 +502,6 @@ class AlphaBodyState:
             clone.apply_vector_delta(clone.vector_delta(event), now=now)
         return clone.state_vector()
 
-    def recall_memory(self, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
-        """基于关键词匹配从 traces 中召回相关记忆。
-
-        评分规则：精确匹配 +1，词重叠 +1/词，权重加成。
-        """
-        terms = {part for part in query.strip().split() if part}
-        scored = []
-        for trace in self.memory.get("traces", []):
-            text = str(trace.get("text") or "")
-            overlap = sum(1 for term in terms if term in text)
-            exact = 1 if query and query in text else 0
-            score = exact + overlap + float(trace.get("weight") or 0.0)
-            scored.append((score, trace))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return [dict(trace) for _, trace in scored[: max(0, limit)]]
-
-    # Legacy: superseded by MemorySystem
-    def decay_memory(self, factor: float = 0.95) -> None:
-        factor = _clamp(factor)
-        for trace in self.memory.get("traces", []):
-            trace["weight"] = round(_clamp(float(trace.get("weight") or 0.0) * factor), 6)
-
-    # Legacy: superseded by MemorySystem
-    def compress_memory(self, *, limit: int = 50) -> None:
-        traces = [dict(trace) for trace in self.memory.get("traces", [])]
-        traces.sort(key=lambda trace: float(trace.get("weight") or 0.0), reverse=True)
-        self.memory["traces"] = traces[: max(0, limit)]
-
     def relationship_memory(self) -> dict[str, Any]:
         """返回关系记忆的结构化摘要。
 
@@ -603,7 +578,6 @@ class AlphaBodyState:
         raw_shadow = self.memory.get("shadow")
         shadow: dict[str, Any] = dict(raw_shadow) if isinstance(raw_shadow, dict) else {}
         memory_payload = {
-            "traces": list(self.memory.get("traces", []))[-50:],
             "relationship": dict(self.memory.get("relationship") or {}),
             "shadow": {
                 "events": [
@@ -611,9 +585,6 @@ class AlphaBodyState:
                 ][-24:]
             },
         }
-        memory_system = self.memory.get("_memory_system")
-        if isinstance(memory_system, dict):
-            memory_payload["_memory_system"] = dict(memory_system)
         return {
             "pulse": self.pulse.to_dict(),
             "bloodflow": self.bloodflow.to_dict(),
@@ -671,8 +642,7 @@ class AlphaBodyState:
         flags = list(flags or [])
         text = text.strip()
         elapsed = max(0.0, now - self.pulse.last_tick) if now else 1.0
-        previous = [str(item.get("text") or "") for item in self.memory.get("traces", [])]
-        repetition = previous.count(text) + 1 if text else 0
+        repetition = list(self._recent_texts).count(text) + 1 if text else 0
 
         event = self.event_vector(
             text=text,
@@ -704,20 +674,11 @@ class AlphaBodyState:
             self.immunity.interruption_budget = 1.0
             self.immunity.cooldown = 0.0
             self.immunity.paused = False
-        target_flow = _clamp(
-            len(self.memory.get("traces", [])) / 50.0 + self.nerve.plasticity * 0.2
+        self.bloodflow.memory_flow = _clamp(
+            self.bloodflow.memory_flow * 0.9 + self.nerve.plasticity * 0.2
         )
-        self.bloodflow.memory_flow = _clamp(self.bloodflow.memory_flow * 0.9 + target_flow * 0.1)
 
         if text:
-            self.memory.setdefault("traces", []).append(
-                {
-                    "id": f"trace-{len(self.memory.get('traces', [])) + 1}",
-                    "text": text[:500],
-                    "weight": round(_clamp(0.35 + repetition * 0.08), 6),
-                    "temperature": self.temperature.to_dict()["warmth"],
-                }
-            )
-            self.memory["traces"] = self.memory["traces"][-50:]
+            self._recent_texts.append(text)
             self._observe_relationship_signal(flags=flags, text=text)
             self.observe_shadow_signal(text=text, flags=flags)
