@@ -62,22 +62,26 @@ class TestCorruptedStateRecovery:
         assert kernel.turns == 0
 
     def test_restore_from_garbage_types(self):
-        kernel = AlphaKernel.restore({
-            "session_key": 12345,
-            "turns": "not_a_number",
-            "body": "not_a_dict",
-            "personality": [1, 2, 3],
-            "audit": None,
-        })
+        kernel = AlphaKernel.restore(
+            {
+                "session_key": 12345,
+                "turns": "not_a_number",
+                "body": "not_a_dict",
+                "personality": [1, 2, 3],
+                "audit": None,
+            }
+        )
         assert kernel.session_key == "12345"
         assert kernel.turns == 0
         assert isinstance(kernel.body, AlphaBodyState)
 
     def test_restore_with_nan_values(self):
-        kernel = AlphaKernel.restore({
-            "turns": float("nan"),
-            "body": {"pulse": {"beat": float("nan"), "rhythm": float("inf")}},
-        })
+        kernel = AlphaKernel.restore(
+            {
+                "turns": float("nan"),
+                "body": {"pulse": {"beat": float("nan"), "rhythm": float("inf")}},
+            }
+        )
         assert kernel.turns == 0
 
     def test_body_from_dict_partial(self):
@@ -86,10 +90,12 @@ class TestCorruptedStateRecovery:
         assert body.bloodflow.warmth == 0.4
 
     def test_body_from_dict_extra_keys(self):
-        body = AlphaBodyState.from_dict({
-            "pulse": {"beat": 1.0, "unknown_field": 999},
-            "nonexistent_subsystem": {"x": 1},
-        })
+        body = AlphaBodyState.from_dict(
+            {
+                "pulse": {"beat": 1.0, "unknown_field": 999},
+                "nonexistent_subsystem": {"x": 1},
+            }
+        )
         assert body.pulse.beat == 1.0
 
     def test_computation_spine_from_dict_empty(self):
@@ -106,9 +112,7 @@ class TestCorruptedStateRecovery:
 class TestNaNInfPropagation:
     def test_tick_with_nan_confidence(self):
         kernel = AlphaKernel.boot("s1")
-        result = kernel.tick(AlphaKernelEvent(
-            text="hello", now=1.0, confidence=float("nan")
-        ))
+        result = kernel.tick(AlphaKernelEvent(text="hello", now=1.0, confidence=float("nan")))
         assert "surface" in result
 
     def test_tick_with_inf_now(self):
@@ -119,10 +123,14 @@ class TestNaNInfPropagation:
     def test_body_state_stays_bounded(self):
         kernel = AlphaKernel.boot("s1")
         for i in range(100):
-            kernel.tick(AlphaKernelEvent(
-                text="hurt" * 50, now=float(i), confidence=1.0,
-                flags=["hurt", "boundary"],
-            ))
+            kernel.tick(
+                AlphaKernelEvent(
+                    text="hurt" * 50,
+                    now=float(i),
+                    confidence=1.0,
+                    flags=["hurt", "boundary"],
+                )
+            )
         state = kernel.body
         assert 0.0 <= state.wound.open <= 1.0
         assert 0.0 <= state.immunity.boundary_pressure <= 1.0
@@ -178,10 +186,7 @@ class TestConcurrentSafety:
         llm = AsyncMock(return_value="ok")
         engine = SylanneEngine(data_dir=tmp_path, llm=llm)
         await engine.start()
-        tasks = [
-            engine.process(f"session_{i}", f"message {i}")
-            for i in range(10)
-        ]
+        tasks = [engine.process(f"session_{i}", f"message {i}") for i in range(10)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         errors = [r for r in results if isinstance(r, Exception)]
         assert len(errors) == 0
@@ -200,15 +205,22 @@ class TestConcurrentSafety:
 class TestDecisionBoundary:
     def test_all_flags_simultaneously(self):
         kernel = AlphaKernel.boot("s1")
-        result = kernel.tick(AlphaKernelEvent(
-            text="complex",
-            now=1.0,
-            confidence=1.0,
-            flags=["safe", "hurt", "boundary", "repair", "group"],
-        ))
+        result = kernel.tick(
+            AlphaKernelEvent(
+                text="complex",
+                now=1.0,
+                confidence=1.0,
+                flags=["safe", "hurt", "boundary", "repair", "group"],
+            )
+        )
         assert result["decision"]["action"] in {
-            "express", "listen", "hold", "repair",
-            "withdraw", "explore", "recover",
+            "express",
+            "listen",
+            "hold",
+            "repair",
+            "withdraw",
+            "explore",
+            "recover",
         }
 
     def test_guard_blocks_when_exhausted(self):
