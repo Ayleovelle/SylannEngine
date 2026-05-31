@@ -118,8 +118,11 @@ class OrderParameterTracker:
     """
 
     __slots__ = (
-        "_sync_history", "_coherence_history", "_criticality",
-        "_window", "_last_order",
+        "_sync_history",
+        "_coherence_history",
+        "_criticality",
+        "_window",
+        "_last_order",
     )
 
     def __init__(self, window: int = 50):
@@ -186,8 +189,11 @@ class ResonanceDetector:
     """
 
     __slots__ = (
-        "_energy_history", "_sync_history", "_events",
-        "_window", "_ignition_threshold",
+        "_energy_history",
+        "_sync_history",
+        "_events",
+        "_window",
+        "_ignition_threshold",
     )
 
     def __init__(self, window: int = 30, ignition_threshold: float = 0.3):
@@ -262,7 +268,7 @@ class AttractorLandscape:
         for idx, attractor in enumerate(self._attractors):
             center = attractor["center"]
             dist = math.sqrt(
-                sum((a - b) ** 2 for a, b in zip(state_snapshot[:len(center)], center))
+                sum((a - b) ** 2 for a, b in zip(state_snapshot[: len(center)], center))
             )
             if dist < best_dist:
                 best_dist = dist
@@ -276,9 +282,9 @@ class AttractorLandscape:
             alpha = 0.1
             for i in range(len(attractor["center"])):
                 if i < len(state_snapshot):
-                    attractor["center"][i] = (
-                        (1 - alpha) * attractor["center"][i] + alpha * state_snapshot[i]
-                    )
+                    attractor["center"][i] = (1 - alpha) * attractor["center"][
+                        i
+                    ] + alpha * state_snapshot[i]
             attractor["visits"] += 1
             attractor["min_energy"] = min(attractor["min_energy"], energy)
             if best_idx != self._current_basin:
@@ -287,11 +293,13 @@ class AttractorLandscape:
         else:
             # New attractor discovered
             if len(self._attractors) < self._max_attractors:
-                self._attractors.append({
-                    "center": list(state_snapshot[:16]),
-                    "min_energy": energy,
-                    "visits": 1,
-                })
+                self._attractors.append(
+                    {
+                        "center": list(state_snapshot[:16]),
+                        "min_energy": energy,
+                        "visits": 1,
+                    }
+                )
                 new_idx = len(self._attractors) - 1
                 if self._current_basin >= 0:
                     self._transition_count += 1
@@ -336,8 +344,11 @@ class TemporalNarrative:
     """
 
     __slots__ = (
-        "_state_history", "_entropy_production", "_window",
-        "_narrative_tension", "_memory_depth",
+        "_state_history",
+        "_entropy_production",
+        "_window",
+        "_narrative_tension",
+        "_memory_depth",
     )
 
     def __init__(self, window: int = 100):

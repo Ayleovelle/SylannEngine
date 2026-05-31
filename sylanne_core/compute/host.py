@@ -18,10 +18,13 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .kernel import AlphaKernel, AlphaKernelEvent
 from .runtime import AlphaRuntime
+
+if TYPE_CHECKING:
+    from ..config import DimensionProfile
 
 _FLUSH_INTERVAL: float = 5.0
 _FLUSH_TICK_THRESHOLD: int = 8
@@ -63,23 +66,32 @@ class SylanneAlphaHost:
     3. 每次 tick 后自动持久化 kernel 状态
     4. 提供 on_chat 的简易对话循环（request → 生成回复 → response）
 
+    持久化策略（CoW）：
+    - tick 完成后立即取 snapshot（纯内存操作，微秒级）
+    - 按间隔/tick 数阈值决定是否落盘
+    - 落盘时写入的是之前缓存的 snapshot，不再访问 kernel 状态
+    - 这确保 tick 计算和磁盘 I/O 完全解耦，避免慢盘阻塞计算
+
     Args:
         root: 持久化根目录路径
         session_key: 会话标识符
         legacy: 可选的旧版 3.x 数据，用于首次迁移
+        profile: 计算维度配置（lite/pro/max）
     """
 
     root: Path | str
     session_key: str = "default"
     legacy: dict[str, Any] | None = None
+    profile: DimensionProfile | None = None
     runtime: AlphaRuntime = field(init=False)
     kernel: AlphaKernel = field(init=False)
     _dirty: bool = field(init=False, default=False)
     _ticks_since_flush: int = field(init=False, default=0)
     _last_flush_time: float = field(init=False, default=0.0)
+    _pending_snapshot: dict[str, Any] | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
-        self.runtime = AlphaRuntime(Path(self.root))
+        self.runtime = AlphaRuntime(Path(self.root), profile=self.profile)
         self.kernel = self.runtime.load(self.session_key, legacy=self.legacy)
         self._last_flush_time = time.time()
 
@@ -156,7 +168,7 @@ class SylanneAlphaHost:
         phase: str,
         assessment: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """内部 tick 实现：转换事件 → 注入 phase flag → 驱动 kernel → 按需持久化。"""
+        """内部 tick 实现：转换事件 → 注入 phase flag → 驱动 kernel → CoW snapshot → 按需持久化。"""
         host_event = self._event(event)
         flags = list(dict.fromkeys([phase, *host_event.flags]))
         surface: dict[str, Any] = self.kernel.tick(
@@ -170,6 +182,8 @@ class SylanneAlphaHost:
             ),
             assessment=assessment,
         )["surface"]
+        # CoW: take snapshot immediately (pure memory, fast)
+        self._pending_snapshot = self.kernel.snapshot()
         self._dirty = True
         self._ticks_since_flush += 1
         self._maybe_flush()
@@ -183,15 +197,18 @@ class SylanneAlphaHost:
             self._flush(now)
 
     def _flush(self, now: float = 0.0) -> None:
-        if not self._dirty:
+        if not self._dirty or self._pending_snapshot is None:
             return
-        self.runtime.save(self.kernel)
+        self.runtime.save_snapshot(self.kernel.session_key, self._pending_snapshot)
+        self._pending_snapshot = None
         self._dirty = False
         self._ticks_since_flush = 0
         self._last_flush_time = now or time.time()
 
     def flush(self) -> None:
         """外部强制落盘入口。"""
+        if self._pending_snapshot is None and self._dirty:
+            self._pending_snapshot = self.kernel.snapshot()
         self._flush()
 
     def _reply_text(self, surface: dict[str, Any]) -> str:

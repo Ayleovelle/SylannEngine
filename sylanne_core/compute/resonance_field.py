@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from .coupling_dynamics import CouplingDynamics, SimplicialComplex
+from .coupling_dynamics import CouplingDynamics
 
 _TIER_CONFIG = {
     "lite": {"max_order": 1, "max_iter": 10, "state_dim": 8},
@@ -125,17 +125,35 @@ class ResonanceField:
     """
 
     __slots__ = (
-        "_n_modules", "_state_dim", "_tier", "_max_iter", "_epsilon",
-        "_module_states", "_coupling", "_complex",
-        "_convergence_history", "_iteration_count", "_total_resonances",
-        "_harmonics_cache", "_last_energy", "_dissipation",
-        "_higher_order_gain", "_residual_decay",
+        "_n_modules",
+        "_state_dim",
+        "_tier",
+        "_max_iter",
+        "_epsilon",
+        "_module_states",
+        "_coupling",
+        "_complex",
+        "_convergence_history",
+        "_iteration_count",
+        "_total_resonances",
+        "_harmonics_cache",
+        "_last_energy",
+        "_dissipation",
+        "_higher_order_gain",
+        "_residual_decay",
         # Hopfield attractor landscape
-        "_attractor_patterns", "_hopfield_strength", "_max_attractors",
+        "_attractor_patterns",
+        "_hopfield_strength",
+        "_max_attractors",
         # Echo state reservoir (temporal memory in the field)
-        "_reservoir", "_reservoir_decay", "_reservoir_input_scale",
+        "_reservoir",
+        "_reservoir_decay",
+        "_reservoir_input_scale",
         # Harmonic feedback
-        "_harmonic_identity", "_identity_inertia", "_identity_max_norm", "_had_injection",
+        "_harmonic_identity",
+        "_identity_inertia",
+        "_identity_max_norm",
+        "_had_injection",
     )
 
     def __init__(self, n_modules: int = 7, tier: str = "lite", epsilon: float = 1e-4):
@@ -145,12 +163,8 @@ class ResonanceField:
         self._tier = tier
         self._max_iter = cfg["max_iter"]
         self._epsilon = epsilon
-        self._module_states: list[list[float]] = [
-            [0.0] * self._state_dim for _ in range(n_modules)
-        ]
-        self._coupling = CouplingDynamics(
-            n_modules=n_modules, state_dim=self._state_dim, tier=tier
-        )
+        self._module_states: list[list[float]] = [[0.0] * self._state_dim for _ in range(n_modules)]
+        self._coupling = CouplingDynamics(n_modules=n_modules, state_dim=self._state_dim, tier=tier)
         self._complex = self._coupling.complex
         self._convergence_history: list[float] = []
         self._iteration_count = 0
@@ -253,7 +267,7 @@ class ResonanceField:
             for i in range(self._n_modules):
                 for d in range(self._state_dim):
                     new_states[i][d] = math.tanh(new_states[i][d])
-                    new_states[i][d] *= (1.0 - self._dissipation)
+                    new_states[i][d] *= 1.0 - self._dissipation
 
             # Step 8: convergence check
             max_delta = 0.0
@@ -274,7 +288,9 @@ class ResonanceField:
 
         return {
             "iterations": len(self._convergence_history),
-            "converged": self._convergence_history[-1] < self._epsilon if self._convergence_history else True,
+            "converged": self._convergence_history[-1] < self._epsilon
+            if self._convergence_history
+            else True,
             "final_delta": self._convergence_history[-1] if self._convergence_history else 0.0,
             "energy": self._last_energy,
             "sync_order": coupling_meta.get("sync_order", 0.0),
@@ -350,10 +366,9 @@ class ResonanceField:
             for i in range(reservoir_dim):
                 src_idx = i % len(flat) if flat else 0
                 input_val = flat[src_idx] if flat else 0.0
-                self._reservoir[i] = (
-                    self._reservoir_decay * self._reservoir[i]
-                    + self._reservoir_input_scale * math.tanh(input_val)
-                )
+                self._reservoir[i] = self._reservoir_decay * self._reservoir[
+                    i
+                ] + self._reservoir_input_scale * math.tanh(input_val)
         else:
             # Pure decay when no external input
             for i in range(reservoir_dim):
@@ -382,8 +397,7 @@ class ResonanceField:
         inertia = self._identity_inertia
         for i in range(min(len(harmonics), len(self._harmonic_identity))):
             self._harmonic_identity[i] = (
-                inertia * self._harmonic_identity[i]
-                + (1.0 - inertia) * harmonics[i]
+                inertia * self._harmonic_identity[i] + (1.0 - inertia) * harmonics[i]
             )
         # Cap norm to prevent over-rigidity
         norm = _vec_norm(self._harmonic_identity)
@@ -474,9 +488,7 @@ class ResonanceField:
                     )
                     effective = strength * max(0.0, phase_mod)
                     for d in range(self._state_dim):
-                        new_states[target][d] += (
-                            self._module_states[source][d] * effective * 0.2
-                        )
+                        new_states[target][d] += self._module_states[source][d] * effective * 0.2
 
         # Higher-order simplicial propagation (pro/max only)
         if self._higher_order_gain > 0:
@@ -515,9 +527,7 @@ class ResonanceField:
             if abs(scale) > 0.001:
                 for d in range(self._state_dim):
                     # Use average of source states as direction
-                    avg_source = sum(
-                        self._module_states[src][d] for src in sources
-                    ) / len(sources)
+                    avg_source = sum(self._module_states[src][d] for src in sources) / len(sources)
                     new_states[target][d] += avg_source * scale
 
     def _compute_energy(self) -> float:
@@ -703,9 +713,7 @@ class ResonanceField:
         ]
 
         # 6. Migrate harmonic identity
-        self._harmonic_identity = _resize_vector(
-            self._harmonic_identity, total_old, total_new
-        )
+        self._harmonic_identity = _resize_vector(self._harmonic_identity, total_old, total_new)
 
         # 7. Migrate reservoir
         old_res_dim = len(self._reservoir)

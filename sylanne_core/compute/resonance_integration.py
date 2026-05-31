@@ -56,22 +56,39 @@ class ResonanceSpine:
     """
 
     __slots__ = (
-        "_profile", "_tier", "_field", "_emergence",
-        "_tick_count", "_last_process_time", "_personality",
-        "_last_route", "_last_expression_time",
-        "_route_counts", "_feedback_counts", "_timings",
-        "_expression_drive", "_expression_threshold",
-        "_should_express", "_last_resonance_meta",
+        "_profile",
+        "_tier",
+        "_field",
+        "_emergence",
+        "_tick_count",
+        "_last_process_time",
+        "_personality",
+        "_last_route",
+        "_last_expression_time",
+        "_route_counts",
+        "_feedback_counts",
+        "_timings",
+        "_expression_drive",
+        "_expression_threshold",
+        "_should_express",
+        "_last_resonance_meta",
         "_diagnostics_enabled",
         # Real modules
-        "_encoder", "_gate", "_engine", "_sheaf",
-        "_hgt", "_boundary", "_expression",
-        "_last_hdc_vec", "_last_surprise",
+        "_encoder",
+        "_gate",
+        "_engine",
+        "_sheaf",
+        "_hgt",
+        "_boundary",
+        "_expression",
+        "_last_hdc_vec",
+        "_last_surprise",
     )
 
-    def __init__(self, profile: "DimensionProfile | None" = None):
+    def __init__(self, profile: DimensionProfile | None = None):
         if profile is None:
             from ..config import build_profile
+
             profile = build_profile("lite")
         self._profile = profile
         self._tier = profile.mode
@@ -82,6 +99,7 @@ class ResonanceSpine:
 
         # Real computation modules (same as ComputationSpine)
         from .hdc import HDCEncoder
+
         self._encoder = HDCEncoder(dim=profile.hdc_dim)
         self._gate = PredictiveCodingGate(dim=profile.hdc_dim)
         self._engine = VoidScarEngine(
@@ -91,13 +109,17 @@ class ResonanceSpine:
         )
         self._sheaf = ScarSheaf(n0=profile.stalk_dim)
         self._hgt = HeterogeneousGraphTransformer(
-            d_model=profile.d_model, n_heads=profile.n_heads,
-            d_output=profile.d_output, n_experts=profile.n_experts,
-            top_k_min=profile.top_k_min, top_k_max=profile.top_k_max,
+            d_model=profile.d_model,
+            n_heads=profile.n_heads,
+            d_output=profile.d_output,
+            n_experts=profile.n_experts,
+            top_k_min=profile.top_k_min,
+            top_k_max=profile.top_k_max,
             attention_rounds=profile.attention_rounds,
         )
         self._boundary = AutopoieticBoundary(
-            identity_dim=profile.identity_dim, repair_passes=profile.repair_passes,
+            identity_dim=profile.identity_dim,
+            repair_passes=profile.repair_passes,
         )
         self._expression = PhaseTransitionExpression(order_params=profile.order_params)
 
@@ -105,14 +127,19 @@ class ResonanceSpine:
         self._tick_count = 0
         self._last_process_time = 0.0
         self._personality: dict[str, float] = {
-            "extraversion": 0.5, "neuroticism": 0.5,
-            "conscientiousness": 0.5, "openness": 0.5, "agreeableness": 0.5,
+            "extraversion": 0.5,
+            "neuroticism": 0.5,
+            "conscientiousness": 0.5,
+            "openness": 0.5,
+            "agreeableness": 0.5,
         }
         self._last_route = "resonance"
         self._last_expression_time = 0.0
         self._route_counts: dict[str, int] = {"resonance": 0, "skip": 0}
         self._feedback_counts: dict[str, int] = {
-            "accepted": 0, "ignored": 0, "rejected": 0,
+            "accepted": 0,
+            "ignored": 0,
+            "rejected": 0,
         }
         self._timings: deque[int] = deque(maxlen=_TIMING_WINDOW)
         self._expression_drive = 0.0
@@ -203,6 +230,7 @@ class ResonanceSpine:
         if new_tier == self._tier:
             return
         from ..config import build_profile
+
         new_profile = build_profile(new_tier)
         self._field.switch_tier(new_tier)
         self._tier = new_tier
@@ -261,25 +289,33 @@ class ResonanceSpine:
         # === Module 2: VoidScar Engine ===
         ssm_input = self._hdc_to_ssm_input(h, surprise)
         self._engine.process(
-            event_vec=bytes(h), ssm_input=ssm_input,
-            surprise=surprise, timestamp=timestamp,
+            event_vec=bytes(h),
+            ssm_input=ssm_input,
+            surprise=surprise,
+            timestamp=timestamp,
         )
         if assessment:
             self._apply_assessment_to_engine(assessment)
         emotion = self._engine.observe()
         void_signal = [
-            emotion.get("warmth", 0.0), emotion.get("arousal", 0.0),
-            emotion.get("valence", 0.0), emotion.get("tension", 0.0),
-            emotion.get("curiosity", 0.0), emotion.get("repair_pressure", 0.0),
-            emotion.get("expression_drive", 0.0), emotion.get("boundary_firmness", 0.0),
+            emotion.get("warmth", 0.0),
+            emotion.get("arousal", 0.0),
+            emotion.get("valence", 0.0),
+            emotion.get("tension", 0.0),
+            emotion.get("curiosity", 0.0),
+            emotion.get("repair_pressure", 0.0),
+            emotion.get("expression_drive", 0.0),
+            emotion.get("boundary_firmness", 0.0),
         ]
         # Pad to state_dim
         void_signal += [0.0] * (self._field.state_dim - len(void_signal))
-        self._field.inject(2, void_signal[:self._field.state_dim])
+        self._field.inject(2, void_signal[: self._field.state_dim])
 
         # === Module 3: Relational Sheaf ===
         sheaf_result = self._sheaf.tick(0, ssm_input, timestamp=timestamp)
-        sheaf_energy = float(sheaf_result.get("energy", 0.0) if isinstance(sheaf_result, dict) else 0.0)
+        sheaf_energy = float(
+            sheaf_result.get("energy", 0.0) if isinstance(sheaf_result, dict) else 0.0
+        )
         sheaf_signal = [sheaf_energy * 0.3] * self._field.state_dim
         self._field.inject(3, sheaf_signal)
 
@@ -295,7 +331,7 @@ class ResonanceSpine:
         )
         hgt_decision = self._hgt.forward(hgt_tokens, self._personality)
         hgt_signal = list(hgt_decision) + [0.0] * (self._field.state_dim - 4)
-        self._field.inject(4, hgt_signal[:self._field.state_dim])
+        self._field.inject(4, hgt_signal[: self._field.state_dim])
 
         # === Module 5: Autopoietic Boundary ===
         force = self._emotion_to_boundary_force(emotion)
@@ -347,7 +383,7 @@ class ResonanceSpine:
         chunk_size = max(1, byte_len // dim)
         signal = []
         for i in range(dim):
-            chunk = h[i * chunk_size: (i + 1) * chunk_size]
+            chunk = h[i * chunk_size : (i + 1) * chunk_size]
             ones = sum(b.bit_count() for b in chunk)
             total = len(chunk) * 8
             signal.append((ones / max(1, total) - 0.5) * 2.0)
@@ -358,7 +394,7 @@ class ResonanceSpine:
         chunk_size = max(1, byte_dim // 8)
         result = []
         for i in range(8):
-            chunk = h[i * chunk_size: (i + 1) * chunk_size]
+            chunk = h[i * chunk_size : (i + 1) * chunk_size]
             ones = sum(b.bit_count() for b in chunk)
             total_bits = len(chunk) * 8
             density = ones / max(1, total_bits)
@@ -384,16 +420,23 @@ class ResonanceSpine:
 
     def _emotion_to_boundary_force(self, emotion: dict[str, float]) -> list[float]:
         values = (
-            emotion.get("warmth", 0.0), emotion.get("arousal", 0.0),
-            emotion.get("valence", 0.0), emotion.get("tension", 0.0),
-            emotion.get("curiosity", 0.0), emotion.get("repair_pressure", 0.0),
-            emotion.get("expression_drive", 0.0), emotion.get("boundary_firmness", 0.0),
+            emotion.get("warmth", 0.0),
+            emotion.get("arousal", 0.0),
+            emotion.get("valence", 0.0),
+            emotion.get("tension", 0.0),
+            emotion.get("curiosity", 0.0),
+            emotion.get("repair_pressure", 0.0),
+            emotion.get("expression_drive", 0.0),
+            emotion.get("boundary_firmness", 0.0),
         )
         return [values[i & 7] * 0.3 for i in range(32)]
 
     def _update_expression(
-        self, resonance_meta: dict[str, Any], emergence: dict[str, Any],
-        dt: float, hgt_decision: list[float],
+        self,
+        resonance_meta: dict[str, Any],
+        emergence: dict[str, Any],
+        dt: float,
+        hgt_decision: list[float],
     ) -> None:
         """Expression as bifurcation: escaping an attractor IS the expression event.
 
@@ -423,8 +466,7 @@ class ResonanceSpine:
         expr_state = self._field.module_states[6]
         raw_magnitude = math.sqrt(sum(x * x for x in expr_state))
         all_magnitudes = [
-            math.sqrt(sum(x * x for x in self._field.module_states[i]))
-            for i in range(7)
+            math.sqrt(sum(x * x for x in self._field.module_states[i])) for i in range(7)
         ]
         avg_magnitude = sum(all_magnitudes) / 7.0
         # Raw drive = how much module 6 exceeds the average (relative activation)
@@ -435,12 +477,15 @@ class ResonanceSpine:
         meaning_gate = 0.3 + phi * 0.7
 
         # OR-gate: max of independent triggers, gated by meaningfulness
-        bifurcation_drive = max(
-            surprise_drive,
-            novelty_drive * 0.8,
-            ignition_drive,
-            raw_drive * 0.6,
-        ) * meaning_gate
+        bifurcation_drive = (
+            max(
+                surprise_drive,
+                novelty_drive * 0.8,
+                ignition_drive,
+                raw_drive * 0.6,
+            )
+            * meaning_gate
+        )
 
         # HGT inhibition veto (d_3 > 0.75 = strong "don't speak" signal)
         if hgt_decision[3] > 0.75:
@@ -489,13 +534,28 @@ class ResonanceSpine:
             self._field._coupling.plasticity.update([0.05] * n_weights)
         return self._engine.observe()
 
-    def _build_result(self, text: str, timestamp: float, should_express: bool, hgt_decision: list[float] | None = None) -> dict[str, Any]:
+    def _build_result(
+        self,
+        text: str,
+        timestamp: float,
+        should_express: bool,
+        hgt_decision: list[float] | None = None,
+    ) -> dict[str, Any]:
         obs = self._field.observe()
-        emotion = self._engine.observe() if text else {
-            "warmth": 0.0, "arousal": 0.0, "valence": 0.0, "tension": 0.0,
-            "curiosity": 0.0, "repair_pressure": 0.0,
-            "expression_drive": 0.0, "boundary_firmness": 0.0,
-        }
+        emotion = (
+            self._engine.observe()
+            if text
+            else {
+                "warmth": 0.0,
+                "arousal": 0.0,
+                "valence": 0.0,
+                "tension": 0.0,
+                "curiosity": 0.0,
+                "repair_pressure": 0.0,
+                "expression_drive": 0.0,
+                "boundary_firmness": 0.0,
+            }
+        )
         return {
             "tick": self._tick_count,
             "text": text[:120],
@@ -575,6 +635,7 @@ class ResonanceSpine:
         if "engine" in data:
             engine_data = data["engine"]
             from .scar_algebra import ScarredState
+
             if "scar" in engine_data:
                 self._engine.scar_state = ScarredState.from_dict(engine_data["scar"])
             if "void" in engine_data:

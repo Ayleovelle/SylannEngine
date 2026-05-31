@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-
 # ---------------------------------------------------------------------------
 # Compute backend auto-detection
 # ---------------------------------------------------------------------------
+
 
 def _detect_backend() -> str:
     """Detect best available compute backend: torch > cupy > numpy > python."""
@@ -161,9 +161,7 @@ def build_profile(mode: Literal["lite", "pro", "max"]) -> DimensionProfile:
         backend = "numpy" if backend in ("numpy", "cupy", "torch") else "python"
     # pro uses numpy (GPU not needed)
     elif mode == "pro":
-        if backend == "torch":
-            backend = "numpy"
-        elif backend == "cupy":
+        if backend == "torch" or backend == "cupy":
             backend = "numpy"
     # max uses best available
     return DimensionProfile(mode=mode, backend=backend, **params)  # type: ignore[arg-type]

@@ -13,11 +13,14 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .body import SCHEMA_VERSION
 from .kernel import AlphaKernel
 from .utils import safe_filename
+
+if TYPE_CHECKING:
+    from ..config import DimensionProfile
 
 logger = logging.getLogger("sylanne_core")
 
@@ -31,13 +34,15 @@ class AlphaRuntime:
 
     _CONSISTENCY_CHECK_INTERVAL: int = 50
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, profile: DimensionProfile | None = None):
         """初始化运行时，指定持久化根目录。
 
         Args:
             root: 存储 .alpha.json 文件的根目录路径。
+            profile: 计算维度配置（lite/pro/max），传递给 kernel。
         """
         self.root = Path(root)
+        self._profile = profile
         self._save_count: int = 0
 
     def load(self, session_key: str, legacy: dict[str, Any] | None = None) -> AlphaKernel:
@@ -60,28 +65,32 @@ class AlphaRuntime:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
-                # JSON 损坏：保留损坏文件用于事后诊断，然后重新启动
                 self.root.mkdir(parents=True, exist_ok=True)
                 path.replace(path.with_suffix(path.suffix + ".damaged"))
-                recovered = AlphaKernel.boot(session_key=session_key, legacy=legacy)
+                recovered = AlphaKernel.boot(
+                    session_key=session_key, legacy=legacy, profile=self._profile
+                )
                 self.save(recovered)
                 return recovered
             if data.get("schema_version") == SCHEMA_VERSION:
-                return AlphaKernel.restore(data)
-            # schema 版本不匹配：将旧数据作为 legacy 传入，由 kernel 负责迁移
-            return AlphaKernel.boot(session_key=session_key, legacy=data)
-        return AlphaKernel.boot(session_key=session_key, legacy=legacy)
+                return AlphaKernel.restore(data, profile=self._profile)
+            return AlphaKernel.boot(session_key=session_key, legacy=data, profile=self._profile)
+        return AlphaKernel.boot(session_key=session_key, legacy=legacy, profile=self._profile)
 
     def save(self, kernel: AlphaKernel) -> None:
         """原子写入 kernel 快照到磁盘。定期执行一致性自检。"""
         self._save_count += 1
         if self._save_count % self._CONSISTENCY_CHECK_INTERVAL == 0:
             self._consistency_check(kernel)
+        self.save_snapshot(kernel.session_key, kernel.snapshot())
+
+    def save_snapshot(self, session_key: str, snapshot: dict[str, Any]) -> None:
+        """原子写入预计算的快照到磁盘（CoW 持久化入口）。"""
         self.root.mkdir(parents=True, exist_ok=True)
-        path = self._path(kernel.session_key)
+        path = self._path(session_key)
         tmp = path.with_suffix(path.suffix + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
-            f.write(json.dumps(kernel.snapshot(), ensure_ascii=False))
+            f.write(json.dumps(snapshot, ensure_ascii=False))
             f.flush()
             os.fsync(f.fileno())
         try:
@@ -99,7 +108,7 @@ class AlphaRuntime:
         Returns:
             全新启动的 AlphaKernel 实例。
         """
-        kernel = AlphaKernel.boot(session_key=session_key)
+        kernel = AlphaKernel.boot(session_key=session_key, profile=self._profile)
         self.save(kernel)
         return kernel
 

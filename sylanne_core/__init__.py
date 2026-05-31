@@ -38,7 +38,8 @@ from .expression import (
     ProsodyParams,
     TextStyle,
 )
-from .schema import SYLANNE_SCHEMA, validate as validate_schema
+from .schema import SYLANNE_SCHEMA
+from .schema import validate as validate_schema
 from .standard import EmotionVector, SylanneCore, SylanneState, SylanneStimulus
 from .types import EngineStatus, HealthStatus, PADOutput, Surface
 

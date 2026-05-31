@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>SylannEngine Attention Monitor</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; padding: 20px; height: 100vh; overflow: hidden; }
+h1 { font-size: 16px; margin-bottom: 4px; color: #58a6ff; }
+.subtitle { color: #8b949e; font-size: 11px; margin-bottom: 12px; }
+
+.layout { display: grid; grid-template-columns: 1fr 300px; gap: 16px; height: calc(100vh - 70px); }
+
+.card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; }
+.card-header { padding: 10px 14px; border-bottom: 1px solid #30363d; font-size: 12px; color: #58a6ff; font-weight: 500; flex-shrink: 0; }
+.card-body { overflow-y: auto; padding: 8px; flex: 1; }
+
+.sidebar { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.panel { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 10px 12px; font-size: 11px; flex-shrink: 0; }
+.panel h3 { font-size: 11px; color: #58a6ff; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.panel .row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+.panel .val { color: #c9d1d9; }
+.panel .label { color: #8b949e; }
+
+.msg { padding: 8px 12px; margin-bottom: 1px; border-radius: 4px; }
+.msg:hover { background: #1c2128; }
+.msg .head { font-size: 11px; color: #8b949e; margin-bottom: 1px; }
+.msg .head .sender { color: #c9d1d9; font-weight: 500; }
+.msg .body { font-size: 13px; line-height: 1.4; }
+.msg .tags { font-size: 10px; color: #484f58; margin-top: 2px; }
+.msg.triggered { border-left: 3px solid #3fb950; cursor: pointer; }
+.badge { display: inline-block; background: #238636; color: #fff; font-size: 9px; padding: 1px 5px; border-radius: 6px; margin-left: 5px; vertical-align: middle; }
+
+.reply-box { display: none; margin: 2px 0 4px 14px; padding: 8px 10px; background: #0d1117; border-left: 2px solid #58a6ff; border-radius: 4px; }
+.reply-box .reply-text { font-size: 12px; line-height: 1.4; }
+.reply-box .reply-recalled { margin-top: 4px; padding-top: 4px; border-top: 1px solid #21262d; }
+.reply-box .recalled-item { font-size: 10px; color: #a371f7; padding: 1px 0; }
+.reply-box .recalled-item::before { content: "↩ "; opacity: 0.6; }
+.reply-box .reply-meta { font-size: 10px; color: #484f58; margin-top: 3px; }
+.reply-box.open { display: block; }
+
+.bar-row { margin-bottom: 4px; }
+.bar-label { font-size: 10px; color: #8b949e; margin-bottom: 1px; display: flex; justify-content: space-between; }
+.bar { height: 4px; background: #21262d; border-radius: 2px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 2px; }
+.bar-fill.green { background: #3fb950; }
+.bar-fill.blue { background: #58a6ff; }
+.bar-fill.purple { background: #a371f7; }
+.bar-fill.yellow { background: #d29922; }
+.bar-fill.red { background: #f85149; }
+.bar-fill.cyan { background: #39d353; }
+
+.drift-log { max-height: 100px; overflow-y: auto; font-size: 10px; line-height: 1.5; }
+.drift-log .entry { padding: 1px 0; border-bottom: 1px solid #21262d; }
+.drift-log .up { color: #3fb950; }
+.drift-log .down { color: #f85149; }
+.dim { color: #484f58; }
+
+.rel-item { padding: 4px 0; border-bottom: 1px solid #21262d; }
+.rel-item:last-child { border: none; }
+.rel-name { color: #c9d1d9; font-weight: 500; font-size: 11px; }
+.rel-type { color: #8b949e; font-size: 9px; margin-left: 3px; }
+
+.mem-item { padding: 3px 0; border-bottom: 1px solid #21262d; }
+.mem-item:last-child { border: none; }
+.mem-item.recalled { background: #1c2128; border-radius: 3px; padding: 3px 6px; margin-bottom: 2px; border-left: 2px solid #a371f7; }
+.mem-head { font-size: 9px; color: #8b949e; }
+.mem-layer { background: #30363d; color: #c9d1d9; padding: 0 3px; border-radius: 2px; font-size: 9px; }
+.mem-rel { color: #a371f7; margin-left: 3px; }
+.mem-text { font-size: 10px; color: #c9d1d9; line-height: 1.3; }
+</style>
+</head>
+<body>
+<h1>SylannEngine Attention Monitor</h1>
+<p class="subtitle">绿色 = 引擎决定回复（已生成未投送） · 点击展开</p>
+
+<div class="layout">
+
+<div class="card">
+  <div class="card-header">Group Chat · 12 messages · 3 replies (25%)</div>
+  <div class="card-body" id="chat"></div>
+</div>
+
+<div class="sidebar">
+
+  <div class="panel">
+    <h3>State</h3>
+    <div class="row"><span class="label">warmth</span><span class="val">0.52</span></div>
+    <div class="row"><span class="label">damage</span><span class="val">0.12</span></div>
+    <div class="row"><span class="label">autonomy</span><span class="val">0.78</span></div>
+    <div class="row"><span class="label">strain</span><span class="val">0.20</span></div>
+    <div class="row"><span class="label">phase</span><span class="val">young (5d)</span></div>
+  </div>
+
+  <div class="panel">
+    <h3>Deep Personality</h3>
+    <div class="bar-row"><div class="bar-label"><span>expression</span><span>0.55</span></div><div class="bar"><div class="bar-fill green" style="width:55%"></div></div></div>
+    <div class="bar-row"><div class="bar-label"><span>perception</span><span>0.62</span></div><div class="bar"><div class="bar-fill blue" style="width:62%"></div></div></div>
+    <div class="bar-row"><div class="bar-label"><span>permeability</span><span>0.45</span></div><div class="bar"><div class="bar-fill purple" style="width:45%"></div></div></div>
+    <div class="bar-row"><div class="bar-label"><span>order</span><span>0.70</span></div><div class="bar"><div class="bar-fill cyan" style="width:70%"></div></div></div>
+    <div class="bar-row"><div class="bar-label"><span>gravity</span><span>0.58</span></div><div class="bar"><div class="bar-fill yellow" style="width:58%"></div></div></div>
+  </div>
+
+  <div class="panel">
+    <h3>Surface Personality</h3>
+    <div class="bar-row"><div class="bar-label"><span>warmth</span><span>0.63</span></div><div class="bar"><div class="bar-fill green" style="width:63%"></div></div></div>
+    <div class="bar-row"><div class="bar-label"><span>direct</span><span>0.40</span></div><div class="bar"><div class="bar-fill blue" style="width:40%"></div></div></div>
+    <div class="bar-row"><div class="bar-label"><span>curiosity</span><span>0.68</span></div><div class="bar"><div class="bar-fill purple" style="width:68%"></div></div></div>
+    <div class="bar-row"><div class="bar-label"><span>patience</span><span>0.55</span></div><div class="bar"><div class="bar-fill cyan" style="width:55%"></div></div></div>
+    <div class="bar-row"><div class="bar-label"><span>intimacy</span><span>0.42</span></div><div class="bar"><div class="bar-fill yellow" style="width:42%"></div></div></div>
+    <div class="bar-row"><div class="bar-label"><span>guard</span><span>0.72</span></div><div class="bar"><div class="bar-fill red" style="width:72%"></div></div></div>
+  </div>
+
+  <div class="panel">
+    <h3>Drift</h3>
+    <div class="drift-log">
+      <div class="entry"><span class="dim">14:30</span> perception <span class="up">+.008</span> <span class="dim">@mention</span></div>
+      <div class="entry"><span class="dim">14:32</span> permeability <span class="down">-.012</span> <span class="dim">neg surprise</span></div>
+      <div class="entry"><span class="dim">14:32</span> guard <span class="up">+.015</span> <span class="dim">boundary</span></div>
+      <div class="entry"><span class="dim">14:33</span> gravity <span class="up">+.005</span> <span class="dim">repair</span></div>
+      <div class="entry"><span class="dim">14:33</span> warmth <span class="up">+.010</span> <span class="dim">positive</span></div>
+      <div class="entry"><span class="dim">14:36</span> curiosity <span class="up">+.008</span> <span class="dim">explore</span></div>
+      <div class="entry"><span class="dim">14:36</span> expression <span class="up">+.003</span> <span class="dim">fired</span></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3>Relationships</h3>
+    <div class="rel-item"><span class="rel-name">小红</span><span class="rel-type">FRIENDLY</span><div class="bar-row"><div class="bar"><div class="bar-fill green" style="width:68%"></div></div></div></div>
+    <div class="rel-item"><span class="rel-name">小明</span><span class="rel-type">FRIENDLY</span><div class="bar-row"><div class="bar"><div class="bar-fill green" style="width:62%"></div></div></div></div>
+    <div class="rel-item"><span class="rel-name">阿强</span><span class="rel-type">FORMAL</span><div class="bar-row"><div class="bar"><div class="bar-fill red" style="width:25%"></div></div></div></div>
+  </div>
+
+  <div class="panel">
+    <h3>Memory (L1:8 L2:23 L3:5)</h3>
+    <div class="mem-item recalled"><div class="mem-head"><span class="mem-layer">L1</span><span class="mem-rel">0.82</span></div><div class="mem-text">小明表达了保护意图</div></div>
+    <div class="mem-item recalled"><div class="mem-head"><span class="mem-layer">L2</span><span class="mem-rel">0.65</span></div><div class="mem-text">小红喜欢科幻片</div></div>
+    <div class="mem-item"><div class="mem-head"><span class="mem-layer">L1</span><span class="dim"> stored</span></div><div class="mem-text">阿强态度不友好</div></div>
+    <div class="mem-item"><div class="mem-head"><span class="mem-layer">L1</span><span class="dim"> stored</span></div><div class="mem-text">今天话题：天气、出门、电影</div></div>
+  </div>
+
+</div>
+</div>
+
+<script>
+const demo = [
+  {sender:"小明", time:"14:30:05", text:"有人在吗", action:"hold", confidence:0.45, warmth:0.5, damage:0.0, triggered:false},
+  {sender:"小红", time:"14:30:12", text:"在呢在呢", action:"hold", confidence:0.4, warmth:0.52, damage:0.0, triggered:false},
+  {sender:"小明", time:"14:30:30", text:"今天天气好好 想出去玩", action:"explore", confidence:0.55, warmth:0.55, damage:0.0, triggered:false},
+  {sender:"小红", time:"14:30:45", text:"@bot 你觉得今天适合出门吗", action:"express", confidence:0.81, warmth:0.62, damage:0.0, urgency:0.6, autonomy:0.9, risk:0.08, triggered:true, reply:"天气确实不错呢，挺适合出去走走的。", recalled:[]},
+  {sender:"小明", time:"14:31:02", text:"哈哈它居然回了", action:"hold", confidence:0.42, warmth:0.6, damage:0.0, triggered:false},
+  {sender:"小红", time:"14:31:15", text:"对吧 挺可爱的", action:"hold", confidence:0.48, warmth:0.63, damage:0.0, triggered:false},
+  {sender:"阿强", time:"14:32:00", text:"这机器人是什么东西", action:"guard", confidence:0.6, warmth:0.45, damage:0.05, triggered:false},
+  {sender:"阿强", time:"14:32:10", text:"看起来挺蠢的", action:"guard", confidence:0.72, warmth:0.35, damage:0.12, triggered:false},
+  {sender:"小红", time:"14:32:30", text:"别这样说嘛 人家也是有感情的", action:"hold", confidence:0.5, warmth:0.4, damage:0.12, triggered:false},
+  {sender:"小明", time:"14:33:00", text:"bot 你没事吧 别理他", action:"express", confidence:0.72, warmth:0.48, damage:0.15, urgency:0.4, autonomy:0.72, risk:0.2, triggered:true, reply:"没事的，谢谢你的关心。", recalled:["L1: 阿强刚才说了攻击性的话 (0.82)"]},
+  {sender:"阿强", time:"14:35:00", text:"行了行了 不说了", action:"hold", confidence:0.5, warmth:0.4, damage:0.15, triggered:false},
+  {sender:"小红", time:"14:36:00", text:"我们聊点别的吧 最近有什么好看的电影推荐", action:"explore", confidence:0.65, warmth:0.52, damage:0.12, urgency:0.3, autonomy:0.78, risk:0.12, triggered:true, reply:"最近有几部评价不错的，你平时喜欢看什么类型的？", recalled:["L2: 小红之前提过喜欢科幻片 (0.65)"]},
+];
+
+const chat = document.getElementById('chat');
+chat.innerHTML = demo.map((m, i) => `
+  <div class="msg ${m.triggered ? 'triggered' : ''}" ${m.triggered ? `onclick="toggle(${i})"` : ''}>
+    <div class="head"><span class="sender">${m.sender}</span> · ${m.time}</div>
+    <div class="body">${m.text}${m.triggered ? '<span class="badge">replied</span>' : ''}</div>
+    <div class="tags">${m.action} · ${m.confidence} · w${m.warmth} · d${m.damage}</div>
+  </div>
+  ${m.triggered ? `<div class="reply-box" id="reply-${i}">
+    <div class="reply-text">${m.reply}</div>
+    ${m.recalled&&m.recalled.length ? `<div class="reply-recalled">${m.recalled.map(r=>`<div class="recalled-item">${r}</div>`).join('')}</div>` : ''}
+    <div class="reply-meta">urgency=${m.urgency} autonomy=${m.autonomy} risk=${m.risk}</div>
+  </div>` : ''}
+`).join('');
+chat.scrollTop = chat.scrollHeight;
+
+function toggle(i) { document.getElementById('reply-'+i).classList.toggle('open'); }
+</script>
+</body>
+</html>

@@ -6,6 +6,11 @@
 
 在整个架构中的位置：最顶层编排模块，对外暴露 process() / feedback() / express() 三个主入口。
 所有人格参数通过 apply_personality() 向下分发到各子系统。
+
+支持三种计算模式（通过 DimensionProfile 配置）：
+  - lite: 轻量级，5 并发插件，纯 Python
+  - pro: 专业级，25 并发插件，numpy 加速
+  - max: 性能野兽，50+ 并发插件，GPU 加速
 """
 
 from __future__ import annotations
@@ -20,6 +25,7 @@ from .autopoiesis import AutopoieticBoundary
 from .bounded_dict import BoundedDict
 from .hdc import HDCEncoder
 from .hgt import HeterogeneousGraphTransformer
+from .pad_interop import PADProjector, PADVector
 from .personality import (
     _REVERSE_LEGACY_MAP,
     EMBODIMENT_TRAITS,
@@ -36,6 +42,7 @@ from .relational_sheaf import ScarSheaf
 from .void_scar_engine import VoidScarEngine
 
 if TYPE_CHECKING:
+    from ..config import DimensionProfile
     from .social_field import SocialSignals
 
 logger = logging.getLogger("sylanne_core")
@@ -141,6 +148,7 @@ class ComputationSpine:
     """
 
     __slots__ = (
+        "_profile",
         "encoder",
         "gate",
         "engine",
@@ -178,15 +186,38 @@ class ComputationSpine:
         "_parallel_eligible",
     )
 
-    def __init__(self, plugin: Any = None):
-        hdc_dim = getattr(plugin, "_cfg_int", lambda k, d: d)("sylanne_alpha_hdc_dimension", 2048)
+    def __init__(self, plugin: Any = None, profile: DimensionProfile | None = None):
+        if profile is None:
+            from ..config import build_profile
+
+            profile = build_profile("lite")
+        self._profile = profile
+        hdc_dim = profile.hdc_dim
+        if plugin is not None:
+            hdc_dim = getattr(plugin, "_cfg_int", lambda k, d: d)(
+                "sylanne_alpha_hdc_dimension", hdc_dim
+            )
         self.encoder = HDCEncoder(dim=hdc_dim)
         self.gate = PredictiveCodingGate(dim=hdc_dim)
-        self.engine = VoidScarEngine(n_dims=8, similarity_fn=self._hdc_similarity)
-        self.sheaf = ScarSheaf(n0=8)
-        self.boundary = AutopoieticBoundary(identity_dim=32)
-        self.expression = PhaseTransitionExpression()
-        self.hgt = HeterogeneousGraphTransformer(d_model=16, n_heads=4, d_output=4)
+        self.engine = VoidScarEngine(
+            n_dims=profile.emotion_dim,
+            similarity_fn=self._hdc_similarity,
+            scar_mlp_passes=profile.scar_mlp_passes,
+        )
+        self.sheaf = ScarSheaf(n0=profile.stalk_dim)
+        self.boundary = AutopoieticBoundary(
+            identity_dim=profile.identity_dim, repair_passes=profile.repair_passes
+        )
+        self.expression = PhaseTransitionExpression(order_params=profile.order_params)
+        self.hgt = HeterogeneousGraphTransformer(
+            d_model=profile.d_model,
+            n_heads=profile.n_heads,
+            d_output=profile.d_output,
+            n_experts=profile.n_experts,
+            top_k_min=profile.top_k_min,
+            top_k_max=profile.top_k_max,
+            attention_rounds=profile.attention_rounds,
+        )
         self._tick_count = 0
         self._last_route = "fast"
         self._last_expression_time = 0.0
@@ -776,6 +807,13 @@ class ComputationSpine:
                 # Apply HGT d_0 (expression drive correction)
                 drive = max(0.0, min(1.0, drive + hgt_decision[0] * 0.3))
                 self.expression.accumulate(drive, dt=1.0)
+                # Multi-channel: inject social signal into channel 1 if available
+                if self.expression._social_signals and self.expression.order_params > 1:
+                    social_drive = self.expression._social_signals.topic_relevance * 0.5
+                    self.expression.accumulate_channel(1, social_drive, dt=1.0)
+                # Multi-channel: inject cognitive (surprise) into channel 2
+                if self.expression.order_params > 2:
+                    self.expression.accumulate_channel(2, surprise * 0.4, dt=1.0)
             _elapsed = time.perf_counter_ns() - t0
             self._timings["expression"].append(_elapsed)
             if _elapsed > _LAYER_TIMEOUT_NS:
@@ -848,6 +886,32 @@ class ComputationSpine:
             if boundary_result.get("phase_transition"):
                 drive = min(1.0, drive + 0.4)  # Phase transition boosts expression drive
             self.expression.accumulate(drive, dt=1.0)
+
+            # Multi-channel drives (pro/max modes)
+            if self.expression.order_params > 1:
+                # Channel 1: social drive from social signals
+                if self.expression._social_signals:
+                    social_drive = (
+                        self.expression._social_signals.topic_relevance * 0.4
+                        + self.expression._social_signals.continuation_strength * 0.3
+                    )
+                    self.expression.accumulate_channel(1, social_drive, dt=1.0)
+            if self.expression.order_params > 2:
+                # Channel 2: cognitive drive from surprise/novelty
+                self.expression.accumulate_channel(2, surprise * 0.5, dt=1.0)
+            if self.expression.order_params > 3:
+                # Channel 3: repair drive from boundary damage
+                boundary_damage = 1.0 - self.boundary.stability()
+                self.expression.accumulate_channel(3, boundary_damage * 0.3, dt=1.0)
+            if self.expression.order_params > 4:
+                # Channel 4: void drive from void pressure
+                void_pressure = float(emotion.get("void_pressure", 0.0))
+                self.expression.accumulate_channel(4, void_pressure * 0.4, dt=1.0)
+            if self.expression.order_params > 5:
+                # Channel 5: cascade drive (from phase transition events)
+                if boundary_result.get("phase_transition"):
+                    self.expression.accumulate_channel(5, 0.6, dt=1.0)
+
             self.expression.silence_lowers_threshold(dt=dt)
 
             # HGT d_2 influences urgency (stored in expression state)
@@ -1015,6 +1079,20 @@ class ComputationSpine:
             delta["extraversion"] = max(-0.1, delta.get("extraversion", 0.0) - rate)
         # Mark dirty so next process() re-applies effective personality
         self._personality_dirty = True
+
+    def pad_project(self) -> PADVector:
+        """将当前 VoidScar 内部状态投影到 PAD 三维空间。
+
+        使用 PADProjector 对 scar_state.base（N 维内部情感状态）
+        进行线性投影，得到标准 PAD 向量用于外部互操作。
+
+        Returns:
+            PADVector: 当前情感状态的 PAD 表示。
+        """
+        n_dims = self.engine.scar_state.n_dims
+        projector = PADProjector(n_dims, self._personality)
+        internal_state = list(self.engine.scar_state.base)
+        return projector.project(internal_state)
 
     def diagnostics(self) -> dict[str, Any]:
         """完整诊断快照（用于调试和 UI 展示）。"""
