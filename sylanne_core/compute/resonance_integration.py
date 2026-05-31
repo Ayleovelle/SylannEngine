@@ -330,7 +330,7 @@ class ResonanceSpine:
             hdc_features=ssm_input,
         )
         hgt_decision = self._hgt.forward(hgt_tokens, self._personality)
-        hgt_signal = list(hgt_decision) + [0.0] * (self._field.state_dim - 4)
+        hgt_signal = list(hgt_decision) + [0.0] * (self._field.state_dim - len(hgt_decision))
         self._field.inject(4, hgt_signal[: self._field.state_dim])
 
         # === Module 5: Autopoietic Boundary ===
