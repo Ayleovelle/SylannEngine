@@ -21,6 +21,7 @@ def safe_filename(session_key: str) -> str:
             parts.append(f"%{ord(ch):02X}")
     return "".join(parts) or "default"
 
+
 logger = logging.getLogger("sylanne_core")
 
 
