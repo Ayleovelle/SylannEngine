@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import copy
 import logging
 import time
 from collections import deque
@@ -276,6 +275,14 @@ class ComputationSpine:
         # 当前语义：在 normal/full path 中 L4(sheaf) 和 L5(hgt) 可与 L6(boundary)
         # 并行执行（它们之间无数据依赖），但需要 async 化后才能实现。
         self._parallel_eligible: bool = False
+
+    def embodiment_bounds(self) -> dict[str, float] | None:
+        """Public accessor for embodiment trait bounds (used by kernel personality drift)."""
+        return (
+            {n: t.value for n, t in self._embodiment_traits.items()}
+            if self._embodiment_traits
+            else None
+        )
 
     def set_layer_enabled(self, layer: str, enabled: bool) -> None:
         """启用或禁用指定的计算层。
@@ -543,7 +550,7 @@ class ComputationSpine:
         cache_key = (text, session_key or "", assess_sig)
         cached = self._result_cache.get(cache_key)
         if cached is not None:
-            return copy.deepcopy(cached)
+            return dict(cached)
 
         # Apply per-relationship personality overlay if session changed or dirty
         if session_key != self._last_effective_session or self._personality_dirty:
@@ -1133,7 +1140,7 @@ class ComputationSpine:
 
     def _hdc_similarity(self, a: bytes, b: bytes) -> float:
         """基于 HDC 的相似度函数（供 VoidScarEngine 使用）。"""
-        return self.encoder.similarity(bytearray(a), bytearray(b))
+        return self.encoder.similarity(a, b)
 
     def _hdc_to_ssm_input(self, h: bytearray, surprise: float) -> list[float]:
         """将 HDC bytearray 压缩为 8 维 SSM 输入。

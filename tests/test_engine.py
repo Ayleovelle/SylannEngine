@@ -94,7 +94,7 @@ class TestEngineState:
     async def test_state(self, engine: SylanneEngine):
         await engine.start()
         await engine.process("s1", "hello")
-        surface = engine.state("s1")
+        surface = await engine.state("s1")
         assert surface["session_id"] == "s1"
 
 
@@ -103,16 +103,16 @@ class TestEngineReset:
     async def test_reset(self, engine: SylanneEngine):
         await engine.start()
         await engine.process("s1", "hello")
-        engine.reset("s1")
-        surface = engine.state("s1")
+        await engine.reset("s1")
+        surface = await engine.state("s1")
         assert surface["turns"] == 0
 
     @pytest.mark.asyncio
     async def test_destroy(self, engine: SylanneEngine):
         await engine.start()
         await engine.process("s1", "hello")
-        engine.destroy("s1")
-        surface = engine.state("s1")
+        await engine.destroy("s1")
+        surface = await engine.state("s1")
         assert surface["turns"] == 0
 
 

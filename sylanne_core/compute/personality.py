@@ -538,8 +538,13 @@ def compute_embodiment_drift(
 # ---------------------------------------------------------------------------
 
 
+def _trait_value(v: TraitMemory | float) -> float:
+    """Extract numeric value from a TraitMemory or plain float."""
+    return v.value if isinstance(v, TraitMemory) else float(v)
+
+
 def sylanne_bounds_from_embodiment(
-    embodiment: dict[str, TraitMemory],
+    embodiment: dict[str, TraitMemory] | dict[str, float],
 ) -> dict[str, tuple[float, float]]:
     """根据 Embodiment Five 计算 Sylanne Six 每个特质的允许范围 [min, max]。
 
@@ -547,16 +552,16 @@ def sylanne_bounds_from_embodiment(
     例如：relational_gravity 低时，warmth_bias 的上限也会被压低。
 
     参数:
-        embodiment: Embodiment 特质名→TraitMemory 的字典
+        embodiment: Embodiment 特质名→TraitMemory 或 float 的字典
 
     返回:
         Sylanne 特质名→(下界, 上界) 的字典
     """
-    _e = embodiment.get("expression_drive_trait", TraitMemory(0.5)).value
-    _p = embodiment.get("perception_acuity", TraitMemory(0.5)).value
-    b = embodiment.get("boundary_permeability", TraitMemory(0.5)).value
-    o = embodiment.get("inner_order", TraitMemory(0.5)).value
-    r = embodiment.get("relational_gravity", TraitMemory(0.5)).value
+    _e = _trait_value(embodiment.get("expression_drive_trait", TraitMemory(0.5)))
+    _p = _trait_value(embodiment.get("perception_acuity", TraitMemory(0.5)))
+    b = _trait_value(embodiment.get("boundary_permeability", TraitMemory(0.5)))
+    o = _trait_value(embodiment.get("inner_order", TraitMemory(0.5)))
+    r = _trait_value(embodiment.get("relational_gravity", TraitMemory(0.5)))
 
     return {
         "warmth_bias": (max(0.0, r * 0.4), min(1.0, 0.4 + r * 0.6)),
@@ -580,7 +585,7 @@ def drift_sylanne_traits(
     personality: dict[str, Any],
     *,
     event: dict[str, Any] | None = None,
-    embodiment: dict[str, TraitMemory] | None = None,
+    embodiment: dict[str, TraitMemory] | dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """对 Sylanne 表层特质施加文本驱动的快速漂移。
 
