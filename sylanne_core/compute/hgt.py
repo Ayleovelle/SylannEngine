@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import array
 import hashlib
 import math
 import struct
@@ -59,11 +58,11 @@ def _deterministic_floats(seed: bytes, count: int) -> list[float]:
     return result
 
 
-def _make_flat(seed: bytes, rows: int, cols: int, scale: float = 1.0) -> list[Any]:
+def _make_flat(seed: bytes, rows: int, cols: int, scale: float = 1.0) -> list[float]:
     """生成扁平化权重矩阵（Xavier 初始化 + 确定性种子）。"""
     floats = _deterministic_floats(seed, rows * cols)
     xavier = scale * _sqrt(2.0 / (rows + cols))
-    return list(array.array("d", (f * xavier for f in floats)))
+    return [f * xavier for f in floats]
 
 
 def _matmul_vec_flat(mat: list[float], vec: list[float], rows: int, cols: int) -> list[float]:
@@ -133,8 +132,8 @@ class TypeExpertFFN:
     def __init__(self, d_in: int = 16, d_hidden: int = 24):
         self.d_in = d_in
         self.d_hidden = d_hidden
-        self.w1_flat: list[Any] = []
-        self.w2_flat: list[Any] = []
+        self.w1_flat: list[float] = []
+        self.w2_flat: list[float] = []
         self.gamma: list[float] = [1.0] * d_in
 
     def derive(self, seed: bytes) -> None:
@@ -180,9 +179,9 @@ class MultiHeadCrossAttention:
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_head = d_model // n_heads
-        self._wq: list[list[Any]] = []
-        self._wk: list[list[Any]] = []
-        self._wv: list[list[Any]] = []
+        self._wq: list[list[list[float]]] = []
+        self._wk: list[list[list[float]]] = []
+        self._wv: list[list[list[float]]] = []
         self._attention_prior: list[list[float]] = [[0.0] * _NUM_TYPES for _ in range(_NUM_TYPES)]
         self._gamma: list[float] = [1.0] * d_model
 
@@ -362,8 +361,8 @@ class SituationExpert:
     def __init__(self, d_in: int = 16, d_hidden: int = 24):
         self.d_in = d_in
         self.d_hidden = d_hidden
-        self.w1_flat: list[Any] = []
-        self.w2_flat: list[Any] = []
+        self.w1_flat: list[float] = []
+        self.w2_flat: list[float] = []
 
     def derive(self, seed: bytes) -> None:
         self.w1_flat = _make_flat(seed + b"W1", self.d_hidden, self.d_in)
@@ -425,7 +424,7 @@ class MoELayer:
         self.experts: list[SituationExpert] = [
             SituationExpert(d_model, 24) for _ in range(n_experts)
         ]
-        self.router_flat: list[Any] = []
+        self.router_flat: list[float] = []
         self.gamma: list[float] = [1.0] * d_model
         self._expert_last_active: list[int] = [0] * n_experts
         self._dormancy_threshold: int = 50
@@ -659,7 +658,7 @@ class HeterogeneousGraphTransformer:
         ]
         self._attention = MultiHeadCrossAttention(d_model, n_heads)
         self._moe = MoELayer(d_model, _N_EXPERTS)
-        self._decision_flat: list[Any] = []
+        self._decision_flat: list[float] = []
         self._personality_cache: str = ""
         self._router_adapt = RouterAdaptation(_N_EXPERTS)
         self._attn_adapt = AttentionPriorAdaptation(_NUM_TYPES)

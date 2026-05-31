@@ -73,7 +73,9 @@ def _build_shift_masks(byte_dim: int, dim: int) -> tuple[None | tuple[int, int, 
     预计算这些掩码后，编码时每个 token 的移位操作只需 O(1) 次大整数运算。
     """
     full_mask = (1 << dim) - 1
-    masks: list[None | tuple[int, int, int, int]] = [None]  # index 0 unused (sr=0 means no sub-byte shift)
+    masks: list[None | tuple[int, int, int, int]] = [
+        None
+    ]  # index 0 unused (sr=0 means no sub-byte shift)
     for r in range(1, 8):
         keep_byte = (1 << (8 - r)) - 1  # bits 0..7-r
         low_byte = (1 << r) - 1  # bits 0..r-1

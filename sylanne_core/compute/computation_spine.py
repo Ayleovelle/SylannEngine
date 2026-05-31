@@ -542,7 +542,9 @@ class ComputationSpine:
         cache_key = (text, session_key or "", assess_sig)
         cached = self._result_cache.get(cache_key)
         if cached is not None:
-            return dict(cached)
+            import copy
+
+            return copy.deepcopy(cached)
 
         # Apply per-relationship personality overlay if session changed or dirty
         if session_key != self._last_effective_session or self._personality_dirty:

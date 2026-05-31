@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .kernel import AlphaKernelEvent
+from .kernel import AlphaKernel, AlphaKernelEvent
 from .runtime import AlphaRuntime
 
 _FLUSH_INTERVAL: float = 5.0
@@ -73,7 +73,7 @@ class SylanneAlphaHost:
     session_key: str = "default"
     legacy: dict[str, Any] | None = None
     runtime: AlphaRuntime = field(init=False)
-    kernel: Any = field(init=False)
+    kernel: AlphaKernel = field(init=False)
     _dirty: bool = field(init=False, default=False)
     _ticks_since_flush: int = field(init=False, default=0)
     _last_flush_time: float = field(init=False, default=0.0)
@@ -143,10 +143,10 @@ class SylanneAlphaHost:
         return surface
 
     def diagnostics(self) -> dict[str, Any]:
-        return dict(self.kernel.surface())
+        return self.kernel.surface()
 
     def snapshot(self) -> dict[str, Any]:
-        return dict(self.kernel.snapshot())
+        return self.kernel.snapshot()
 
     def _tick(
         self,
