@@ -14,12 +14,15 @@ from typing import Any
 
 import pytest
 
-from sylanne_core.interchange_validator import (
-    SemanticValidationError,
-    migrate,
-    validate,
-    validate_strict,
-)
+try:
+    from sylanne_core.interchange_validator import (
+        SemanticValidationError,
+        migrate,
+        validate,
+        validate_strict,
+    )
+except ImportError:
+    pytest.skip("jsonschema not installed", allow_module_level=True)
 
 # ---------------------------------------------------------------------------
 # Fixtures: canonical test documents
