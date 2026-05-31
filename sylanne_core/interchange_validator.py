@@ -32,7 +32,7 @@ def _load_schema(version: int = 1) -> dict[str, Any]:
     if version != 1:
         raise ValueError(f"Unsupported schema_version: {version}. Only version 1 is defined.")
     with open(_SCHEMA_V1_PATH, encoding="utf-8") as f:
-        return json.load(f)
+        return json.load(f)  # type: ignore[no-any-return]
 
 
 def _get_validator(version: int = 1) -> Draft202012Validator:

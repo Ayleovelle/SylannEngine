@@ -155,7 +155,7 @@ def numpy_type_expert_forward(
     rms = np.sqrt(np.mean(result**2) + 1e-6)
     result = result / rms * gamma_arr
 
-    return result.tolist()
+    return result.tolist()  # type: ignore[no-any-return]
 
 
 def numpy_moe_forward(
@@ -213,4 +213,4 @@ def numpy_moe_forward(
     rms = np.sqrt(np.mean(result**2) + 1e-6)
     result = result / rms * gamma_arr
 
-    return result.tolist()
+    return result.tolist()  # type: ignore[no-any-return]

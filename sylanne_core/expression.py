@@ -26,6 +26,7 @@ Pure Python. No external dependencies.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from sylanne_core.compute.pad_interop import PADVector
 from sylanne_core.standard import EmotionVector
@@ -847,7 +848,7 @@ class ExpressionMapper:
             dominance=state.dominance,
         )
 
-    def map_all(self, state: PADVector | EmotionVector) -> dict:
+    def map_all(self, state: PADVector | EmotionVector) -> dict[str, Any]:
         """Map emotional state to all output modalities simultaneously.
 
         Args:

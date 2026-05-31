@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 from sylanne_core.compute.hot_pool import InfluenceType
 from sylanne_core.standard import EmotionVector
@@ -457,7 +458,7 @@ class ContagionGraph:
 
         return variance
 
-    def diagnostics(self) -> dict:
+    def diagnostics(self) -> dict[str, Any]:
         """Return diagnostic summary of the contagion graph state."""
         return {
             "agent_count": len(self._states),

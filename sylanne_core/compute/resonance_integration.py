@@ -231,9 +231,9 @@ class ResonanceSpine:
             return
         from ..config import build_profile
 
-        new_profile = build_profile(new_tier)
+        new_profile = build_profile(new_tier)  # type: ignore[arg-type]
         self._field.switch_tier(new_tier)
-        self._tier = new_tier
+        self._tier = new_tier  # type: ignore[assignment]
         self._profile = new_profile
         # Clear emergence history (dimensions changed, old history is invalid)
         self._emergence = EmergenceTracker(window=50)

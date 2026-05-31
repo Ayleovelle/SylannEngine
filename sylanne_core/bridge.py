@@ -23,6 +23,8 @@ Theoretical basis:
 
 from __future__ import annotations
 
+from typing import Any
+
 from .compute.pad_interop import PADProjector, PADVector
 from .standard import EmotionVector, SylanneState
 from .types import Surface
@@ -130,7 +132,7 @@ def surface_to_layer0(surface: Surface) -> SylanneState:
     )
 
 
-def layer0_to_interchange(state: SylanneState) -> dict:
+def layer0_to_interchange(state: SylanneState) -> dict[str, Any]:
     """Convert Layer 0 SylanneState to JSON-serializable interchange format.
 
     Produces a flat dictionary suitable for:
