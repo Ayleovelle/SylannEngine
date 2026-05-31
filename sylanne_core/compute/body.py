@@ -326,6 +326,11 @@ class AlphaBodyState:
                     ][-24:]
                 },
             }
+            recent = memory_data.get("recent_texts")
+            if isinstance(recent, list):
+                body._recent_texts = deque(
+                    (str(t) for t in recent[-20:] if isinstance(t, str)), maxlen=20
+                )
         return body
 
     def _raw_state_vector(self) -> dict[str, float]:
@@ -584,6 +589,7 @@ class AlphaBodyState:
                     dict(item) for item in shadow.get("events", []) if isinstance(item, dict)
                 ][-24:]
             },
+            "recent_texts": list(self._recent_texts),
         }
         return {
             "pulse": self.pulse.to_dict(),
