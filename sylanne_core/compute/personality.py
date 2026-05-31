@@ -816,7 +816,9 @@ def should_explore(curiosity: float, info_entropy: float, energy: float) -> bool
 # ---------------------------------------------------------------------------
 
 
-def apply_relationship_age_modulation(traits: dict[str, Any], relationship_stage: str) -> dict[str, Any]:
+def apply_relationship_age_modulation(
+    traits: dict[str, Any], relationship_stage: str
+) -> dict[str, Any]:
     """根据关系阶段调整人格参数。
 
     关系阶段定义：

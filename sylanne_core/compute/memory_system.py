@@ -744,11 +744,9 @@ class MemorySystem:
                 for label, nid in self._l3_label_index.items()
                 if nid not in dead_node_set
             }
-            self._l3_edge_index = {
-                key: idx
-                for key, idx in self._l3_edge_index.items()
-                if idx < len(self._l3_edges)
-            }
+        self._l3_edge_index = {
+            (e.source, e.target, e.relation): i for i, e in enumerate(self._l3_edges)
+        }
 
     # ------------------------------------------------------------------
     # Ebbinghaus 遗忘曲线（Item 95）

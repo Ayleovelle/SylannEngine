@@ -283,9 +283,9 @@ class AlphaBodyState:
                         if key not in fields:
                             continue
                         ftype = fields[key].type
-                        if ftype == "bool":
+                        if ftype in ("bool", bool):
                             safe[key] = bool(value)
-                        elif ftype == "int":
+                        elif ftype in ("int", int):
                             safe[key] = int(float(value))
                         else:
                             safe[key] = float(value)
