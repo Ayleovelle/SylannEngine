@@ -322,18 +322,18 @@ class PADProjector:
         - Rusting & Larsen 1997: neuroticism shifts valence baseline down
         - McCrae & Costa 1997: openness widens projection spread
         """
-        E = float(personality.get("extraversion", personality.get("expression_drive_trait", 0.5)))
-        N = float(personality.get("neuroticism", personality.get("perception_acuity", 0.5)))
-        O = float(personality.get("openness", personality.get("boundary_permeability", 0.5)))
+        ext = float(personality.get("extraversion", personality.get("expression_drive_trait", 0.5)))
+        neu = float(personality.get("neuroticism", personality.get("perception_acuity", 0.5)))
+        opn = float(personality.get("openness", personality.get("boundary_permeability", 0.5)))
 
         # Watson & Clark 1997: extraversion → tonic arousal elevation
-        self._b[1] = (E - 0.5) * 0.15  # Arousal bias shift
+        self._b[1] = (ext - 0.5) * 0.15  # Arousal bias shift
 
         # Rusting & Larsen 1997: neuroticism → negative valence bias
-        self._b[0] = -(N - 0.5) * 0.12  # Valence bias shift
+        self._b[0] = -(neu - 0.5) * 0.12  # Valence bias shift
 
         # McCrae & Costa 1997: openness → wider spread (scale W rows)
-        spread_factor = 0.9 + O * 0.2  # Range [0.9, 1.1]
+        spread_factor = 0.9 + opn * 0.2  # Range [0.9, 1.1]
         n = len(w[0]) if w else 0
         for row in range(3):
             for col in range(n):

@@ -272,8 +272,6 @@ class TestA2Determinism:
 
         # Verify bit-identical at every step
         for i, (r1, r2) in enumerate(zip(results1, results2)):
-            vec1 = _extract_body_vector(kernel1) if i == len(events) - 1 else None
-            vec2 = _extract_body_vector(kernel2) if i == len(events) - 1 else None
             assert r1["decision"] == r2["decision"], f"Decision diverged at tick {i}"
             assert r1["guard"] == r2["guard"], f"Guard diverged at tick {i}"
 
@@ -445,7 +443,7 @@ class TestA4Convergence:
             )
         )
 
-        perturbed_vec = _extract_body_vector(kernel)
+        _extract_body_vector(kernel)  # confirm state changed
 
         # Run idle ticks (empty events = no stimulus)
         distances: list[float] = []
@@ -603,7 +601,7 @@ class TestA5Compositionality:
         for i in range(50):
             kernel.tick(_boundary_event(float(i)))
 
-        vec1 = _extract_body_vector(kernel)
+        _extract_body_vector(kernel)  # state before normalize
         # Tick with empty (triggers internal normalization/clamping)
         kernel.tick(AlphaKernelEvent(text="", now=51.0))
         vec2 = _extract_body_vector(kernel)

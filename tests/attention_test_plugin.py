@@ -17,16 +17,16 @@ _PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 if _PLUGIN_DIR not in sys.path:
     sys.path.insert(0, _PLUGIN_DIR)
 
-from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent
-from astrbot.api.star import Context, Star, register
+from astrbot.api import logger  # noqa: E402
+from astrbot.api.event import AstrMessageEvent  # noqa: E402
+from astrbot.api.star import Context, Star, register  # noqa: E402
 
 try:
     from sylanne_core import SylanneConfig, SylanneEngine
-except ImportError:
+except ImportError as err:
     raise RuntimeError(
         "缺少前置插件 SylannEngine，请先安装：\nhttps://github.com/Ayleovelle/SylannEngine.git"
-    )
+    ) from err
 
 DASHBOARD_PORT = 9966
 MAX_RECORDS = 500
@@ -108,7 +108,7 @@ class AttentionTestPlugin(Star):
     async def _generate_reply(self, user_text: str, surface: dict) -> str:
         action = surface["decision"]["action"]
         warmth = surface["state"]["valence"]["warmth"]
-        personality = surface.get("personality", {}).get("surface", {})
+        _ = surface.get("personality", {}).get("surface", {})
 
         tone = "温和"
         if warmth > 0.7:
