@@ -55,16 +55,18 @@ git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/syl
 
 ## 功能特性
 
-- **7 层计算管线**：HDC 编码 → 预测编码门控 → 缺失-影响引擎 → 关系动力学 → 多专家融合 → 自维持边界 → 表达触发
+- **共振场计算架构（v2）**：7 模块全连接单纯形复形，迭代共振至收敛，表达作为相变涌现
+- **441 条有向耦合通道**（max 档）：完整 6-单纯形 Δ⁶，含高阶多体交互
+- **用进废退可塑性**：通道使用越多越强，不用的自然萎缩（Hebbian + 神经达尔文主义）
+- **谐波身份（灵魂）**：Hodge Laplacian 零空间的拓扑不变量，跨所有扰动持续存在
+- **Hopfield 吸引子景观**：情感记忆作为能量极小值，表达 = 逃离吸引子
 - **8 子系统情感状态**：rhythm / connection / adaptation / responsiveness / valence / damage / boundary / capacity
 - **双层人格系统**：深层 5 维（计算驱动，缓慢漂移）+ 表层 6 维（文本驱动，快速漂移）
 - **7 种决策输出**：express / withdraw / recover / reach_out / explore / hold / guard
-- **边界守卫**：自主权保护、风险评分、约束列表
-- **退化运行**：LLM 不可用时自动退化为本地规则引擎，保证计算不中断
-- **调试模式**：断路器状态、各层耗时、健康检查
-- **被动接收**：只有插件调用 `process()` 推数据进来才计算，不主动拉取任何数据
-- **零外部依赖**：计算引擎本身只依赖 Python 标准库
-- **使用案例**：[astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne) — 基于 SylannEngine 构建的情感交互插件
+- **三档性能**：lite (5ms, 42通道) / pro (40ms, 287通道) / max (50ms/CPU, 441通道)
+- **退化运行**：LLM 不可用时自动退化为本地规则引擎
+- **零外部依赖**（lite 档）：纯 Python 标准库
+- **使用案例**：[astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne)
 
 ---
 
@@ -74,55 +76,88 @@ git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/syl
 
 一句话：**把聊天记录变成"这个 AI 现在是什么状态、接下来想做什么"。**
 
-传统做法是每条消息独立分类情绪标签，聊完就忘。我们不一样——SylannEngine 维护一个持续演化的内部状态，上一次对话的影响会留到下一次：
+不是情绪分类，不是情感标签。是一个**持续演化的动力系统**——上一次对话的影响会留到下一次，伤害会结疤，沉默会产生压力，人格会缓慢漂移。
 
+### v2 共振场架构
+
+v1 是顺序管线（L1→L2→...→L7）。v2 是**全连接共振网络**——7 个模块同时注入信号到共振场，场通过耦合动力学迭代收敛，表达作为相变自发涌现：
+
+```mermaid
+flowchart LR
+    subgraph INPUT["输入"]
+        T["文本 + 时间戳"]
+    end
+
+    subgraph MODULES["7 模块并行注入"]
+        M0["HDC 感知"]
+        M1["预测门控"]
+        M2["虚空-伤痕"]
+        M3["关系层析"]
+        M4["HGT 决策"]
+        M5["自创生边界"]
+        M6["相变表达"]
+    end
+
+    subgraph FIELD["共振场 (迭代收敛)"]
+        direction TB
+        F1["441 通道耦合传播"]
+        F2["Hebbian 可塑性"]
+        F3["Kuramoto 相位同步"]
+        F4["Hopfield 吸引子"]
+        F5["谐波身份恢复"]
+        F6["tanh + 耗散"]
+    end
+
+    subgraph OUTPUT["输出"]
+        O1["情感状态"]
+        O2["表达决策"]
+        O3["涌现指标"]
+    end
+
+    T --> MODULES
+    MODULES --> FIELD
+    FIELD --> OUTPUT
+    OUTPUT -.->|"反馈"| F2
 ```
-消息进来 → 更新内部状态 → 产生行动倾向 → 边界检查 → 输出结果
-```
 
-三个设计直觉：
-- **记得住伤**：被伤害过的系统不会和没被伤害过的系统一样处理相同输入
-- **感知得到缺席**：对方三天没说话、主动回避某个话题、话题自然结束——这三种"沉默"含义完全不同
-- **有边界感**：不会被外部无限操控，有自主权保护
+### 为什么不用神经网络
 
-### 7 层管线怎么跑
-
-| 层 | 干什么 | 类比 |
+| | 神经网络 | 共振场 |
 |---|---|---|
-| L1 HDC 编码 | 把文字变成可以快速比较的向量 | 类似 embedding，但是二进制的，更快 |
-| L2 预测门控 | 判断这条消息有多"意外"，决定算多少 | 意料之中的消息轻算，意外的消息全栈算 |
-| L3 缺失-影响 | 计算伤害的累积和缺席的压力 | 伤口会结疤但不会消失；沉默会产生压力 |
-| L4 关系动力学 | 多段关系之间的影响传播 | A 关系里受的伤会影响对 B 的态度 |
-| L5 多专家融合 | 把上面所有信号综合成一个决策 | 多个"专家"投票，取 top-2 |
-| L6 自维持边界 | 保护人格不被外部轻易改变 | 小冲击自动修复，大冲击才会改变 |
-| L7 表达触发 | 决定什么时候该说话 | 压力积累到临界点才爆发，不是线性的 |
+| 需要 | 训练数据 + GPU | 无需训练，结构即计算 |
+| 输出 | 前向传播算出来 | 迭代收敛涌现出来 |
+| 可解释性 | 黑箱 | 每个通道有明确语义 |
+| 人格 | 微调？没有标准方式 | 人格 → 拓扑参数，一一对应 |
+| 确定性 | 不保证 | 相同输入 → 相同输出 |
+| 可移植性 | 需要推理框架 | 纯代数运算，任何语言可实现 |
 
-### 灵感来源
+我们做的是**计算标准**（类似 IEEE 754），不是训练模型。
 
-我们不是在做学术研究，但设计确实参考了一些有意思的理论：
+### 三档性能
 
-- **超维计算 (HDC)**：用几千维的二进制向量做相似度匹配，比浮点 embedding 快很多
-- **自由能原理**：大脑通过预测误差分配注意力资源——我们用来决定一条消息值不值得全栈计算
-- **自创生理论**：生命体通过自身运作维持自身组织——我们用来建模人格的自我修复
-- **相变理论**：水不是慢慢变成蒸汽的，是到 100°C 突然沸腾——表达行为也是这样
+| 档位 | 通道数 | 延迟 | 最低配置 | 适用场景 |
+|------|--------|------|----------|----------|
+| lite | 42（两体） | ~5ms | 任意 CPU, 64MB | 树莓派, 手机, AstrBot 默认 |
+| pro | 287（含四体） | ~40ms | 2核, 256MB | 桌面, 云 VM |
+| max | 441（完整 Δ⁶） | ~50ms CPU | 4核或 GPU | 研究, 多智能体 |
 
-### 性能
+### 核心机制
 
-纯 Python 实现，无需 GPU：
+| 机制 | 理论来源 | 效果 |
+|------|----------|------|
+| Hebbian 可塑性 | Hebb 1949, Edelman 1987 | 通道用进废退，系统自动发现重要连接 |
+| 高阶 Kuramoto | Millán et al. 2020 | 爆炸性同步 → 表达涌现 |
+| 自由能最小化 | Friston 2010 | 预测误差驱动注意力分配 |
+| Hopfield 吸引子 | Hopfield 1982 | 情感记忆，表达 = 逃离吸引子 |
+| 谐波身份 | Hodge 1941 | 拓扑不变量 = 人格的数学实现 |
+| 耗散结构 | Prigogine 1977 | 能量有界，不会死循环 |
 
-| 指标 | 实测 |
-|------|------|
-| 单次计算延迟 (p50) | ~1 ms |
-| 单次计算延迟 (p95) | ~1.5 ms |
-| 内存占用 | ~123 KB |
-| 参数量 | ~10K |
+### 稳定性保证
 
-### 想深入了解？
-
-我们写了完整的形式化论文和实验报告，感兴趣可以看：
-
-- [英文论文 (PDF)](docs/scar_void_arxiv_paper_v3.pdf) — 完整公理系统、证明和 11 组实验
-- [中文论文 (PDF)](docs/scar_void_arxiv_paper_zh_v4.pdf) — 中文版本
+即使所有模块同时最大激活，能量稳定在 23.0（理论上限 28.0）。三层保护：
+1. **tanh 饱和**：|x| ≤ 1
+2. **耗散**：每迭代 ×0.98
+3. **残余衰减**：每周期 ×0.7
 
 ---
 
@@ -233,87 +268,110 @@ class MyPlugin(Star):
 
 ```
 SylannEngine/
-├── SPEC.md                          # 标准规范文档（双语）
-├── CHANGELOG.md                     # 更新日志
-├── LICENSE                          # AGPL-3.0
+├── README.md
+├── docs/
+│   ├── SPEC.md                              # 标准规范
+│   ├── resonance_field_spec.md              # 数学规范
+│   ├── resonance_field_architecture.md      # 架构规范 (EN)
+│   ├── resonance_field_architecture_zh.md   # 架构规范 (中文)
+│   └── max_tier_workflow.md                 # MAX 档工作流图
 │
-├── docs/                            # 论文与理论文档
-│   ├── scar_void_arxiv_paper_v3.pdf # 英文论文
-│   └── sylanne_4_alpha_computation_model.tex  # 中文计算模型说明
-│
-└── sylanne_core/                    # 计算引擎 SDK
-    ├── __init__.py                  # 导出 SylanneEngine / SylanneConfig / Surface
-    ├── engine.py                    # 引擎入口类
-    ├── adapter.py                   # 内部字段 → 标准化字段映射
-    ├── assessor.py                  # LLM 语义评估器
-    ├── config.py                    # 配置 dataclass
-    ├── types.py                     # TypedDict 类型定义
+└── sylanne_core/
+    ├── __init__.py
+    ├── engine.py                    # 引擎入口
+    ├── config.py                    # 配置 (lite/pro/max)
+    ├── types.py                     # TypedDict 类型
     │
-    └── compute/                     # 核心计算模块（零外部依赖）
-        ├── computation_spine.py     # 7 层管线调度器
-        ├── kernel.py                # 计算核心调度器
-        ├── host.py                  # 会话宿主
-        ├── runtime.py               # 文件持久化
-        ├── body.py                  # 8 子系统状态模型
-        ├── personality.py           # 双层人格系统
-        ├── hdc.py                   # L1 超维编码
-        ├── predictive_coding.py     # L2 预测编码门控
-        ├── void_calculus.py         # L3 缺失演算
-        ├── scar_algebra.py          # L3 影响代数
-        ├── void_scar_engine.py      # L3 缺失-影响引擎
-        ├── relational_sheaf.py      # L4 关系动力学
-        ├── hgt.py                   # L5 异构图变换器
-        ├── autopoiesis.py           # L6 自维持边界
-        ├── phase_transition.py      # L7 表达触发
-        └── ...                      # 辅助模块
+    └── compute/
+        ├── computation_spine.py     # v1 顺序管线
+        ├── resonance_field.py       # v2 共振场核心
+        ├── coupling_dynamics.py     # Hebbian + Kuramoto + 自由能
+        ├── emergence.py             # Φ + 序参量 + 吸引子 + 时间叙事
+        ├── resonance_integration.py # v2 drop-in 替代 (ResonanceSpine)
+        ├── hdc.py                   # M0 超维编码
+        ├── predictive_coding.py     # M1 预测门控
+        ├── void_scar_engine.py      # M2 虚空-伤痕
+        ├── relational_sheaf.py      # M3 关系层析
+        ├── hgt.py                   # M4 异构图变换器
+        ├── autopoiesis.py           # M5 自创生边界
+        ├── phase_transition.py      # M6 相变表达
+        └── ...
 ```
 
 ---
 
 ## 架构说明
 
+### 共振场计算流程（MAX 档）
+
+```mermaid
+flowchart TB
+    INPUT["📥 文本 + 时间戳 + LLM评估"] --> INJECT
+
+    subgraph INJECT["Phase 1: 模块注入 (~5ms)"]
+        direction LR
+        M0["M0 HDC<br/>text→超向量→32维"]
+        M1["M1 预测门控<br/>惊讶度计算"]
+        M2["M2 虚空-伤痕<br/>情感演化"]
+        M3["M3 关系层析<br/>跨关系传播"]
+        M4["M4 HGT<br/>多头注意力"]
+        M5["M5 边界<br/>自修复"]
+        M6["M6 表达<br/>驱动力"]
+    end
+
+    INJECT --> RESONATE
+
+    subgraph RESONATE["Phase 2: 共振迭代 (~40ms, ≤20轮)"]
+        direction TB
+        S1["耦合动力学<br/>Hebbian更新 + Kuramoto同步 + 自由能"]
+        S2["信号传播<br/>两体: w·cos(Δθ)·x<br/>高阶: γ·w·Π tanh(x̄)·avg(x)"]
+        S3["Hopfield 吸引子拉力<br/>+ 谐波身份恢复力<br/>+ 储备池记忆注入"]
+        S4["tanh 激活 + 耗散<br/>x = tanh(x) × 0.98"]
+        S5{"收敛?<br/>max|Δx| < ε"}
+        S1 --> S2 --> S3 --> S4 --> S5
+        S5 -->|"否"| S1
+    end
+
+    RESONATE --> POST
+
+    subgraph POST["Phase 3: 后处理 + 表达决策"]
+        direction LR
+        P1["更新谐波身份"]
+        P2["存储吸引子"]
+        P3["涌现追踪 (Φ, χ)"]
+        P4["表达分岔<br/>max(surprise, novelty, ignition, raw) × Φ"]
+    end
+
+    POST --> OUTPUT["📤 emotion + should_express + resonance_meta"]
+    OUTPUT -.->|"feedback(accepted/rejected)"| PLASTICITY["Hebbian 权重调制"]
+    PLASTICITY -.-> RESONATE
+```
+
 ### 插件版架构
 
 ```mermaid
 graph TD
-    P["SylannEngine 前置插件<br/>main.py"] -->|"创建 & 配置 LLM"| B
-    P -->|"provider_manager"| LLM["AstrBot LLM 提供商"]
+    P["SylannEngine 前置插件"] -->|"创建 & 配置 LLM"| B
     A["你的插件<br/>get_engine().process(session_id, text)"] -->|"调用"| B
     B -->|"Surface dict"| A
+    B["SylanneEngine"] --> C
 
-    B["SylanneEngine<br/>sylanne_core/engine.py"]
-    B --> C
-
-    subgraph C["sylanne_core/compute/ — 7 层计算管线"]
-        direction LR
-        L1["L1 HDC"] --> L2["L2 Gate"] --> L3["L3 Absence-Impact"]
-        L3 --> L4["L4 Relational"] --> L5["L5 Fusion"]
-        L5 --> L6["L6 Boundary"] --> L7["L7 Expression"]
+    subgraph C["sylanne_core/compute/"]
+        direction TB
+        CS["ComputationSpine (v1 顺序)"]
+        RS["ResonanceSpine (v2 共振)"]
     end
-
-    C --- E["Body (8子系统) + Personality (双层) + Memory (三层)"]
 ```
 
-### SDK 版架构
+### 详细文档
 
-```mermaid
-graph TD
-    A["你的应用<br/>engine.process(session_id, text)"] -->|"调用"| B
-    B -->|"Surface dict"| A
-
-    B["SylanneEngine<br/>sylanne_core/engine.py"]
-    B --> C
-    B -->|"LLM callback"| LLM["开发者自行提供的 LLM 接口"]
-
-    subgraph C["sylanne_core/compute/ — 7 层计算管线"]
-        direction LR
-        L1["L1 HDC"] --> L2["L2 Gate"] --> L3["L3 Absence-Impact"]
-        L3 --> L4["L4 Relational"] --> L5["L5 Fusion"]
-        L5 --> L6["L6 Boundary"] --> L7["L7 Expression"]
-    end
-
-    C --- E["Body (8子系统) + Personality (双层) + Memory (三层)"]
-```
+| 文档 | 内容 | 语言 |
+|------|------|------|
+| [SPEC.md](docs/SPEC.md) | 标准规范（公理、数据模型、合规测试） | EN |
+| [resonance_field_architecture.md](docs/resonance_field_architecture.md) | 架构详细规范 + 开发者指南 | EN |
+| [resonance_field_architecture_zh.md](docs/resonance_field_architecture_zh.md) | 架构详细规范 + 开发者指南 | 中文 |
+| [resonance_field_spec.md](docs/resonance_field_spec.md) | 形式化数学规范 | EN |
+| [max_tier_workflow.md](docs/max_tier_workflow.md) | MAX 档完整 Mermaid 工作流 | EN |
 
 ---
 
