@@ -17,6 +17,7 @@ from typing import Any
 
 from .body import SCHEMA_VERSION
 from .kernel import AlphaKernel
+from .utils import safe_filename
 
 logger = logging.getLogger("sylanne_core")
 
@@ -134,11 +135,7 @@ class AlphaRuntime:
 
     def _path(self, session_key: str) -> Path:
         """将 session_key 转换为文件系统安全的 .alpha.json 路径。"""
-        safe = (
-            "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in session_key)
-            or "default"
-        )
-        return self.root / f"{safe}.alpha.json"
+        return self.root / f"{safe_filename(session_key)}.alpha.json"
 
     def save_buffer(self, session_key: str, buffer_data: dict[str, Any]) -> None:
         """原子写入对话缓冲区数据到独立的 .buffer.json 文件。
@@ -158,6 +155,7 @@ class AlphaRuntime:
             os.replace(tmp, path)
         except OSError:
             tmp.unlink(missing_ok=True)
+            raise
 
     def load_buffer(self, session_key: str) -> dict[str, Any] | None:
         """加载对话缓冲区数据。
@@ -179,11 +177,7 @@ class AlphaRuntime:
 
     def _buffer_path(self, session_key: str) -> Path:
         """将 session_key 转换为文件系统安全的 .buffer.json 路径。"""
-        safe = (
-            "".join(ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in session_key)
-            or "default"
-        )
-        return self.root / f"{safe}.buffer.json"
+        return self.root / f"{safe_filename(session_key)}.buffer.json"
 
     def _consistency_check(self, kernel: AlphaKernel) -> dict[str, Any]:
         """状态一致性自检守护：检查内部状态合法性并自动修正。

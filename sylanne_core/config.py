@@ -24,3 +24,11 @@ class SylanneConfig:
     persistence_fsync: bool = True
     tick_drift_cap: float = 0.05
     locale: str = "zh"
+
+    def __post_init__(self) -> None:
+        if self.memory_capacity < 1:
+            raise ValueError("memory_capacity must be >= 1")
+        if not (0.0 <= self.tick_drift_cap <= 1.0):
+            raise ValueError("tick_drift_cap must be in [0.0, 1.0]")
+        if self.locale not in ("zh", "en"):
+            raise ValueError("locale must be 'zh' or 'en'")

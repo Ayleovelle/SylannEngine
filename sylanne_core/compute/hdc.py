@@ -329,14 +329,12 @@ class HDCEncoder:
         packed = reshaped.dot(powers).astype(np.uint8)  # shape [byte_dim]
         return bytearray(packed.tobytes())
 
-    def similarity(self, a: bytearray, b: bytearray) -> float:
+    def similarity(self, a: bytes | bytearray, b: bytes | bytearray) -> float:
         """计算两个超向量的 Hamming 相似度（1.0 = 完全相同，0.5 = 正交/随机）。"""
         if not a or not b:
             return 0.5
-        xor_count = 0
-        for x, y in zip(a, b):
-            xor_count += (x ^ y).bit_count()
-        return 1.0 - xor_count / self.dim
+        xor_int = int.from_bytes(a, "little") ^ int.from_bytes(b, "little")
+        return 1.0 - xor_int.bit_count() / self.dim
 
     def bind(self, a: bytearray, b: bytearray) -> bytearray:
         """XOR 绑定：表示两个概念之间的关系（结果与两者都不相似）。"""

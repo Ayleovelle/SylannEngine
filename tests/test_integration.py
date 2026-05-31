@@ -43,8 +43,8 @@ class TestPluginLifecycle:
         # Phase 4: Tick (periodic background tick)
         await engine.tick("user_001")
 
-        # Phase 5: State query (sync)
-        state = engine.state("user_001")
+        # Phase 5: State query
+        state = await engine.state("user_001")
         assert state is not None
 
         # Phase 6: Second session is isolated
@@ -71,7 +71,7 @@ class TestPluginLifecycle:
         # Second boot (same data_dir)
         engine2 = SylanneEngine(data_dir=tmp_path, llm=llm)
         await engine2.start()
-        state = engine2.state("user_001")
+        state = await engine2.state("user_001")
         assert state is not None
         surface = await engine2.process("user_001", "重启后继续")
         assert surface["turns"] >= 3
@@ -111,7 +111,7 @@ class TestPluginLifecycle:
 
         await engine.process("user_001", "hello")
         await engine.process("user_001", "world")
-        engine.reset("user_001")
+        await engine.reset("user_001")
 
         surface = await engine.process("user_001", "fresh start")
         assert surface["turns"] == 1
@@ -126,7 +126,7 @@ class TestPluginLifecycle:
 
         await engine.process("user_001", "hello")
         await engine.process("user_001", "world")
-        engine.destroy("user_001")
+        await engine.destroy("user_001")
 
         surface = await engine.process("user_001", "after destroy")
         assert surface["turns"] == 1
@@ -182,3 +182,50 @@ class TestPluginLifecycle:
         assert damage > 0.0, "Expected damage after hurt event"
 
         await engine.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_filesystem_safe_session_names(self, tmp_path: Path):
+        """Session IDs with special characters don't collide on disk."""
+        llm = AsyncMock(return_value="ok")
+        engine = SylanneEngine(
+            data_dir=tmp_path, llm=llm, config=SylanneConfig(assessor_enabled=False)
+        )
+        await engine.start()
+
+        session_ids = [
+            "user 001",
+            "user/001",
+            "用户-001",
+            "user:001?*",
+        ]
+
+        for sid in session_ids:
+            surface = await engine.process(sid, f"hello from {sid}")
+            assert surface["turns"] == 1
+
+        for sid in session_ids:
+            await engine.destroy(sid)
+            surface = await engine.process(sid, "after destroy")
+            assert surface["turns"] == 1
+
+        await engine.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_save_buffer_propagates_oserror(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        """save_buffer raises OSError instead of swallowing it."""
+        from sylanne_core.compute.runtime import AlphaRuntime
+
+        runtime = AlphaRuntime(tmp_path)
+        tmp_path.mkdir(parents=True, exist_ok=True)
+
+        import os
+
+        def failing_replace(src: object, dst: object) -> None:
+            raise OSError("simulated filesystem failure")
+
+        monkeypatch.setattr(os, "replace", failing_replace)
+
+        with pytest.raises(OSError, match="simulated filesystem failure"):
+            runtime.save_buffer("test_session", {"data": "test"})

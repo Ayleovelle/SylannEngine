@@ -782,12 +782,17 @@ class MemorySystem:
         candidates: list[MemoryResult] = []
         mood_weight = self._params["mood_weight"]
         positive_recall_bias = self._params["positive_recall_bias"]
+        query_tokens = _tokenize(query)
 
         # --- L1 recall ---
         now = time.time()
         for item in self._l1:
             relevance, reason = self._compute_relevance_with_reason(
-                query, query_embedding, item.text, item.embedding
+                query,
+                query_embedding,
+                item.text,
+                item.embedding,
+                query_tokens=query_tokens,
             )
             if relevance <= 0.0:
                 continue
@@ -826,7 +831,11 @@ class MemorySystem:
         self._recalled_l2_items = []
         for item in self._l2:
             relevance, reason = self._compute_relevance_with_reason(
-                query, query_embedding, item.text, item.embedding
+                query,
+                query_embedding,
+                item.text,
+                item.embedding,
+                query_tokens=query_tokens,
             )
             if relevance <= 0.0:
                 continue
@@ -928,12 +937,18 @@ class MemorySystem:
         query_embedding: list[float] | None,
         text: str,
         item_embedding: list[float] | None,
+        query_tokens: set[str] | None = None,
     ) -> float:
         if query_embedding and item_embedding:
             cos = _cosine(query_embedding, item_embedding)
             if cos >= 0.0:
                 return cos
-        return _keyword_overlap(query, text)
+        tokens = query_tokens if query_tokens is not None else _tokenize(query)
+        t_words = _tokenize(text)
+        if not tokens or not t_words:
+            return 0.0
+        intersection = tokens & t_words
+        return len(intersection) / max(len(tokens), 1)
 
     def _compute_relevance_with_reason(
         self,
@@ -941,13 +956,19 @@ class MemorySystem:
         query_embedding: list[float] | None,
         text: str,
         item_embedding: list[float] | None,
+        query_tokens: set[str] | None = None,
     ) -> tuple[float, str]:
         """计算相关度并返回召回原因。"""
         if query_embedding and item_embedding:
             cos = _cosine(query_embedding, item_embedding)
             if cos >= 0.0:
                 return cos, "vector_similarity"
-        kw = _keyword_overlap(query, text)
+        tokens = query_tokens if query_tokens is not None else _tokenize(query)
+        t_words = _tokenize(text)
+        if not tokens or not t_words:
+            return 0.0, ""
+        intersection = tokens & t_words
+        kw = len(intersection) / max(len(tokens), 1)
         if kw > 0.0:
             return kw, "keyword_match"
         return 0.0, ""
