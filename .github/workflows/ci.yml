@@ -34,10 +34,9 @@ jobs:
         run: |
           pytest tests/ -q --ignore=tests/attention_test_plugin.py --ignore=tests/attention_demo.html
 
-      - name: Type check (non-strict)
+      - name: Type check
         run: |
-          mypy sylanne_core --ignore-missing-imports --no-strict --check-untyped-defs
-        continue-on-error: true
+          mypy sylanne_core --ignore-missing-imports --check-untyped-defs
 
   benchmark:
     runs-on: ubuntu-latest

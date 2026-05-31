@@ -112,7 +112,7 @@ class AutopoieticBoundary:
             "internal_entropy": round(self.internal_entropy, 4),
         }
 
-    def self_repair(self):
+    def self_repair(self) -> None:
         """自修复循环——每 tick 运行。
 
         当处于活跃压力下（最近有高穿透）时，只缓慢降低熵而不恢复完整性——
@@ -153,7 +153,7 @@ class AutopoieticBoundary:
             "identity_kernel": self.identity_kernel,
         }
 
-    def from_dict(self, data: dict[str, Any]):
+    def from_dict(self, data: dict[str, Any]) -> None:
         self.boundary_integrity = float(data.get("boundary_integrity", 1.0))
         self.internal_entropy = float(data.get("internal_entropy", 0.0))
         self.repair_rate = float(data.get("repair_rate", 0.05))
@@ -163,7 +163,7 @@ class AutopoieticBoundary:
         if "identity_kernel" in data and isinstance(data["identity_kernel"], list):
             self.identity_kernel = [float(x) for x in data["identity_kernel"]]
 
-    def _reorganize(self, force: list[float], force_norm: float):
+    def _reorganize(self, force: list[float], force_norm: float) -> None:
         """自主重组：将 identity_kernel 向力的方向微旋转。
 
         这是相变的核心——系统在大冲击下不是崩溃，而是适应性地改变自身。
@@ -191,7 +191,7 @@ class AutopoieticBoundary:
 
     def set_personality_params(
         self, repair_rate: float, phase_threshold: float, rotation_angle: float
-    ):
+    ) -> None:
         self.repair_rate = repair_rate
         self._phase_threshold = phase_threshold
         self._rotation_angle = rotation_angle

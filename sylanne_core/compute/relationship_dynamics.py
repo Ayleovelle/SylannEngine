@@ -9,6 +9,7 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass
+from typing import Any
 
 # ======================================================================
 # 关系弹性模型
@@ -41,7 +42,7 @@ class RelationalResilience:
     def is_brittle(self) -> bool:
         return self._unresolved_strains >= 3
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "base": self._base_resilience,
             "repairs": self._repair_history,
@@ -49,7 +50,7 @@ class RelationalResilience:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> RelationalResilience:
+    def from_dict(cls, data: dict[str, Any]) -> RelationalResilience:
         r = cls()
         r._base_resilience = float(data.get("base", 0.5))
         r._repair_history = int(data.get("repairs", 0))
@@ -103,7 +104,7 @@ class RepairStrategy:
     def reset(self) -> None:
         self._consecutive_conflicts = 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "consecutive_conflicts": self._consecutive_conflicts,
             "threshold": self._threshold,
@@ -111,7 +112,7 @@ class RepairStrategy:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> RepairStrategy:
+    def from_dict(cls, data: dict[str, Any]) -> RepairStrategy:
         rs = cls(conflict_threshold=int(data.get("threshold", 3)))
         rs._consecutive_conflicts = int(data.get("consecutive_conflicts", 0))
         rs._last_strategy = str(data.get("last_strategy", ""))
@@ -133,7 +134,7 @@ class BoundaryProbe:
 class DynamicBoundary:
     DIMENSIONS = ("intimacy", "directness", "humor", "vulnerability")
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._levels: dict[str, float] = {d: 0.3 for d in self.DIMENSIONS}
         self._probe_history: deque[BoundaryProbe] = deque(maxlen=50)
         self._probe_cooldowns: dict[str, float] = {d: 0 for d in self.DIMENSIONS}
@@ -146,7 +147,7 @@ class DynamicBoundary:
         cooldown = self._probe_cooldowns.get(dimension, 0)
         return now > cooldown and self._levels.get(dimension, 0) < 0.9
 
-    def record_probe_result(self, dimension: str, accepted: bool):
+    def record_probe_result(self, dimension: str, accepted: bool) -> None:
         now = time.time()
         self._probe_history.append(BoundaryProbe(now, dimension, accepted))
         if accepted:
@@ -170,7 +171,7 @@ class DynamicBoundary:
         }
         return hints.get(dimension, "")
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "levels": dict(self._levels),
             "cooldowns": dict(self._probe_cooldowns),
@@ -181,7 +182,7 @@ class DynamicBoundary:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> DynamicBoundary:
+    def from_dict(cls, data: dict[str, Any]) -> DynamicBoundary:
         db = cls()
         db._levels = data.get("levels", {d: 0.3 for d in cls.DIMENSIONS})
         db._probe_cooldowns = data.get("cooldowns", {d: 0 for d in cls.DIMENSIONS})

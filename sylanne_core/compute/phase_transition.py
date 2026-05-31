@@ -56,14 +56,14 @@ class PhaseTransitionExpression:
         self.silence_duration = 0.0
         self._last_expression_time = 0.0
         self._expression_count = 0
-        self._social_context: dict = {}
+        self._social_context: dict[str, Any] = {}
         self._social_signals: SocialSignals | None = None
         self._silence_urgency_divisor = 10.0
         self._refractory = 0.03
         self._silence_drop_rate = 0.008
         self._min_threshold_floor = 0.25
 
-    def accumulate(self, drive: float, dt: float = 1.0):
+    def accumulate(self, drive: float, dt: float = 1.0) -> None:
         """积累表达压力。
 
         Args:
@@ -75,7 +75,7 @@ class PhaseTransitionExpression:
         self.pressure = max(0.0, self.pressure * (1.0 - self.decay_rate))
         self.silence_duration += dt
 
-    def set_social_params(self, params: dict) -> None:
+    def set_social_params(self, params: dict[str, Any]) -> None:
         """设置人格派生的社交场参数（由 ComputationSpine.apply_personality 调用）。"""
         self._social_context = params
 
@@ -90,7 +90,7 @@ class PhaseTransitionExpression:
         refractory: float,
         silence_drop_rate: float,
         min_threshold_floor: float,
-    ):
+    ) -> None:
         self.decay_rate = decay_rate
         self._silence_urgency_divisor = silence_urgency_divisor
         self._refractory = refractory
@@ -125,7 +125,7 @@ class PhaseTransitionExpression:
         )
 
         theta_eff = theta_group - sigma_call - sigma_sheaf - sigma_void
-        return max(0.0, theta_eff)
+        return float(max(0.0, theta_eff))
 
     def expression_intensity(self) -> float:
         """连续表达强度：0.0（沉默）到 1.0+（紧急）。
@@ -192,7 +192,7 @@ class PhaseTransitionExpression:
             "expression_count": self._expression_count,
         }
 
-    def silence_lowers_threshold(self, dt: float = 1.0):
+    def silence_lowers_threshold(self, dt: float = 1.0) -> None:
         """持续沉默降低表达阈值（越久不说话，越容易开口）。"""
         self.threshold = max(
             self._min_threshold_floor, self.threshold - self._silence_drop_rate * dt
@@ -257,7 +257,7 @@ class PhaseTransitionExpression:
             "expression_count": self._expression_count,
         }
 
-    def from_dict(self, data: dict[str, Any]):
+    def from_dict(self, data: dict[str, Any]) -> None:
         self.pressure = float(data.get("pressure", 0.0))
         self.threshold = float(data.get("threshold", 0.6))
         self.silence_duration = float(data.get("silence_duration", 0.0))

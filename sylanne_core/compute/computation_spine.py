@@ -10,10 +10,11 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from .autopoiesis import AutopoieticBoundary
 from .bounded_dict import BoundedDict
@@ -99,15 +100,15 @@ class CircuitBreaker:
 class LayerRegistry:
     """计算层注册表：支持第三方注册自定义层。"""
 
-    _custom_layers: dict[str, callable] = {}
+    _custom_layers: dict[str, Callable[..., Any]] = {}
 
     @classmethod
-    def register(cls, name: str, layer_fn: callable):
+    def register(cls, name: str, layer_fn: Callable[..., Any]) -> None:
         """注册自定义计算层。layer_fn 签名: (input_data, config) -> output_data"""
         cls._custom_layers[name] = layer_fn
 
     @classmethod
-    def get_custom_layers(cls) -> dict[str, callable]:
+    def get_custom_layers(cls) -> dict[str, Callable[..., Any]]:
         return dict(cls._custom_layers)
 
     @classmethod
@@ -211,7 +212,7 @@ class ComputationSpine:
             "ignored": 0,
             "rejected": 0,
         }
-        self._timings: dict[str, deque] = {
+        self._timings: dict[str, deque[int]] = {
             "perception": deque(maxlen=_TIMING_WINDOW),
             "gate": deque(maxlen=_TIMING_WINDOW),
             "void_scar": deque(maxlen=_TIMING_WINDOW),
@@ -542,7 +543,7 @@ class ComputationSpine:
         cache_key = (text, session_key or "", assess_sig)
         cached = self._result_cache.get(cache_key)
         if cached is not None:
-            return cached
+            return copy.deepcopy(cached)
 
         # Apply per-relationship personality overlay if session changed or dirty
         if session_key != self._last_effective_session or self._personality_dirty:
@@ -701,7 +702,7 @@ class ComputationSpine:
         # Layer 4: Relational Sheaf — cross-relational propagation
         t0 = time.perf_counter_ns()
         if not self._layer_enabled.get("sheaf", True):
-            sheaf_result = {}
+            sheaf_result: dict[str, Any] = {}
             logger.debug("Layer sheaf DISABLED — using defaults")
         else:
             cb = self._circuit_breakers["sheaf"]
@@ -1063,7 +1064,7 @@ class ComputationSpine:
             "relationship_deltas": dict(self._relationship_deltas),
         }
 
-    def from_dict(self, data: dict[str, Any]):
+    def from_dict(self, data: dict[str, Any]) -> None:
         """从持久化状态恢复。"""
         self._tick_count = int(data.get("tick_count", 0))
         self._last_process_time = float(data.get("last_process_time", 0.0))
@@ -1259,8 +1260,8 @@ class ComputationSpine:
         surprise: float,
         route: str,
         emotion: dict[str, float],
-        recalled: list[dict],
-        holes: list[dict],
+        recalled: list[dict[str, Any]],
+        holes: list[dict[str, Any]],
         should_express: bool,
     ) -> dict[str, Any]:
         return {

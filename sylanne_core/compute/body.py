@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -278,18 +279,22 @@ class AlphaBodyState:
             if isinstance(payload, dict):
                 try:
                     fields = state_type.__dataclass_fields__
-                    safe = {}
+                    safe: dict[str, bool | int | float] = {}
                     for key, value in payload.items():
                         if key not in fields:
                             continue
                         ftype = fields[key].type
-                        if ftype == "bool":
+                        if ftype in ("bool", bool):
                             safe[key] = bool(value)
-                        elif ftype == "int":
-                            safe[key] = int(float(value))
+                        elif ftype in ("int", int):
+                            fval = float(value)
+                            if math.isfinite(fval):
+                                safe[key] = int(fval)
                         else:
-                            safe[key] = float(value)
-                    setattr(body, name, state_type(**safe))
+                            fval = float(value)
+                            if math.isfinite(fval):
+                                safe[key] = fval
+                    setattr(body, name, state_type(**safe))  # type: ignore[arg-type]
                 except (TypeError, ValueError, OverflowError):
                     pass
         if isinstance(data.get("needs"), dict):
@@ -595,7 +600,8 @@ class AlphaBodyState:
         self.memory["shadow"] = shadow.to_raw()
 
     def to_dict(self) -> dict[str, Any]:
-        shadow = self.memory.get("shadow") if isinstance(self.memory.get("shadow"), dict) else {}
+        raw_shadow = self.memory.get("shadow")
+        shadow: dict[str, Any] = dict(raw_shadow) if isinstance(raw_shadow, dict) else {}
         memory_payload = {
             "traces": list(self.memory.get("traces", []))[-50:],
             "relationship": dict(self.memory.get("relationship") or {}),

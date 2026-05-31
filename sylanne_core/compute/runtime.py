@@ -171,7 +171,8 @@ class AlphaRuntime:
         path = self._buffer_path(session_key)
         if path.exists():
             try:
-                return json.loads(path.read_text(encoding="utf-8"))
+                result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+                return result
             except (json.JSONDecodeError, OSError):
                 return None
         return None
@@ -277,7 +278,7 @@ class AlphaRuntime:
 class HotUpgradeManager:
     """插件热升级管理器（接口定义，完整实现需要 AstrBot 框架支持）。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._upgrade_in_progress: bool = False
         self._last_upgrade: float = 0
 
@@ -285,7 +286,7 @@ class HotUpgradeManager:
         """检查是否可以安全升级。"""
         return not self._upgrade_in_progress
 
-    def prepare_upgrade(self) -> dict:
+    def prepare_upgrade(self) -> dict[str, Any]:
         """准备升级：收集需要迁移的状态。"""
         self._upgrade_in_progress = True
         return {
@@ -294,13 +295,13 @@ class HotUpgradeManager:
             "Current implementation saves state before reload.",
         }
 
-    def complete_upgrade(self):
+    def complete_upgrade(self) -> None:
         """完成升级。"""
         import time
 
         self._upgrade_in_progress = False
         self._last_upgrade = time.time()
 
-    def abort_upgrade(self):
+    def abort_upgrade(self) -> None:
         """中止升级。"""
         self._upgrade_in_progress = False

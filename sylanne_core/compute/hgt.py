@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-import array
 import hashlib
 import math
 import struct
@@ -59,11 +58,11 @@ def _deterministic_floats(seed: bytes, count: int) -> list[float]:
     return result
 
 
-def _make_flat(seed: bytes, rows: int, cols: int, scale: float = 1.0) -> array.array:
+def _make_flat(seed: bytes, rows: int, cols: int, scale: float = 1.0) -> list[float]:
     """生成扁平化权重矩阵（Xavier 初始化 + 确定性种子）。"""
     floats = _deterministic_floats(seed, rows * cols)
     xavier = scale * _sqrt(2.0 / (rows + cols))
-    return array.array("d", (f * xavier for f in floats))
+    return [f * xavier for f in floats]
 
 
 def _matmul_vec_flat(mat: list[float], vec: list[float], rows: int, cols: int) -> list[float]:
@@ -268,9 +267,9 @@ class MultiHeadCrossAttention:
         for h in range(n_h):
             h_off = h * d_h
             # Inline 4x4 Q/K/V projections (unrolled for d_head=4)
-            q_vecs = [None] * n
-            k_vecs = [None] * n
-            v_vecs = [None] * n
+            q_vecs: list[Any] = [None] * n
+            k_vecs: list[Any] = [None] * n
+            v_vecs: list[Any] = [None] * n
             for i in range(n):
                 ti = types[i]
                 x0 = tokens[i][h_off]

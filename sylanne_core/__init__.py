@@ -1,7 +1,22 @@
 """Sylanne-Core: Affective computation engine SDK.
 
-面向 AstrBot 插件开发者的情感计算引擎。
-文本输入，结构化数据输出。
+Text in, structured emotional state out. Designed as an AstrBot plugin dependency.
+
+Quick start (standalone)::
+
+    from sylanne_core import SylanneEngine, SylanneConfig
+
+    engine = SylanneEngine(data_dir="./data", llm=my_llm_fn)
+    await engine.start()
+    surface = await engine.process("user_123", "你好")
+    print(surface["decision"]["action"])  # "express", "listen", "hold", etc.
+    await engine.shutdown()
+
+Quick start (AstrBot plugin)::
+
+    from sylanne_core import get_engine
+    engine = get_engine()  # pre-configured by SylannEngine plugin
+    surface = await engine.process(session_id, text)
 """
 
 from __future__ import annotations
@@ -18,7 +33,7 @@ __all__ = [
     "HealthStatus",
     "get_engine",
 ]
-__version__ = "1.0.0a1"
+__version__ = "1.0.0rc1"
 
 _shared_engine: SylanneEngine | None = None
 

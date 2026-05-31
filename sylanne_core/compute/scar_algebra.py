@@ -282,6 +282,7 @@ class ScarredState:
         """
         if self._mlp_w1 is None or self._mlp_w2 is None:
             self._init_mlp_weights()
+        assert self._mlp_w1 is not None and self._mlp_w2 is not None
 
         # Concatenate input: [x; e_tilde]
         inp = list(x) + list(e_tilde)
@@ -422,7 +423,7 @@ class ScarredState:
 
         # Step 4: Healing (using configurable per-dimension rates)
         # Only heal pre-existing scars; newly formed scars skip their birth tick.
-        healed = []
+        healed: list[int] = []
         if heal:
             # 预计算 per-dim scar count，避免 O(n²)——主循环和奖励愈合共用
             _dim_counts: dict[int, int] = {}

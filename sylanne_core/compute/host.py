@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .kernel import AlphaKernelEvent
+from .kernel import AlphaKernel, AlphaKernelEvent
 from .runtime import AlphaRuntime
 
 _FLUSH_INTERVAL: float = 5.0
@@ -73,7 +73,7 @@ class SylanneAlphaHost:
     session_key: str = "default"
     legacy: dict[str, Any] | None = None
     runtime: AlphaRuntime = field(init=False)
-    kernel: Any = field(init=False)
+    kernel: AlphaKernel = field(init=False)
     _dirty: bool = field(init=False, default=False)
     _ticks_since_flush: int = field(init=False, default=0)
     _last_flush_time: float = field(init=False, default=0.0)
@@ -158,7 +158,7 @@ class SylanneAlphaHost:
         """内部 tick 实现：转换事件 → 注入 phase flag → 驱动 kernel → 按需持久化。"""
         host_event = self._event(event)
         flags = list(dict.fromkeys([phase, *host_event.flags]))
-        surface = self.kernel.tick(
+        surface: dict[str, Any] = self.kernel.tick(
             AlphaKernelEvent(
                 text=host_event.text,
                 values=dict(host_event.values),
@@ -218,6 +218,6 @@ class SylanneAlphaHost:
             now=float(payload.get("now") or 0.0),
             values=dict(payload.get("values") or {}),
             event_time=dict(
-                payload.get("event_time") if isinstance(payload.get("event_time"), dict) else {}
+                payload.get("event_time") if isinstance(payload.get("event_time"), dict) else {}  # type: ignore[arg-type]
             ),
         )

@@ -54,6 +54,17 @@ SCHEMA_GROUP_ATMOSPHERE_VERSION = "sylanne.alpha.group_atmosphere.v1"
 SCHEMA_PROACTIVE_SOURCE_VERSION = "sylanne.alpha.proactive_source.v1"
 
 
+def _as_dict(val: Any) -> dict[str, Any]:
+    return dict(val) if isinstance(val, dict) else {}
+
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(float(val)))
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
 @dataclass(slots=True)
 class AlphaKernelEvent:
     """Kernel 层事件数据类。
@@ -113,43 +124,17 @@ class AlphaKernel:
         """从持久化快照恢复 kernel，对每个字段做类型安全的反序列化。"""
         kernel = cls(
             session_key=str(snapshot.get("session_key") or "default"),
-            body=AlphaBodyState.from_dict(
-                snapshot.get("body") if isinstance(snapshot.get("body"), dict) else {}
-            ),
-            audit=dict(snapshot.get("audit") if isinstance(snapshot.get("audit"), dict) else {}),
-            turns=max(0, int(snapshot.get("turns") or 0)),
-            last_event=dict(
-                snapshot.get("last_event") if isinstance(snapshot.get("last_event"), dict) else {}
-            ),
-            previous_event=dict(
-                snapshot.get("previous_event")
-                if isinstance(snapshot.get("previous_event"), dict)
-                else {}
-            ),
-            relational_time=dict(
-                snapshot.get("relational_time")
-                if isinstance(snapshot.get("relational_time"), dict)
-                else {}
-            ),
-            last_decision=dict(
-                snapshot.get("last_decision")
-                if isinstance(snapshot.get("last_decision"), dict)
-                else {}
-            ),
-            last_guard=dict(
-                snapshot.get("last_guard") if isinstance(snapshot.get("last_guard"), dict) else {}
-            ),
-            personality=dict(
-                snapshot.get("personality") if isinstance(snapshot.get("personality"), dict) else {}
-            ),
-            moral_repair=dict(
-                snapshot.get("moral_repair")
-                if isinstance(snapshot.get("moral_repair"), dict)
-                else {}
-            ),
-            fallibility=dict(
-                snapshot.get("fallibility") if isinstance(snapshot.get("fallibility"), dict) else {}
-            ),
+            body=AlphaBodyState.from_dict(_as_dict(snapshot.get("body"))),
+            audit=_as_dict(snapshot.get("audit")),
+            turns=_safe_int(snapshot.get("turns")),
+            last_event=_as_dict(snapshot.get("last_event")),
+            previous_event=_as_dict(snapshot.get("previous_event")),
+            relational_time=_as_dict(snapshot.get("relational_time")),
+            last_decision=_as_dict(snapshot.get("last_decision")),
+            last_guard=_as_dict(snapshot.get("last_guard")),
+            personality=_as_dict(snapshot.get("personality")),
+            moral_repair=_as_dict(snapshot.get("moral_repair")),
+            fallibility=_as_dict(snapshot.get("fallibility")),
         )
         if "computation" in snapshot and isinstance(snapshot["computation"], dict):
             kernel.computation.from_dict(snapshot["computation"])
@@ -465,9 +450,8 @@ class AlphaKernel:
 
     def _group_atmosphere(self) -> dict[str, Any]:
         flags = set(self.last_event.get("flags", []))
-        values = (
-            self.last_event.get("values") if isinstance(self.last_event.get("values"), dict) else {}
-        )
+        raw_values = self.last_event.get("values")
+        values: dict[str, Any] = dict(raw_values) if isinstance(raw_values, dict) else {}
         heat = max(float(values.get("group_heat") or 0.0), 0.4 if "group" in flags else 0.0)
         interrupt_risk = max(heat * 0.6, self.body.immunity.boundary_pressure)
         return {
@@ -691,7 +675,8 @@ class AlphaKernel:
         }
 
     def _event_time_payload(self, event: dict[str, Any]) -> dict[str, Any]:
-        event_time = event.get("event_time") if isinstance(event.get("event_time"), dict) else {}
+        raw_et = event.get("event_time")
+        event_time: dict[str, Any] = dict(raw_et) if isinstance(raw_et, dict) else {}
         local_datetime = str(event_time.get("local_datetime") or event_time.get("local_time") or "")
         timezone = str(event_time.get("timezone") or event_time.get("tz") or "local")
         epoch = float(event_time.get("epoch") or event.get("now") or 0.0)
@@ -914,7 +899,5 @@ class AlphaKernel:
             confidence=float(payload.get("confidence") or 0.0),
             flags=list(payload.get("flags") or []),
             now=float(payload.get("now") or 0.0),
-            event_time=dict(
-                payload.get("event_time") if isinstance(payload.get("event_time"), dict) else {}
-            ),
+            event_time=_as_dict(payload.get("event_time")),
         )

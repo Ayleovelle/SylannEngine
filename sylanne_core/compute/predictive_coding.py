@@ -85,7 +85,7 @@ class PredictiveCodingGate:
         # precision 放大惊讶度：高精度时对微小差异更敏感
         return min(1.0, raw * self.precision * 2.0)
 
-    def update(self, input_vec: bytearray | list[int], surprise_value: float):
+    def update(self, input_vec: bytearray | list[int], surprise_value: float) -> None:
         """更新预测向量：通过概率性位翻转向输入靠拢。
 
         学习率与惊讶度正相关：高惊讶 → 更大的更新步长（因为预测明显错了）。
@@ -161,7 +161,7 @@ class PredictiveCodingGate:
             return 0.5
         return sum(self._surprise_history) / len(self._surprise_history)
 
-    def set_route_thresholds(self, fast_threshold: float, full_threshold: float):
+    def set_route_thresholds(self, fast_threshold: float, full_threshold: float) -> None:
         self._fast_threshold = fast_threshold
         self._full_threshold = full_threshold
 
@@ -178,7 +178,7 @@ class PredictiveCodingGate:
             "history_len": len(self._surprise_history),
         }
 
-    def from_dict(self, data: dict[str, Any]):
+    def from_dict(self, data: dict[str, Any]) -> None:
         """从持久化状态恢复。"""
         import base64
 
