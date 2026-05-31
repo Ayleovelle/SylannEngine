@@ -50,11 +50,11 @@ class TestBodyApply:
         body.apply(text="repeat", now=2.0)
         assert body.nerve.repetition == 2
 
-    def test_apply_stores_trace(self):
+    def test_apply_stores_recent_text(self):
         body = AlphaBodyState()
         body.apply(text="hello world", now=1.0)
-        assert len(body.memory["traces"]) == 1
-        assert body.memory["traces"][0]["text"] == "hello world"
+        assert len(body._recent_texts) == 1
+        assert body._recent_texts[0] == "hello world"
 
     def test_apply_pause_flag(self):
         body = AlphaBodyState()
@@ -193,21 +193,15 @@ class TestEventVector:
         assert vec["elapsed"] == 12.0
 
 
-class TestMemory:
-    def test_recall_empty(self):
+class TestRepetitionDetection:
+    def test_repetition_counted(self):
         body = AlphaBodyState()
-        assert body.recall_memory("anything") == []
+        body.apply(text="hello", now=1.0)
+        body.apply(text="hello", now=2.0)
+        assert body.nerve.repetition == 2
 
-    def test_recall_matches(self):
+    def test_recent_texts_ring_buffer(self):
         body = AlphaBodyState()
-        body.apply(text="python programming", now=1.0)
-        body.apply(text="rust language", now=2.0)
-        results = body.recall_memory("python")
-        assert len(results) >= 1
-        assert "python" in results[0]["text"]
-
-    def test_trace_limit(self):
-        body = AlphaBodyState()
-        for i in range(60):
+        for i in range(25):
             body.apply(text=f"msg {i}", now=float(i + 1))
-        assert len(body.memory["traces"]) <= 50
+        assert len(body._recent_texts) == 20

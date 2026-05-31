@@ -269,15 +269,9 @@ class AlphaKernel:
 
     def _workset(self, decision: dict[str, Any], guard: dict[str, Any]) -> dict[str, Any]:
         vector_summary = self._vector_summary()
-        memory_matches = (
-            self.body.recall_memory(str(self.last_event.get("text") or ""), limit=3)
-            if self.last_event.get("text")
-            else []
-        )
         primary = "guard" if not guard["allowed"] else decision.get("reason_code", "body")
         if primary not in {
             "body",
-            "memory",
             "guard",
             "assessor",
             "dialogue",
@@ -301,7 +295,7 @@ class AlphaKernel:
         return build_fragment_workset(
             session_key=self.session_key,
             fragments=[str(self.last_event.get("text") or "")],
-            memory_matches=memory_matches,
+            memory_matches=[],
             dialogue={
                 "flags": list(self.last_event.get("flags", [])),
                 "confidence": self.last_event.get("confidence", 0.0),
@@ -322,7 +316,6 @@ class AlphaKernel:
                 "weights": {
                     "body": vector_summary["need"],
                     "guard": guard["risk_score"],
-                    "memory": min(1.0, len(memory_matches) / 3.0),
                 },
                 "pressure": flood["pressure"],
                 "flood_policy": flood["policy"],
@@ -875,11 +868,7 @@ class AlphaKernel:
         }
 
     def _has_sovereignty_opt_in(self) -> bool:
-        for trace in reversed(self.body.memory.get("traces", [])[-10:]):
-            text = str(trace.get("text") or "")
-            if text and float(trace.get("weight", 0)) > 0.3:
-                return True
-        return False
+        return len(self.body._recent_texts) > 0
 
     def _next_check_seconds(self, decision: dict[str, Any], guard: dict[str, Any]) -> int:
         if "proactive_cooldown" in guard["flags"]:

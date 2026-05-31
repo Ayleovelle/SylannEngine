@@ -10,7 +10,6 @@ Type hierarchy::
     ├── personality: PersonalityState (deep 5D + surface 6D)
     ├── decision: Decision (action + confidence + urgency)
     ├── guard: Guard (allowed + constraints)
-    ├── memory: MemoryResult (recalled traces)
     ├── dynamics: Dynamics (affect/moral/uncertainty/relational_time)
     └── debug: dict | None (pipeline internals, if diagnostics=True)
 """
@@ -131,18 +130,6 @@ class Guard(TypedDict):
     constraints: list[str]
 
 
-class MemoryEntry(TypedDict):
-    text: str
-    relevance: float
-    created_at: float
-    layer: str
-
-
-class MemoryResult(TypedDict):
-    recalled: list[MemoryEntry]
-    total_stored: int
-
-
 class AffectDynamics(TypedDict):
     recovery_drive: float
     expression_drive: float
@@ -189,7 +176,6 @@ class Surface(TypedDict):
     personality: PersonalityState
     decision: Decision
     guard: Guard
-    memory: MemoryResult
     pipeline: dict[str, Any]
     dynamics: Dynamics
     debug: dict[str, Any] | None
