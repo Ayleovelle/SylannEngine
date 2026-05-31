@@ -212,11 +212,8 @@ class TestCouplingDynamics:
 
 
 class TestEmergence:
-    def test_phi_zero_for_independent(self):
+    def test_phi_nonnegative(self):
         phi = PhiCalculator()
-        # When each module is constant (no internal variance), Φ is high
-        # because the whole has variance that no single part accounts for.
-        # This is correct IIT behavior: the system IS integrated.
         states = [[float(i)] * 4 for i in range(7)]
         for _ in range(5):
             phi.update(states)

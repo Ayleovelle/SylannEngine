@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -174,7 +175,7 @@ class SylanneCore:
 
     __slots__ = ("_config", "_primary", "_mood", "_epoch", "_last_delta")
 
-    def __init__(self, config: dict | None = None) -> None:
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
         """Initialize kernel with optional configuration.
 
         Args:
@@ -183,17 +184,17 @@ class SylanneCore:
                 - decay_rate: EMA alpha for mood convergence (default 0.05)
                 - attractor: dict with valence/arousal/dominance for resting state
         """
-        cfg = dict(_DEFAULT_CONFIG)
+        cfg: dict[str, Any] = dict(_DEFAULT_CONFIG)
         if config:
             cfg.update(config)
 
         # Validate decay_rate in (0, 1) — required for Lyapunov stability
-        dr = cfg["decay_rate"]
+        dr = float(cfg["decay_rate"])
         if not (0.0 < dr < 1.0):
             raise ValueError(f"decay_rate must be in (0,1), got {dr}")
 
         # Validate Lipschitz bound is positive
-        md = cfg["max_delta"]
+        md = float(cfg["max_delta"])
         if md <= 0.0:
             raise ValueError(f"max_delta must be positive, got {md}")
 
@@ -235,8 +236,8 @@ class SylanneCore:
         Returns:
             SylanneState capturing the full kernel output.
         """
-        max_delta = self._config["max_delta"]
-        decay_rate = self._config["decay_rate"]
+        max_delta = float(self._config["max_delta"])
+        decay_rate = float(self._config["decay_rate"])
 
         # Step 1: Raw delta — stimulus dimensions scaled by magnitude
         raw_delta = EmotionVector(
@@ -313,14 +314,14 @@ class SylanneCore:
                 dominance=att.get("dominance", 0.5),
             )
         else:
-            attractor_vec = att
+            attractor_vec = att  # Allow passing EmotionVector directly
 
         self._primary = attractor_vec
         self._mood = attractor_vec
         self._epoch = 0
         self._last_delta = EmotionVector(0.0, 0.0, 0.0)
 
-    def snapshot(self) -> dict:
+    def snapshot(self) -> dict[str, Any]:
         """Serialize kernel state to a plain dict.
 
         Returns a JSON-serializable dictionary capturing the full internal
@@ -350,7 +351,7 @@ class SylanneCore:
         }
 
     @classmethod
-    def restore(cls, data: dict) -> SylanneCore:
+    def restore(cls, data: dict[str, Any]) -> SylanneCore:
         """Deserialize a kernel from a snapshot dict.
 
         Args:

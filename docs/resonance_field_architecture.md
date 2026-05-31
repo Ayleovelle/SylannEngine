@@ -329,8 +329,6 @@ Coupling strength classes: A=strong (0.3-0.8), B=moderate (0.1-0.3), C=weak (0.0
 - **Theory:** Active inference (Friston, 2010) -- action (expression) reduces free energy
 - **Adaptation:** Fixed moderate $C_{27} = 0.1$
 
-PLACEHOLDER_COUPLINGS_CONTINUED
-
 ---
 
 ## 3. Resonance Dynamics (v2 Architecture)
