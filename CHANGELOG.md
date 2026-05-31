@@ -3,6 +3,41 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v1.0.0rc2] - 2026-05-31
+
+### ⚡ Performance
+
+- HDC similarity 从 O(n) 字节循环改为 O(1) `int.bit_count()` 单次操作
+- 记忆召回预分词：query 只 tokenize 一次，避免 L1+L2 循环内重复计算
+- LLM assess 移出 session lock，锁持有时间从"网络延迟+计算"降为"仅计算"
+
+### 🐛 Bug Fixes
+
+- 修复 `confidence=0.0` 被 falsy 逻辑覆盖导致 assessor 结果永远不生效
+- 修复 `adapter._map_debug()` 引用错误属性名导致诊断输出永远为空
+- 修复 NaN/Inf 可穿透 kernel 事件解析污染状态向量
+- 修复 `save_buffer()` 静默吞掉 OSError
+
+### 🔒 Robustness
+
+- `state()`/`reset()`/`destroy()` 改为 async 并加 session lock 防止并发 torn read
+- 添加生命周期守卫：shutdown 后调用 process/tick 自动重启引擎
+- Session 文件名改用 percent-encoding 防止碰撞（如 `a/b` vs `a_b`）
+- `SylanneConfig.__post_init__` 校验参数边界值
+
+### ✨ API Improvements
+
+- 添加 `async with engine:` 上下文管理器支持
+- 添加 `engine.exists(session_id)` 方法
+- `_notify()` listener 异常改为 `logger.warning` 并附带堆栈
+- `Surface.dynamics` 从 `dict[str, Any]` 细化为 `Dynamics` TypedDict
+- `ComputationSpine.embodiment_bounds()` 公开方法替代私有属性访问
+
+### 🔧 Maintenance
+
+- 提取共享 `safe_filename()` 到 `compute/utils.py` 消除重复
+- 新增 filesystem safe session name 和 save_buffer 错误传播测试
+
 ## [v1.0.0rc1] - 2026-05-31
 
 ### 🔒 Type Safety
