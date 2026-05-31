@@ -32,7 +32,7 @@ from sylanne_core.standard import (
 
 # Attempt to import algebra module (may not exist yet)
 try:
-    from sylanne_core.algebra import blend, decay, distance, normalize
+    from sylanne_core.algebra import blend, decay, distance, normalize  # noqa: F401
 
     HAS_ALGEBRA = True
 except ImportError:

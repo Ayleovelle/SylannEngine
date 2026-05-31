@@ -348,7 +348,6 @@ class PhaseTransitionExpression:
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
-        order = int(data.get("order_params", 1))
         # If persisted order_params differs from current, adapt gracefully
         if "pressures" in data:
             persisted = list(data["pressures"])
