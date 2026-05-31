@@ -28,11 +28,12 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .attention import focus_information_flood
 from .body import SCHEMA_VERSION, AlphaBodyState
 from .computation_spine import ComputationSpine
+from .hot_pool import HotPool
 from .importer import import_legacy_body
 from .personality import drift_sylanne_traits, initial_personality
 from .prompt_surface import (
@@ -42,6 +43,9 @@ from .prompt_surface import (
     render_prompt_fragment,
 )
 from .workset import build_fragment_workset
+
+if TYPE_CHECKING:
+    from ..config import DimensionProfile
 
 logger = logging.getLogger("sylanne_core")
 
@@ -109,19 +113,34 @@ class AlphaKernel:
     moral_repair: dict[str, Any] = field(default_factory=dict)
     fallibility: dict[str, Any] = field(default_factory=dict)
     computation: ComputationSpine = field(default_factory=ComputationSpine)
+    hot_pool: HotPool = field(default_factory=HotPool)
     _last_computation_result: dict[str, Any] = field(default_factory=dict)
     _cached_vector_summary: dict[str, float] | None = field(default=None, repr=False)
 
     @classmethod
-    def boot(cls, session_key: str, legacy: dict[str, Any] | None = None) -> AlphaKernel:
+    def boot(
+        cls,
+        session_key: str,
+        legacy: dict[str, Any] | None = None,
+        profile: DimensionProfile | None = None,
+    ) -> AlphaKernel:
         """从零创建或从旧版数据迁移创建 kernel。"""
         if legacy is None:
-            return cls(session_key=session_key)
-        body, audit, turns = import_legacy_body(legacy)
-        return cls(session_key=session_key, body=body, audit=audit, turns=turns)
+            kernel = cls(session_key=session_key)
+        else:
+            body, audit, turns = import_legacy_body(legacy)
+            kernel = cls(session_key=session_key, body=body, audit=audit, turns=turns)
+        if profile is not None:
+            kernel.computation = ComputationSpine(profile=profile)
+            kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
+        return kernel
 
     @classmethod
-    def restore(cls, snapshot: dict[str, Any]) -> AlphaKernel:
+    def restore(
+        cls,
+        snapshot: dict[str, Any],
+        profile: DimensionProfile | None = None,
+    ) -> AlphaKernel:
         """从持久化快照恢复 kernel，对每个字段做类型安全的反序列化。"""
         kernel = cls(
             session_key=str(snapshot.get("session_key") or "default"),
@@ -137,8 +156,15 @@ class AlphaKernel:
             moral_repair=_as_dict(snapshot.get("moral_repair")),
             fallibility=_as_dict(snapshot.get("fallibility")),
         )
+        if profile is not None:
+            kernel.computation = ComputationSpine(profile=profile)
+            kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
         if "computation" in snapshot and isinstance(snapshot["computation"], dict):
             kernel.computation.from_dict(snapshot["computation"])
+        if "hot_pool" in snapshot and isinstance(snapshot["hot_pool"], dict):
+            mode = profile.mode if profile else "lite"
+            n_dims = profile.emotion_dim if profile else 16
+            kernel.hot_pool = HotPool.from_dict(snapshot["hot_pool"], n_dims=n_dims, mode=mode)
         if "_last_computation_result" in snapshot and isinstance(
             snapshot["_last_computation_result"], dict
         ):
@@ -195,9 +221,20 @@ class AlphaKernel:
         personality = self._personality()
         if personality:
             self.computation.apply_personality(personality.get("traits", personality))
+            self.hot_pool.apply_personality(personality.get("traits", personality))
+        # Hot pool: amplify event during cascade, then tick
+        event_dict = {
+            "confidence": event.confidence,
+            "flags": list(event.flags),
+            "values": dict(event.values),
+        }
+        self.hot_pool.amplify_event(event_dict)
         self._last_computation_result = self.computation.process(
             event.text, event.now, assessment=assessment
         )
+        collapse_record = self.hot_pool.tick(body=self.body, spine=self.computation)
+        if collapse_record is not None:
+            self._apply_collapse(collapse_record)
         self._evolve_alpha_layers(event)
         self.turns += 1
         previous = dict(self.last_event)
@@ -222,6 +259,20 @@ class AlphaKernel:
             "surface": self.surface(),
         }
 
+    def _apply_collapse(self, record: Any) -> None:
+        """Apply personality collapse deltas from hot pool phase transition."""
+        traits = self._personality()
+        if not traits:
+            return
+        trait_dict = traits.get("traits", traits)
+        pre_snapshot = dict(trait_dict)
+        for trait, delta in record.trait_deltas.items():
+            if trait in trait_dict:
+                trait_dict[trait] = max(0.05, min(0.95, trait_dict[trait] + delta))
+        record.pre_collapse_traits = pre_snapshot
+        record.post_collapse_traits = dict(trait_dict)
+        self.computation.apply_personality(trait_dict)
+
     def surface(self) -> dict[str, Any]:
         """生成当前状态的完整对外表示（供 WebUI / prompt injection 使用）。"""
         decision = self.last_decision or self._decide()
@@ -237,6 +288,7 @@ class AlphaKernel:
             "workset": workset,
             "host_payload": self._host_payload(decision, guard),
             "diagnostics": self._diagnostics(decision, guard, workset),
+            "hot_pool": self.hot_pool.diagnostics(),
         }
 
     def snapshot(self) -> dict[str, Any]:
@@ -256,6 +308,7 @@ class AlphaKernel:
             "moral_repair": self._moral_repair_state(),
             "fallibility": self._fallibility_state(),
             "computation": self.computation.to_dict(),
+            "hot_pool": self.hot_pool.to_dict(),
             "_last_computation_result": self._last_computation_result,
         }
 
