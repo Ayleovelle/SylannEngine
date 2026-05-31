@@ -18,13 +18,17 @@ Typical usage::
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from .compute.utils import safe_filename
 from .config import SylanneConfig
 from .types import EngineStatus, HealthStatus, Surface
+
+logger = logging.getLogger("sylanne_core")
 
 
 class SylanneEngine:
@@ -106,12 +110,19 @@ class SylanneEngine:
         self._locks.clear()
         self._status = "closed"
 
+    async def __aenter__(self) -> SylanneEngine:
+        await self.start()
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.shutdown()
+
     async def process(
         self,
         session_id: str,
         text: str,
         *,
-        confidence: float = 0.0,
+        confidence: float | None = None,
         flags: list[str] | None = None,
         now: float | None = None,
         values: dict[str, float] | None = None,
@@ -129,14 +140,20 @@ class SylanneEngine:
         Returns:
             Surface dict with keys: state, decision, guard, personality, memory, dynamics.
         """
+        if self._status == "closed":
+            await self.start()
+        assessment = await self._assess(text) if self._config.assessor_enabled else None
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
-            assessment = await self._assess(text) if self._config.assessor_enabled else None
             event = {
                 "text": text,
-                "confidence": confidence or (assessment or {}).get("confidence", 0.0),
-                "flags": flags or (assessment or {}).get("flags", []),
-                "now": now or time.time(),
+                "confidence": (
+                    confidence
+                    if confidence is not None
+                    else (assessment or {}).get("confidence", 0.0)
+                ),
+                "flags": (flags if flags is not None else (assessment or {}).get("flags", [])),
+                "now": now if now is not None else time.time(),
                 "values": values or {},
             }
             result = host.on_request(event, assessment=assessment)
@@ -150,6 +167,8 @@ class SylanneEngine:
         flags: list[str] | None = None,
     ) -> Surface:
         """Advance session state without user input (background heartbeat)."""
+        if self._status == "closed":
+            await self.start()
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
             event = {
@@ -162,29 +181,33 @@ class SylanneEngine:
             result = host.on_request(event)
             return self._to_surface(session_id, host, result)
 
-    def state(self, session_id: str) -> Surface:
+    async def state(self, session_id: str) -> Surface:
         """Get current session state without advancing the pipeline."""
-        host = self._get_or_create_host(session_id)
-        surface = host.diagnostics()
-        return self._to_surface(session_id, host, surface)
+        async with self._session_lock(session_id):
+            host = self._get_or_create_host(session_id)
+            surface = host.diagnostics()
+            return self._to_surface(session_id, host, surface)
 
-    def reset(self, session_id: str) -> None:
+    async def reset(self, session_id: str) -> None:
         """Reset session to fresh state. Deletes persisted data."""
-        if session_id in self._hosts:
-            del self._hosts[session_id]
-        safe_name = "".join(
-            ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in session_id
-        )[:128]
-        for suffix in (".alpha.json", ".json"):
-            state_file = self._data_dir / f"{safe_name}{suffix}"
-            if state_file.exists():
-                state_file.unlink()
+        async with self._session_lock(session_id):
+            if session_id in self._hosts:
+                del self._hosts[session_id]
+            safe_name = safe_filename(session_id)
+            for suffix in (".alpha.json", ".json"):
+                state_file = self._data_dir / f"{safe_name}{suffix}"
+                if state_file.exists():
+                    state_file.unlink()
 
-    def destroy(self, session_id: str) -> None:
+    async def destroy(self, session_id: str) -> None:
         """Permanently remove session state and release its lock."""
-        self.reset(session_id)
+        await self.reset(session_id)
         if session_id in self._locks:
             del self._locks[session_id]
+
+    def exists(self, session_id: str) -> bool:
+        """Check if a session exists without creating it."""
+        return session_id in self._hosts
 
     # --- internal ---
 
@@ -195,7 +218,7 @@ class SylanneEngine:
                 if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
                     await ret
             except Exception:
-                pass
+                logger.warning("Listener error", exc_info=True)
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         if session_id not in self._locks:

@@ -25,6 +25,7 @@ AlphaKernel 是 Sylanne-Embodiment 的中枢调度器，驱动 7 层计算管线
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -347,8 +348,8 @@ class AlphaKernel:
         """
         # Drift Sylanne traits (fast, text-based) with Embodiment bounds from computation spine
         embodiment = (
-            self.computation._embodiment_traits
-            if hasattr(self.computation, "_embodiment_traits")
+            self.computation.embodiment_bounds()
+            if hasattr(self.computation, "embodiment_bounds")
             else None
         )
         self.personality = drift_sylanne_traits(
@@ -893,11 +894,17 @@ class AlphaKernel:
         if isinstance(event, AlphaKernelEvent):
             return event
         payload = event or {}
+        confidence = float(payload.get("confidence") or 0.0)
+        if not math.isfinite(confidence):
+            confidence = 0.0
+        now = float(payload.get("now") or 0.0)
+        if not math.isfinite(now):
+            now = 0.0
         return AlphaKernelEvent(
             text=str(payload.get("text") or ""),
             values=dict(payload.get("values") or {}),
-            confidence=float(payload.get("confidence") or 0.0),
+            confidence=confidence,
             flags=list(payload.get("flags") or []),
-            now=float(payload.get("now") or 0.0),
+            now=now,
             event_time=_as_dict(payload.get("event_time")),
         )

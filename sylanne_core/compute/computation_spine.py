@@ -277,6 +277,14 @@ class ComputationSpine:
         # 并行执行（它们之间无数据依赖），但需要 async 化后才能实现。
         self._parallel_eligible: bool = False
 
+    def embodiment_bounds(self) -> dict[str, float] | None:
+        """Public accessor for embodiment trait bounds (used by kernel personality drift)."""
+        return (
+            {n: t.value for n, t in self._embodiment_traits.items()}
+            if self._embodiment_traits
+            else None
+        )
+
     def set_layer_enabled(self, layer: str, enabled: bool) -> None:
         """启用或禁用指定的计算层。
 
@@ -1133,7 +1141,7 @@ class ComputationSpine:
 
     def _hdc_similarity(self, a: bytes, b: bytes) -> float:
         """基于 HDC 的相似度函数（供 VoidScarEngine 使用）。"""
-        return self.encoder.similarity(bytearray(a), bytearray(b))
+        return self.encoder.similarity(a, b)
 
     def _hdc_to_ssm_input(self, h: bytearray, surprise: float) -> list[float]:
         """将 HDC bytearray 压缩为 8 维 SSM 输入。
