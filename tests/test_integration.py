@@ -164,7 +164,9 @@ class TestPluginLifecycle:
     async def test_emotional_trajectory(self, tmp_path: Path):
         """Verify emotional state evolves meaningfully over conversation."""
         llm = AsyncMock(return_value="ok")
-        engine = SylanneEngine(data_dir=tmp_path, llm=llm, config=SylanneConfig(assessor_enabled=False))
+        engine = SylanneEngine(
+            data_dir=tmp_path, llm=llm, config=SylanneConfig(assessor_enabled=False)
+        )
         await engine.start()
 
         # Warm conversation
