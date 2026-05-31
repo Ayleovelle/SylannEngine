@@ -3,6 +3,27 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [v1.0.0rc1] - 2026-05-31
+
+### 🔒 Type Safety
+
+- 全模块 mypy 零错误（--check-untyped-defs）
+- 修复 190 处类型标注缺失和 None 安全问题
+- CI mypy 检查从 continue-on-error 升级为强制通过
+
+### 🐛 Bug Fixes
+
+- 修复 `ScarredState._mlp_weights` None 解引用风险
+- 修复 `VoidSpace._split_pass` cluster_b 未做 None 检查
+- 修复 `AlphaBodyState.from_dict` 类型推断不精确
+- 修复 `importer` 模块 records 变量类型窄化失败
+
+### 🔧 Maintenance
+
+- 锁定 ruff==0.14.2 与 CI 版本一致
+- Release 打包改为 AstrBot 插件格式（184KB vs 6MB）
+- 引入 `_as_dict()` 辅助函数简化 kernel 反序列化
+
 ## [v1.0.0a1] - 2026-05-31
 
 ### ✨ New Features

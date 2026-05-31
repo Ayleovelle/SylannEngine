@@ -10,6 +10,7 @@ import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Any
 
 # ======================================================================
 # 秘密状态层
@@ -38,7 +39,7 @@ class HiddenStateManager:
         ttl: float = 3600,
         leak_prob: float = 0.1,
         intensity: float = 0.5,
-    ):
+    ) -> None:
         if len(self._secrets) >= self._max:
             self._secrets.pop(0)
         self._secrets.append(
@@ -72,7 +73,7 @@ class HiddenStateManager:
                 return "有些想法已经在心里很久了，也许该找个机会表达"
         return None
 
-    def to_dict(self) -> list[dict]:
+    def to_dict(self) -> list[dict[str, Any]]:
         return [
             {
                 "name": s.name,
@@ -86,7 +87,7 @@ class HiddenStateManager:
         ]
 
     @classmethod
-    def from_dict(cls, data: list[dict]) -> HiddenStateManager:
+    def from_dict(cls, data: list[dict[str, Any]]) -> HiddenStateManager:
         mgr = cls()
         for d in data:
             mgr._secrets.append(
@@ -121,10 +122,10 @@ class SelfNarrative:
         self._max = max_fragments
         self._identity_core: str = ""
 
-    def set_identity_core(self, core: str):
+    def set_identity_core(self, core: str) -> None:
         self._identity_core = core
 
-    def add_fragment(self, content: str, confidence: float = 0.5):
+    def add_fragment(self, content: str, confidence: float = 0.5) -> None:
         for f in self._fragments:
             if self._is_contradictory(f.content, content):
                 f.confidence *= 0.7
@@ -133,7 +134,7 @@ class SelfNarrative:
             self._fragments.pop(0)
         self._fragments.append(NarrativeFragment(content, confidence))
 
-    def reinforce(self, content_keyword: str):
+    def reinforce(self, content_keyword: str) -> None:
         for f in self._fragments:
             if content_keyword in f.content:
                 f.confidence = min(1.0, f.confidence + 0.1)
@@ -161,7 +162,7 @@ class SelfNarrative:
                 return True
         return False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "identity_core": self._identity_core,
             "fragments": [
@@ -176,7 +177,7 @@ class SelfNarrative:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> SelfNarrative:
+    def from_dict(cls, data: dict[str, Any]) -> SelfNarrative:
         sn = cls()
         sn._identity_core = data.get("identity_core", "")
         for fd in data.get("fragments", []):
@@ -224,7 +225,7 @@ class ContradictionDetector:
     def __init__(self, history_size: int = 50):
         self._stance_history: deque[Stance] = deque(maxlen=history_size)
 
-    def record_stance(self, topic: str, position: str, valence: float):
+    def record_stance(self, topic: str, position: str, valence: float) -> None:
         self._stance_history.append(Stance(time.time(), topic, position, valence))
 
     def check(self, current_text: str, current_valence: float) -> ContradictionCandidate | None:
@@ -254,7 +255,7 @@ class ContradictionDetector:
             return True
         return any(m in text for m in playful_markers)
 
-    def to_dict(self) -> list[dict]:
+    def to_dict(self) -> list[dict[str, Any]]:
         return [
             {
                 "timestamp": s.timestamp,
@@ -266,7 +267,7 @@ class ContradictionDetector:
         ]
 
     @classmethod
-    def from_dict(cls, data: list[dict]) -> ContradictionDetector:
+    def from_dict(cls, data: list[dict[str, Any]]) -> ContradictionDetector:
         det = cls()
         for d in data:
             det._stance_history.append(

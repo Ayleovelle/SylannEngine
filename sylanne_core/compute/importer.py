@@ -65,8 +65,10 @@ def import_legacy_body(
     dynamics = dict(_mapping(emotion.get("dynamics")))
     dynamics.update(_mapping(lifelike.get("dynamics")))
     dynamics.update(_mapping(relationship.get("dynamics")))
-    records = memory.get("records") if isinstance(memory.get("records"), list) else []
-    repair_records = repair.get("records") if isinstance(repair.get("records"), list) else []
+    _raw_records = memory.get("records")
+    records: list[Any] = _raw_records if isinstance(_raw_records, list) else []
+    _raw_repair = repair.get("records")
+    repair_records: list[Any] = _raw_repair if isinstance(_raw_repair, list) else []
 
     # 启发式映射：将旧版 dynamics/values 数值投影到当前身体向量各轴
     # pulse.beat 用历史轮次数近似（越多轮次，心跳累积越高）

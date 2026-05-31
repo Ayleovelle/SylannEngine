@@ -336,7 +336,7 @@ def render_hidden_bias(leaked_descriptions: list[str]) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def render_narrative_perspective(personality_traits: dict) -> str:
+def render_narrative_perspective(personality_traits: dict[str, Any]) -> str:
     """根据 expression_drive 和当前情绪强度决定叙事视角，返回 prompt 片段。
 
     视角规则：
@@ -384,7 +384,7 @@ def render_narrative_perspective(personality_traits: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def render_weather_metaphor(body_state: dict) -> str:
+def render_weather_metaphor(body_state: dict[str, Any]) -> str:
     """将情感状态映射为天气隐喻，注入 prompt 作为自我感知层。
 
     基于 8 维情感空间中的 valence/tension/temperature 三个关键维度，

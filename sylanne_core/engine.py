@@ -1,4 +1,19 @@
-"""SylanneEngine — the public entry point for Sylanne-Core SDK."""
+"""SylanneEngine — the public entry point for Sylanne-Core SDK.
+
+Provides the async API for integrating affective computation into chatbots.
+Designed as an AstrBot plugin dependency: downstream plugins call get_engine()
+to obtain a pre-configured instance.
+
+Typical usage::
+
+    from sylanne_core import SylanneEngine, SylanneConfig
+
+    engine = SylanneEngine(data_dir="./data", llm=my_llm_fn)
+    await engine.start()
+    surface = await engine.process("session_1", "你好")
+    print(surface["decision"]["action"])  # e.g. "express"
+    await engine.shutdown()
+"""
 
 from __future__ import annotations
 
@@ -13,12 +28,26 @@ from .types import EngineStatus, HealthStatus, Surface
 
 
 class SylanneEngine:
-    """情感计算引擎。
+    """Affective computation engine with session management and persistence.
 
-    Usage:
-        engine = SylanneEngine(data_dir="./data", llm=my_llm_fn)
+    Each session maintains independent emotional state that evolves through
+    a 7-layer computation pipeline on every process() call.
+
+    Args:
+        data_dir: Directory for session state persistence (created if missing).
+        llm: Async function(system_prompt, user_prompt) -> str for semantic assessment.
+        embedding: Optional async function(text) -> list[float] for memory retrieval.
+        config: Engine configuration. Defaults to SylanneConfig().
+
+    Example::
+
+        async def my_llm(system: str, user: str) -> str:
+            return await call_openai(system, user)
+
+        engine = SylanneEngine(data_dir="./data", llm=my_llm)
         await engine.start()
-        surface = await engine.process("session_1", "你好")
+        surface = await engine.process("user_123", "hello")
+        # surface["decision"]["action"] in {"express", "listen", "hold", ...}
         await engine.shutdown()
     """
 
@@ -43,6 +72,7 @@ class SylanneEngine:
         return self._status
 
     async def start(self) -> None:
+        """Initialize the engine. Must be called before process/tick."""
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._status = "running"
 
@@ -65,6 +95,7 @@ class SylanneEngine:
         }
 
     async def shutdown(self) -> None:
+        """Flush all sessions and release resources. Engine becomes 'closed'."""
         for host in self._hosts.values():
             try:
                 host.flush()
@@ -85,6 +116,19 @@ class SylanneEngine:
         now: float | None = None,
         values: dict[str, float] | None = None,
     ) -> Surface:
+        """Process a user message and return the computed emotional surface.
+
+        Args:
+            session_id: Unique session identifier (e.g. user ID or chat ID).
+            text: The user's message text.
+            confidence: Pre-computed confidence score [0,1]. Overrides LLM assessment.
+            flags: Semantic flags (e.g. ["safe"], ["hurt", "boundary"]).
+            now: Unix timestamp. Defaults to current time.
+            values: Additional numeric signals (e.g. {"group_heat": 0.7}).
+
+        Returns:
+            Surface dict with keys: state, decision, guard, personality, memory, dynamics.
+        """
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
             assessment = await self._assess(text) if self._config.assessor_enabled else None
@@ -105,6 +149,7 @@ class SylanneEngine:
         session_id: str,
         flags: list[str] | None = None,
     ) -> Surface:
+        """Advance session state without user input (background heartbeat)."""
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
             event = {
@@ -118,11 +163,13 @@ class SylanneEngine:
             return self._to_surface(session_id, host, result)
 
     def state(self, session_id: str) -> Surface:
+        """Get current session state without advancing the pipeline."""
         host = self._get_or_create_host(session_id)
         surface = host.diagnostics()
         return self._to_surface(session_id, host, surface)
 
     def reset(self, session_id: str) -> None:
+        """Reset session to fresh state. Deletes persisted data."""
         if session_id in self._hosts:
             del self._hosts[session_id]
         safe_name = "".join(
@@ -134,6 +181,7 @@ class SylanneEngine:
                 state_file.unlink()
 
     def destroy(self, session_id: str) -> None:
+        """Permanently remove session state and release its lock."""
         self.reset(session_id)
         if session_id in self._locks:
             del self._locks[session_id]

@@ -27,11 +27,11 @@ def to_surface(
         "session_id": session_id,
         "turns": kernel.turns,
         "timestamp": time.time(),
-        "state": _map_state(body),
-        "personality": _map_personality(kernel),
-        "decision": _map_decision(decision),
-        "guard": _map_guard(guard),
-        "memory": _map_memory(kernel),
+        "state": _map_state(body),  # type: ignore[typeddict-item]
+        "personality": _map_personality(kernel),  # type: ignore[typeddict-item]
+        "decision": _map_decision(decision),  # type: ignore[typeddict-item]
+        "guard": _map_guard(guard),  # type: ignore[typeddict-item]
+        "memory": _map_memory(kernel),  # type: ignore[typeddict-item]
         "pipeline": _map_pipeline(kernel) if diagnostics else {},
         "dynamics": _map_dynamics(kernel),
         "debug": _map_debug(kernel, raw) if diagnostics else None,
@@ -160,7 +160,7 @@ def _map_guard(g: dict[str, Any]) -> dict[str, Any]:
 
 
 def _map_memory(kernel: Any) -> dict[str, Any]:
-    traces = []
+    traces: list[Any] = []
     if hasattr(kernel.body, "traces"):
         traces = kernel.body.traces or []
     recalled = []
