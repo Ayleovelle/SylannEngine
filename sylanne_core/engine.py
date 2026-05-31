@@ -24,6 +24,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from .compute.utils import safe_filename
 from .config import SylanneConfig
 from .types import EngineStatus, HealthStatus, Surface
 
@@ -121,7 +122,7 @@ class SylanneEngine:
         session_id: str,
         text: str,
         *,
-        confidence: float = 0.0,
+        confidence: float | None = None,
         flags: list[str] | None = None,
         now: float | None = None,
         values: dict[str, float] | None = None,
@@ -192,7 +193,7 @@ class SylanneEngine:
         async with self._session_lock(session_id):
             if session_id in self._hosts:
                 del self._hosts[session_id]
-            safe_name = self._safe_session_name(session_id)
+            safe_name = safe_filename(session_id)
             for suffix in (".alpha.json", ".json"):
                 state_file = self._data_dir / f"{safe_name}{suffix}"
                 if state_file.exists():
@@ -210,27 +211,14 @@ class SylanneEngine:
 
     # --- internal ---
 
-    @staticmethod
-    def _safe_session_name(session_id: str) -> str:
-        if not session_id:
-            return "default"
-        safe_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")
-        parts = []
-        for ch in session_id[:128]:
-            if ch in safe_chars:
-                parts.append(ch)
-            else:
-                parts.append(f"%{ord(ch):02X}")
-        return "".join(parts) or "default"
-
     async def _notify(self, session_id: str, surface: Surface) -> None:
         for listener in self._listeners:
             try:
                 ret = listener(session_id, surface)
                 if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
                     await ret
-            except Exception as exc:
-                logger.warning("Listener error: %s", exc)
+            except Exception:
+                logger.warning("Listener error", exc_info=True)
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         if session_id not in self._locks:
