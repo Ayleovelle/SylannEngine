@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 from collections import deque
@@ -542,8 +543,6 @@ class ComputationSpine:
         cache_key = (text, session_key or "", assess_sig)
         cached = self._result_cache.get(cache_key)
         if cached is not None:
-            import copy
-
             return copy.deepcopy(cached)
 
         # Apply per-relationship personality overlay if session changed or dirty

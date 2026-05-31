@@ -286,9 +286,13 @@ class AlphaBodyState:
                         if ftype in ("bool", bool):
                             safe[key] = bool(value)
                         elif ftype in ("int", int):
-                            safe[key] = int(float(value))
+                            fval = float(value)
+                            if fval == fval and abs(fval) != float("inf"):
+                                safe[key] = int(fval)
                         else:
-                            safe[key] = float(value)
+                            fval = float(value)
+                            if fval == fval and abs(fval) != float("inf"):
+                                safe[key] = fval
                     setattr(body, name, state_type(**safe))  # type: ignore[arg-type]
                 except (TypeError, ValueError, OverflowError):
                     pass
