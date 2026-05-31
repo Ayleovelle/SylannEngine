@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -287,11 +288,11 @@ class AlphaBodyState:
                             safe[key] = bool(value)
                         elif ftype in ("int", int):
                             fval = float(value)
-                            if fval == fval and abs(fval) != float("inf"):
+                            if math.isfinite(fval):
                                 safe[key] = int(fval)
                         else:
                             fval = float(value)
-                            if fval == fval and abs(fval) != float("inf"):
+                            if math.isfinite(fval):
                                 safe[key] = fval
                     setattr(body, name, state_type(**safe))  # type: ignore[arg-type]
                 except (TypeError, ValueError, OverflowError):
