@@ -20,6 +20,8 @@ from itertools import combinations
 from typing import Any
 
 _TIER_MAX_ORDER = {"lite": 1, "pro": 3, "max": 6}
+
+
 class SimplicialComplex:
     """Complete simplicial complex on n vertices up to max_order."""
 
@@ -67,7 +69,7 @@ class SimplicialComplex:
         mat = [[0.0] * cols for _ in range(rows)]
         for j, sigma in enumerate(k_simplices):
             for face_idx in range(len(sigma)):
-                face = sigma[:face_idx] + sigma[face_idx + 1:]
+                face = sigma[:face_idx] + sigma[face_idx + 1 :]
                 sign = (-1.0) ** face_idx
                 if face in km1_idx:
                     mat[km1_idx[face]][j] = sign
@@ -85,10 +87,17 @@ class HebbianPlasticity:
     """
 
     __slots__ = (
-        "weights", "_n_channels", "_eta", "_lambda_decay",
-        "_w_min", "_w_max", "_homeostatic_target",
-        "_activation_trace", "_trace_decay",
-        "_total_updates", "_pruned_count",
+        "weights",
+        "_n_channels",
+        "_eta",
+        "_lambda_decay",
+        "_w_min",
+        "_w_max",
+        "_homeostatic_target",
+        "_activation_trace",
+        "_trace_decay",
+        "_total_updates",
+        "_pruned_count",
     )
 
     def __init__(
@@ -181,8 +190,15 @@ class KuramotoSync:
     """
 
     __slots__ = (
-        "phases", "frequencies", "_n", "_dt",
-        "_k1", "_k2", "_k3", "_simplices", "_prev_order",
+        "phases",
+        "frequencies",
+        "_n",
+        "_dt",
+        "_k1",
+        "_k2",
+        "_k3",
+        "_simplices",
+        "_prev_order",
         "_last_step_delta",
     )
 
@@ -212,8 +228,7 @@ class KuramotoSync:
             for j in range(self._n):
                 if i != j:
                     dtheta += (
-                        self._k1 * coupling_matrix[i][j]
-                        * math.sin(self.phases[j] - self.phases[i])
+                        self._k1 * coupling_matrix[i][j] * math.sin(self.phases[j] - self.phases[i])
                     )
             # 3-body: Millán et al. (2020) simplicial Kuramoto
             triangles = self._simplices.get(2, [])
@@ -231,9 +246,7 @@ class KuramotoSync:
                 if i in tet:
                     others = [v for v in tet if v != i]
                     phase_sum = sum(self.phases[v] for v in others)
-                    dtheta += self._k3 * math.sin(
-                        phase_sum - len(others) * self.phases[i]
-                    )
+                    dtheta += self._k3 * math.sin(phase_sum - len(others) * self.phases[i])
             new_phases[i] = self.phases[i] + self._dt * dtheta
         self.phases = [p % (2 * math.pi) for p in new_phases]
         new_order = self.order_parameter()
@@ -335,9 +348,17 @@ class CouplingDynamics:
     """
 
     __slots__ = (
-        "complex", "plasticity", "kuramoto", "free_energy", "broadcast",
-        "_tier", "_n_modules", "_state_dim", "_coupling_matrix",
-        "_criticality_gain", "_dissipation_rate",
+        "complex",
+        "plasticity",
+        "kuramoto",
+        "free_energy",
+        "broadcast",
+        "_tier",
+        "_n_modules",
+        "_state_dim",
+        "_coupling_matrix",
+        "_criticality_gain",
+        "_dissipation_rate",
     )
 
     def __init__(self, n_modules: int = 7, state_dim: int = 8, tier: str = "lite"):
@@ -388,8 +409,7 @@ class CouplingDynamics:
 
         # Free energy from module activation magnitudes
         magnitudes = [
-            sum(abs(x) for x in state) / max(1, len(state))
-            for state in module_activations
+            sum(abs(x) for x in state) / max(1, len(state)) for state in module_activations
         ]
         fe = self.free_energy.update_beliefs(magnitudes)
 
@@ -419,7 +439,9 @@ class CouplingDynamics:
                     source_energy += sum(abs(x) for x in module_states[v]) / max(1, self._state_dim)
             target_receptivity = 0.0
             if target < len(module_states):
-                target_receptivity = 1.0 - sum(abs(x) for x in module_states[target]) / (self._state_dim * 2)
+                target_receptivity = 1.0 - sum(abs(x) for x in module_states[target]) / (
+                    self._state_dim * 2
+                )
                 target_receptivity = max(0.0, target_receptivity)
             activations[ch_idx] = source_energy * target_receptivity / max(1, len(simplex) - 1)
         return activations
@@ -430,7 +452,9 @@ class CouplingDynamics:
             return self._coupling_matrix[source][target]
         return 0.0
 
-    def propagate(self, source_idx: int, signal: list[float], module_states: list[list[float]]) -> list[list[float]]:
+    def propagate(
+        self, source_idx: int, signal: list[float], module_states: list[list[float]]
+    ) -> list[list[float]]:
         """Propagate signal from source through coupling topology."""
         result = [list(s) for s in module_states]
         for target in range(self._n_modules):

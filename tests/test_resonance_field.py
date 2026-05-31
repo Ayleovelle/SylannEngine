@@ -9,17 +9,14 @@ import pytest
 from sylanne_core.compute.coupling_dynamics import (
     CouplingDynamics,
     FreeEnergyMinimizer,
-    GlobalBroadcast,
     HebbianPlasticity,
     KuramotoSync,
     SimplicialComplex,
 )
 from sylanne_core.compute.emergence import (
     AttractorLandscape,
-    EmergenceTracker,
     OrderParameterTracker,
     PhiCalculator,
-    ResonanceDetector,
     TemporalNarrative,
 )
 from sylanne_core.compute.resonance_field import ResonanceField

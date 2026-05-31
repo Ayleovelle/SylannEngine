@@ -152,11 +152,38 @@ class RelationalTime(TypedDict):
     phase: str
 
 
+class HotPoolDiagnostics(TypedDict):
+    temperature: float
+    volume: float
+    pressure: float
+    material_count: int
+    cascade_active: bool
+    cascade_intensity: float
+    sensitivity_multiplier: float
+    in_recovery: bool
+    collapse_count: int
+
+
 class Dynamics(TypedDict):
     affect: AffectDynamics
     moral_state: MoralState
     uncertainty: UncertaintyState
     relational_time: RelationalTime
+    hot_pool: HotPoolDiagnostics
+
+
+class PADOutput(TypedDict):
+    """PAD dimensional emotion output (Mehrabian & Russell 1974).
+
+    Maps the internal N-dim affective state to the standard 3D PAD space
+    plus a categorical label and confidence score.
+    """
+
+    valence: float  # [-1, 1] — hedonic tone (Pleasure axis)
+    arousal: float  # [0, 1] — physiological activation
+    dominance: float  # [0, 1] — perceived control
+    label: str  # categorical emotion label (e.g. "joy", "anger", "neutral")
+    confidence: float  # [0, 1] — classification confidence
 
 
 class HealthStatus(TypedDict):
@@ -178,4 +205,5 @@ class Surface(TypedDict):
     guard: Guard
     pipeline: dict[str, Any]
     dynamics: Dynamics
+    pad: PADOutput
     debug: dict[str, Any] | None

@@ -42,14 +42,16 @@ class AutopoieticBoundary:
         "boundary_integrity",
         "internal_entropy",
         "repair_rate",
+        "repair_passes",
         "_phase_transitions",
         "_last_penetration",
         "_phase_threshold",
         "_rotation_angle",
     )
 
-    def __init__(self, identity_dim: int = 32, agreeableness: float = 0.5):
+    def __init__(self, identity_dim: int = 32, agreeableness: float = 0.5, repair_passes: int = 1):
         self.identity_dim = identity_dim
+        self.repair_passes = max(1, repair_passes)
         # Identity kernel: self-referential constraint vector
         self.identity_kernel = self._init_kernel(identity_dim)
         # Initial integrity derived from personality: agreeable = more permeable
@@ -113,23 +115,21 @@ class AutopoieticBoundary:
         }
 
     def self_repair(self) -> None:
-        """自修复循环——每 tick 运行。
+        """自修复循环——每 tick 运行 repair_passes 次。
 
-        当处于活跃压力下（最近有高穿透）时，只缓慢降低熵而不恢复完整性——
-        伤口仍然开放，需要时间愈合。这防止了"被打一下立刻满血"的不真实行为。
-
-        正常修复时，完整性有 0.3 的下限，防止正反馈崩溃
-        （完整性越低 → 穿透越大 → 完整性更低 → 死循环）。
+        多轮修复（pro/max 模式）允许更快的恢复和更精细的熵管理。
         """
+        for _pass in range(self.repair_passes):
+            self._repair_step()
+
+    def _repair_step(self) -> None:
+        """单次修复步骤。"""
         if self._last_penetration > 0.4:
-            # Wound still open: slow healing, don't restore integrity yet
-            self._last_penetration *= 0.8  # Gradually decay penetration memory
+            self._last_penetration *= 0.8
             self.internal_entropy = max(0.0, self.internal_entropy - self.repair_rate * 0.2)
             return
-        # Normal repair — floor at 0.3 to prevent positive feedback collapse
         self.boundary_integrity = max(0.3, min(1.0, self.boundary_integrity + self.repair_rate))
         self.internal_entropy = max(0.0, self.internal_entropy - self.repair_rate * 0.5)
-        # Re-normalize identity kernel only if it was perturbed
         if self.internal_entropy > 0.01:
             norm = math.sqrt(sum(x * x for x in self.identity_kernel) + 1e-12)
             self.identity_kernel = [x / norm for x in self.identity_kernel]

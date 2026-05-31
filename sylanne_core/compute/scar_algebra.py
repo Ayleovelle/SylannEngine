@@ -122,6 +122,7 @@ class ScarredState:
         "_mlp_w1",
         "_mlp_w2",
         "_mlp_hidden_dim",
+        "_mlp_passes",
         "_neuroticism",
         # Session scar cap (sovereignty immune system)
         "_session_scar_count",
@@ -137,7 +138,7 @@ class ScarredState:
         "_modifier_cache_valid",
     )
 
-    def __init__(self, n_dims: int = 8, wound_threshold: float = 0.6):
+    def __init__(self, n_dims: int = 8, wound_threshold: float = 0.6, mlp_passes: int = 1):
         self.n_dims = n_dims
         self.wound_threshold = wound_threshold
         self.base = [0.0] * n_dims
@@ -148,8 +149,9 @@ class ScarredState:
         self._t_raw: int = 10
         self._t_closing: int = 40
         self._t_scarred: int = 150
-        # MLP parameters for base state evolution (initialized lazily)
-        self._mlp_hidden_dim: int = 12
+        # MLP hidden dim scales with n_dims for higher-dim modes
+        self._mlp_hidden_dim: int = max(12, n_dims + 4)
+        self._mlp_passes: int = max(1, mlp_passes)
         self._mlp_w1: list[list[float]] | None = None
         self._mlp_w2: list[list[float]] | None = None
         # Session scar cap (sovereignty immune system)
@@ -395,7 +397,9 @@ class ScarredState:
         modulated = self.modulate(event)
 
         # Step 2: Base state evolution (2-layer MLP with spectral normalization)
-        self.base = self._evolve_base(self.base, modulated)
+        # Multi-pass refinement: pro/max modes run multiple passes for deeper processing
+        for _pass in range(self._mlp_passes):
+            self.base = self._evolve_base(self.base, modulated)
 
         # Step 3: Scar formation (conditional, with session cap)
         existing_count = len(self.scars)

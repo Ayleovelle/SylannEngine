@@ -298,6 +298,7 @@ def render_diagnostics(
             "score": risk_score,
             "reason": guard["reason"] if not guard["allowed"] else "within body limits",
         },
+        "hot_pool": kernel.hot_pool.diagnostics(),
     }
 
 
