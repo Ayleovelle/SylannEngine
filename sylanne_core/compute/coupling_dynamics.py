@@ -183,6 +183,7 @@ class KuramotoSync:
     __slots__ = (
         "phases", "frequencies", "_n", "_dt",
         "_k1", "_k2", "_k3", "_simplices", "_prev_order",
+        "_last_step_delta",
     )
 
     def __init__(self, n: int = 7, dt: float = 0.1, coupling: float = 1.0):
@@ -196,6 +197,7 @@ class KuramotoSync:
         self.frequencies = [0.1 * (i + 1) for i in range(n)]
         self._simplices: dict[int, list[tuple[int, ...]]] = {}
         self._prev_order = self.order_parameter()
+        self._last_step_delta = 0.0
 
     def set_simplices(self, simplices: dict[int, list[tuple[int, ...]]]) -> None:
         """Provide simplicial complex for higher-order coupling."""
@@ -234,13 +236,14 @@ class KuramotoSync:
                     )
             new_phases[i] = self.phases[i] + self._dt * dtheta
         self.phases = [p % (2 * math.pi) for p in new_phases]
-        self._prev_order = self.order_parameter()
-        return self._prev_order
+        new_order = self.order_parameter()
+        self._last_step_delta = new_order - self._prev_order
+        self._prev_order = new_order
+        return new_order
 
     def sync_delta(self) -> float:
-        """Change in order parameter since last step (for ignition detection)."""
-        current = self.order_parameter()
-        return current - self._prev_order
+        """Accumulated sync change from the most recent step() call."""
+        return self._last_step_delta
 
     def order_parameter(self) -> float:
         """Kuramoto order parameter r = |1/N Σ exp(iθ_j)|."""

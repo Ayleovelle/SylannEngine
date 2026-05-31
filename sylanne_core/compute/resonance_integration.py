@@ -207,6 +207,8 @@ class ResonanceSpine:
         self._field.switch_tier(new_tier)
         self._tier = new_tier
         self._profile = new_profile
+        # Clear emergence history (dimensions changed, old history is invalid)
+        self._emergence = EmergenceTracker(window=50)
         # Re-apply personality to update tier-dependent parameters
         self.apply_personality(self._personality)
 
@@ -336,7 +338,7 @@ class ResonanceSpine:
         elapsed = time.perf_counter_ns() - t0
         self._timings.append(elapsed)
 
-        return self._build_result(text, timestamp, self._should_express)
+        return self._build_result(text, timestamp, self._should_express, hgt_decision)
 
     def _hdc_to_field_signal(self, h: bytearray) -> list[float]:
         """Compress HDC vector into field state dimension."""
@@ -413,9 +415,9 @@ class ResonanceSpine:
             novelty_drive = min(1.0, attractor_dist * 3.0)
 
         # Trigger 3: Explosive synchronization (Kuramoto ignition)
-        # Detect CHANGE in sync, not absolute level — sudden coherence = ignition
-        sync_delta = self._field._coupling.kuramoto.sync_delta()
-        ignition_drive = max(0.0, sync_delta) * 5.0
+        # Use max sync delta from the resonance cycle (not post-hoc query)
+        max_sync_delta = resonance_meta.get("max_sync_delta", 0.0)
+        ignition_drive = max(0.0, max_sync_delta) * 5.0
 
         # Module 6 raw energy — normalized by field average to detect RELATIVE activation
         expr_state = self._field.module_states[6]
@@ -487,7 +489,7 @@ class ResonanceSpine:
             self._field._coupling.plasticity.update([0.05] * n_weights)
         return self._engine.observe()
 
-    def _build_result(self, text: str, timestamp: float, should_express: bool) -> dict[str, Any]:
+    def _build_result(self, text: str, timestamp: float, should_express: bool, hgt_decision: list[float] | None = None) -> dict[str, Any]:
         obs = self._field.observe()
         emotion = self._engine.observe() if text else {
             "warmth": 0.0, "arousal": 0.0, "valence": 0.0, "tension": 0.0,
@@ -521,7 +523,7 @@ class ResonanceSpine:
                 "plasticity_ratio": round(obs["plasticity_ratio"], 4),
                 "phi": round(self._emergence.phi.phi, 4),
             },
-            "hgt_decision": [self._expression_drive, 0.0, 0.0, 0.0],
+            "hgt_decision": list(hgt_decision) if hgt_decision else [0.0, 0.0, 0.0, 0.0],
             "assessment_source": "resonance_field",
         }
 
