@@ -217,11 +217,16 @@ class ResonanceField:
         self._update_reservoir()
 
         coupling_meta: dict[str, Any] = {}
+        max_sync_delta = 0.0
         for iteration in range(self._max_iter):
             self._iteration_count += 1
 
             # Step 1: coupling dynamics
             coupling_meta = self._coupling.step(self._module_states)
+            # Track max sync jump across all iterations (for ignition detection)
+            step_delta = self._coupling.kuramoto._last_step_delta
+            if step_delta > max_sync_delta:
+                max_sync_delta = step_delta
 
             # Step 2: signal propagation
             new_states = self._propagate_all()
@@ -277,6 +282,7 @@ class ResonanceField:
             "attractor_count": len(self._attractor_patterns),
             "near_attractor": self._distance_to_nearest_attractor(),
             "reservoir_energy": sum(x * x for x in self._reservoir) * 0.5,
+            "max_sync_delta": max_sync_delta,
         }
 
     def _apply_hopfield_pull(self, states: list[list[float]]) -> None:

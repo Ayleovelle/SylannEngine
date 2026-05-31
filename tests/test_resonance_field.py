@@ -73,7 +73,6 @@ class TestSimplicialComplex:
 class TestHebbianPlasticity:
     def test_strengthening(self):
         hp = HebbianPlasticity(n_channels=10, eta=0.1, lambda_decay=0.001)
-        initial = hp.weights[0]
         hp.update([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         hp.update([1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         # Channel 0 should be stronger (before homeostatic rescaling)
@@ -437,20 +436,15 @@ class TestRealModuleIntegration:
 
     def test_boundary_responds(self):
         spine = ResonanceSpine()
-        initial_stability = spine._boundary.stability()
         spine.process("intense emotional event", timestamp=1.0)
-        # Boundary may have been perturbed
-        # (stability might change or stay same depending on force magnitude)
         assert spine._boundary.stability() >= 0.0
 
     def test_feedback_affects_engine(self):
         spine = ResonanceSpine()
         spine.process("test message", timestamp=1.0)
-        obs_before = spine._engine.observe()
         spine.feedback("rejected", dt=1.0)
-        obs_after = spine._engine.observe()
-        # Rejected feedback should affect engine state
-        assert obs_before != obs_after or True  # engine.feedback always changes something
+        # Rejected feedback modifies engine state (scar deepening)
+        assert spine._feedback_counts["rejected"] == 1
 
     def test_result_has_real_emotion(self):
         spine = ResonanceSpine()
