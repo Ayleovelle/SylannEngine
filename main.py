@@ -43,7 +43,7 @@ except ImportError:
     "astrbot_plugin_sylannengine",
     "Ayleovelle",
     "SylannEngine 前置插件 — 提供情感计算引擎供其他插件 import 使用",
-    "1.0.0rc2",
+    "1.0.0rc3",
 )
 class SylannEnginePlugin(Star):
     """前置依赖插件。创建共享引擎实例，LLM 由本插件配置。"""
@@ -56,6 +56,10 @@ class SylannEnginePlugin(Star):
         import sylanne_core
         from sylanne_core import SylanneConfig, SylanneEngine
 
+        if sylanne_core._shared_engine is not None:
+            await sylanne_core._shared_engine.shutdown()
+            sylanne_core._shared_engine = None
+
         engine = SylanneEngine(
             data_dir="./data/sylannengine",
             llm=self._llm_call,
@@ -64,10 +68,21 @@ class SylannEnginePlugin(Star):
         await engine.start()
 
         sylanne_core._shared_engine = engine
+        self._engine = engine
         logger.info(
             "SylannEngine SDK v%s ready — get_engine() now available",
             sylanne_core.__version__,
         )
+
+    async def terminate(self):
+        """Plugin cleanup on unload / hot-reload."""
+        import sylanne_core
+
+        if hasattr(self, "_engine") and self._engine is not None:
+            await self._engine.shutdown()
+            self._engine = None
+        sylanne_core._shared_engine = None
+        logger.info("SylannEngine shutdown complete")
 
     async def _llm_call(self, system_prompt: str, user_prompt: str) -> str:
         response = await self._context.provider_manager.text_chat(
