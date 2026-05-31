@@ -27,6 +27,20 @@ class PhaseTransitionExpression:
       - 当 pressure > threshold * 0.5 时开始有表达倾向
       - 表达后阈值上升（不应期），沉默会逐渐降低阈值
 
+    多序参量扩展（order_params > 1）：
+      维护 N 个压力通道，每个通道有独立衰减率。有效压力取所有通道最大值
+      （winner-take-all）。不同驱动源注入不同通道。
+
+      通道语义（order_params=3, pro 模式）：
+        - Channel 0: emotional_drive（来自 void/scar 压力）
+        - Channel 1: social_drive（来自社交场/群体动力学）
+        - Channel 2: cognitive_drive（来自惊讶/新奇）
+
+      通道语义（order_params=6, max 模式，额外增加）：
+        - Channel 3: repair_drive（来自边界损伤）
+        - Channel 4: void_drive（来自虚空压力）
+        - Channel 5: cascade_drive（来自 hot pool 级联）
+
     与其他组件的关系：
       - 被 ComputationSpine 在 L7 层调用
       - 接收 VoidScarEngine.expression_drive() 作为驱动力
@@ -35,7 +49,9 @@ class PhaseTransitionExpression:
     """
 
     __slots__ = (
-        "pressure",
+        "_pressures",
+        "_order_params",
+        "_channel_decay_rates",
         "threshold",
         "decay_rate",
         "silence_duration",
@@ -49,10 +65,25 @@ class PhaseTransitionExpression:
         "_min_threshold_floor",
     )
 
-    def __init__(self, initial_threshold: float = 0.6):
-        self.pressure = 0.0
+    # Channel name mapping for diagnostics
+    CHANNEL_NAMES: list[str] = [
+        "emotional",  # 0: void/scar pressure
+        "social",  # 1: social field / group dynamics
+        "cognitive",  # 2: surprise / novelty
+        "repair",  # 3: boundary damage
+        "void",  # 4: void pressure specifically
+        "cascade",  # 5: hot pool cascade
+    ]
+
+    def __init__(self, initial_threshold: float = 0.6, order_params: int = 1):
+        self._order_params = max(1, order_params)
+        self._pressures: list[float] = [0.0] * self._order_params
+        # Per-channel decay rates: higher channels decay faster (transient signals)
+        self._channel_decay_rates: list[float] = [
+            0.02 + i * 0.005 for i in range(self._order_params)
+        ]
         self.threshold = initial_threshold
-        self.decay_rate = 0.02  # Natural pressure dissipation
+        self.decay_rate = 0.02  # Base decay rate (used for channel 0 and single-channel mode)
         self.silence_duration = 0.0
         self._last_expression_time = 0.0
         self._expression_count = 0
@@ -63,16 +94,62 @@ class PhaseTransitionExpression:
         self._silence_drop_rate = 0.008
         self._min_threshold_floor = 0.25
 
+    @property
+    def pressure(self) -> float:
+        """Effective pressure: max across all channels (winner-take-all).
+
+        For order_params=1, this is identical to the single pressure value.
+        """
+        return max(self._pressures) if self._pressures else 0.0
+
+    @pressure.setter
+    def pressure(self, value: float) -> None:
+        """Set pressure on channel 0 (backwards compatibility).
+
+        When setting pressure directly, only channel 0 is affected.
+        Other channels retain their values.
+        """
+        if self._pressures:
+            self._pressures[0] = value
+        else:
+            self._pressures = [value]
+
+    @property
+    def order_params(self) -> int:
+        """Number of competing expression drives (order parameters)."""
+        return self._order_params
+
+    def accumulate_channel(self, channel: int, drive: float, dt: float = 1.0) -> None:
+        """积累指定通道的表达压力。
+
+        Args:
+            channel: 通道索引 (0 ~ order_params-1)
+            drive: 驱动力
+            dt: 时间步长
+        """
+        if channel < 0 or channel >= self._order_params:
+            return
+        self._pressures[channel] += drive * dt
+        # Per-channel decay
+        decay = self._channel_decay_rates[channel]
+        self._pressures[channel] = max(0.0, self._pressures[channel] * (1.0 - decay))
+
     def accumulate(self, drive: float, dt: float = 1.0) -> None:
         """积累表达压力。
+
+        For backwards compatibility, drive is injected into channel 0.
+        All channels undergo their respective decay each tick.
 
         Args:
             drive: 情感驱动力（来自 VoidScarEngine.expression_drive()）
             dt: 时间步长
         """
-        self.pressure += drive * dt
-        # Natural decay (pressure dissipates even without expression)
-        self.pressure = max(0.0, self.pressure * (1.0 - self.decay_rate))
+        # Inject drive into channel 0 (emotional drive)
+        self._pressures[0] += drive * dt
+        # Apply decay to all channels
+        for i in range(self._order_params):
+            decay = self._channel_decay_rates[i]
+            self._pressures[i] = max(0.0, self._pressures[i] * (1.0 - decay))
         self.silence_duration += dt
 
     def set_social_params(self, params: dict[str, Any]) -> None:
@@ -96,6 +173,9 @@ class PhaseTransitionExpression:
         self._refractory = refractory
         self._silence_drop_rate = silence_drop_rate
         self._min_threshold_floor = min_threshold_floor
+        # Update per-channel decay rates based on new base decay_rate
+        for i in range(self._order_params):
+            self._channel_decay_rates[i] = decay_rate + i * 0.005
 
     def effective_threshold(self) -> float:
         """计算有效阈值（含社交场调制）。
@@ -173,7 +253,7 @@ class PhaseTransitionExpression:
         else:
             mode = "urgent"
 
-        self.pressure = 0.0
+        self._pressures = [0.0] * self._order_params  # Reset all channels
         self.silence_duration = 0.0
         self._last_expression_time = now
         self._expression_count += 1
@@ -236,7 +316,15 @@ class PhaseTransitionExpression:
             "mode": self._mode_from_intensity(intensity),
             "expression_count": self._expression_count,
             "is_group": is_group,
+            "order_params": self._order_params,
         }
+        # Include per-channel pressures when multi-channel
+        if self._order_params > 1:
+            channels: dict[str, float] = {}
+            for i, p in enumerate(self._pressures):
+                name = self.CHANNEL_NAMES[i] if i < len(self.CHANNEL_NAMES) else f"ch_{i}"
+                channels[name] = round(p, 4)
+            result["channels"] = channels
         if is_group and self._social_signals:
             result["social_signals"] = {
                 "name_mentioned": self._social_signals.name_mentioned,
@@ -252,13 +340,25 @@ class PhaseTransitionExpression:
     def to_dict(self) -> dict[str, Any]:
         return {
             "pressure": self.pressure,
+            "pressures": list(self._pressures),
+            "order_params": self._order_params,
             "threshold": self.threshold,
             "silence_duration": self.silence_duration,
             "expression_count": self._expression_count,
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
-        self.pressure = float(data.get("pressure", 0.0))
+        # If persisted order_params differs from current, adapt gracefully
+        if "pressures" in data:
+            persisted = list(data["pressures"])
+            # Pad or truncate to match current order_params
+            if len(persisted) < self._order_params:
+                persisted.extend([0.0] * (self._order_params - len(persisted)))
+            self._pressures = persisted[: self._order_params]
+        else:
+            # Legacy format: single pressure value goes to channel 0
+            p = float(data.get("pressure", 0.0))
+            self._pressures = [p] + [0.0] * (self._order_params - 1)
         self.threshold = float(data.get("threshold", 0.6))
         self.silence_duration = float(data.get("silence_duration", 0.0))
         self._expression_count = int(data.get("expression_count", 0))

@@ -103,8 +103,11 @@ class VoidScarEngine:
         similarity_fn: Callable[[bytes, bytes], float] | None = None,
         max_voids: int = 50,
         pressure_threshold: float = 10.0,
+        scar_mlp_passes: int = 1,
     ):
-        self.scar_state = ScarredState(n_dims=n_dims, wound_threshold=wound_threshold)
+        self.scar_state = ScarredState(
+            n_dims=n_dims, wound_threshold=wound_threshold, mlp_passes=scar_mlp_passes
+        )
         self.similarity_fn = similarity_fn or _default_similarity
         self.void_space = VoidSpace(
             similarity_fn=self.similarity_fn,

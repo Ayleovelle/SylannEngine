@@ -205,6 +205,45 @@ class SylanneEngine:
         if session_id in self._locks:
             del self._locks[session_id]
 
+    async def inject(
+        self,
+        session_id: str,
+        source: str,
+        influence_type: str,
+        intensity: float,
+        target_dimension: str = "",
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Inject external influence into a session's hot pool.
+
+        Other plugins call this to affect the emotional state of a session.
+        For example, a memory plugin detecting contradiction with a previously
+        reflected topic can re-ignite that material in the hot pool.
+
+        Args:
+            session_id: Target session identifier.
+            source: Plugin identifier (e.g. "memory_plugin", "dialogue_agent").
+            influence_type: One of "contradiction", "reinforcement", "revelation",
+                           "betrayal", "validation".
+            intensity: Influence strength [0, 1].
+            target_dimension: Target dimension or material type in the hot pool.
+            payload: Optional metadata dict passed through to the influence.
+        """
+        if self._status == "closed":
+            await self.start()
+        async with self._session_lock(session_id):
+            host = self._get_or_create_host(session_id)
+            from .compute.hot_pool import Influence
+
+            influence = Influence(
+                source=source,
+                type=influence_type,  # type: ignore[arg-type]
+                intensity=max(0.0, min(1.0, intensity)),
+                target_dimension=target_dimension,
+                payload=payload or {},
+            )
+            host.kernel.hot_pool.receive_influence(influence)
+
     def exists(self, session_id: str) -> bool:
         """Check if a session exists without creating it."""
         return session_id in self._hosts
@@ -232,6 +271,7 @@ class SylanneEngine:
             self._hosts[session_id] = SylanneHost(
                 root=self._data_dir,
                 session_key=session_id,
+                profile=self._config.profile(),
             )
         return self._hosts[session_id]
 

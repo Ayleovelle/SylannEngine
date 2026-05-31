@@ -5,9 +5,22 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .types import Dynamics, Surface
+from .compute.pad_interop import PADProjector
+from .types import Dynamics, PADOutput, Surface
 
 _SCHEMA_VERSION = "sylanne.core.v1"
+
+# Module-level projector cache keyed by n_dims to avoid re-creating per call
+_projector_cache: dict[int, PADProjector] = {}
+
+
+def _get_projector(n_dims: int, personality: dict[str, float] | None = None) -> PADProjector:
+    """Get or create a PADProjector for the given dimensionality."""
+    if n_dims not in _projector_cache:
+        _projector_cache[n_dims] = PADProjector(n_dims, personality)
+    elif personality:
+        _projector_cache[n_dims].update_personality(personality)
+    return _projector_cache[n_dims]
 
 
 def to_surface(
@@ -33,6 +46,7 @@ def to_surface(
         "guard": _map_guard(guard),  # type: ignore[typeddict-item]
         "pipeline": _map_pipeline(kernel) if diagnostics else {},
         "dynamics": _map_dynamics(kernel),
+        "pad": _map_pad(kernel),
         "debug": _map_debug(kernel, raw) if diagnostics else None,
     }
 
@@ -158,6 +172,63 @@ def _map_guard(g: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _map_pad(kernel: Any) -> PADOutput:
+    """Extract 8-dim emotion vector from kernel and project to PAD space.
+
+    Bridge between the full computation engine's internal N-dim state
+    and the standard PAD 3D output. Uses PADProjector for the mapping
+    and classify() for the categorical label.
+
+    Preserves:
+    - Axiom A1 (boundedness): PADVector clamps to valid ranges
+    - Axiom A2 (determinism): same internal state -> same PAD output
+    - Axiom A5 (compositionality): composes with kernel pipeline
+    """
+    # Get the 8-dim emotion observation from the VoidScarEngine
+    obs = kernel.computation.engine.observe()
+
+    # Extract the 8 canonical dimensions as a vector
+    dim_names = (
+        "warmth",
+        "arousal",
+        "valence",
+        "tension",
+        "curiosity",
+        "repair_pressure",
+        "expression_drive",
+        "boundary_firmness",
+    )
+    emotion_vec = [obs.get(name, 0.0) for name in dim_names]
+
+    # Get personality for projector modulation
+    personality = kernel.personality or {}
+    traits = personality.get("traits", personality)
+
+    # Project to PAD space
+    n_dims = len(emotion_vec)
+    projector = _get_projector(n_dims, traits if traits else None)
+    pad = projector.project(emotion_vec)
+
+    # Classify to categorical label
+    label = projector.classify(pad)
+
+    # Confidence: derived from computation result if available
+    cr = kernel._last_computation_result or {}
+    confidence = cr.get("confidence", 0.5)
+    # Fallback: use decision confidence if computation result lacks it
+    if "confidence" not in cr:
+        decision = kernel.last_decision or {}
+        confidence = decision.get("confidence", 0.5)
+
+    return {
+        "valence": pad.valence,
+        "arousal": pad.arousal,
+        "dominance": pad.dominance,
+        "label": label,
+        "confidence": max(0.0, min(1.0, float(confidence))),
+    }
+
+
 def _map_pipeline(kernel: Any) -> dict[str, Any]:
     cr = kernel._last_computation_result or {}
     return {
@@ -177,6 +248,7 @@ def _map_dynamics(kernel: Any) -> Dynamics:
     moral = kernel.moral_repair or {}
     fallibility = kernel.fallibility or {}
     rt = kernel.relational_time or {}
+    hp = kernel.hot_pool.diagnostics() if hasattr(kernel, "hot_pool") else {}
 
     return {
         "affect": {
@@ -196,6 +268,17 @@ def _map_dynamics(kernel: Any) -> Dynamics:
             "interval_seconds": rt.get("interval_seconds", 0.0),
             "total_duration": rt.get("total_duration", 0.0),
             "phase": rt.get("phase", "active"),
+        },
+        "hot_pool": {
+            "temperature": hp.get("temperature", 0.0),
+            "volume": hp.get("volume", 0.0),
+            "pressure": hp.get("pressure", 0.0),
+            "material_count": hp.get("material_count", 0),
+            "cascade_active": hp.get("cascade_active", False),
+            "cascade_intensity": hp.get("cascade_intensity", 0.0),
+            "sensitivity_multiplier": hp.get("sensitivity_multiplier", 1.0),
+            "in_recovery": hp.get("in_recovery", False),
+            "collapse_count": hp.get("collapse_count", 0),
         },
     }
 
