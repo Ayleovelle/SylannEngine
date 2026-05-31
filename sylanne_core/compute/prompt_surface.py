@@ -282,10 +282,6 @@ def render_diagnostics(
             "mortality": body["mortality"],
         },
         "needs": body["needs"],
-        "memory": {
-            "trace_count": len(body["memory"]["traces"]),
-            "recent": body["memory"]["traces"][-3:],
-        },
         "boundary": {
             "pressure": body["immunity"]["boundary_pressure"],
             "sovereignty": body["immunity"]["sovereignty"],

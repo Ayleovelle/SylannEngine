@@ -150,12 +150,11 @@ class TestStressAndCapacity:
         result = kernel.tick(AlphaKernelEvent(text=large_text, now=1.0))
         assert "surface" in result
 
-    def test_memory_traces_bounded(self):
+    def test_recent_texts_bounded(self):
         kernel = AlphaKernel.boot("s1")
         for i in range(200):
             kernel.tick(AlphaKernelEvent(text=f"记忆测试 {i}", now=float(i)))
-        traces = kernel.body.memory.get("traces", [])
-        assert len(traces) <= 500
+        assert len(kernel.body._recent_texts) <= 20
 
     def test_snapshot_restore_roundtrip_after_stress(self):
         kernel = AlphaKernel.boot("s1")
