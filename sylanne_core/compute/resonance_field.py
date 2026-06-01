@@ -29,7 +29,7 @@ from .coupling_dynamics import CouplingDynamics
 _TIER_CONFIG = {
     "lite": {"max_order": 1, "max_iter": 10, "state_dim": 8},
     "pro": {"max_order": 3, "max_iter": 15, "state_dim": 16},
-    "max": {"max_order": 6, "max_iter": 20, "state_dim": 32},
+    "max": {"max_order": 6, "max_iter": 20, "state_dim": 128},
 }
 
 
@@ -222,6 +222,14 @@ class ResonanceField:
         self._total_resonances += 1
         self._convergence_history.clear()
 
+        # Compute topology gate skipped channels count
+        topo_gate = self._coupling.topology_gate
+        if topo_gate is not None:
+            gate_values = topo_gate.gates
+            skipped_channels = sum(1 for g in gate_values if g < topo_gate.threshold)
+        else:
+            skipped_channels = 0
+
         # Apply residual decay from previous cycle
         for i in range(self._n_modules):
             for d in range(self._state_dim):
@@ -299,6 +307,7 @@ class ResonanceField:
             "near_attractor": self._distance_to_nearest_attractor(),
             "reservoir_energy": sum(x * x for x in self._reservoir) * 0.5,
             "max_sync_delta": max_sync_delta,
+            "skipped_channels": skipped_channels,
         }
 
     def _apply_hopfield_pull(self, states: list[list[float]]) -> None:
@@ -465,15 +474,22 @@ class ResonanceField:
         """Propagate signals through ALL simplicial channels simultaneously.
 
         Pairwise (k=1): standard weighted coupling with phase modulation.
-        Higher-order (k≥2): multi-body nonlinear interaction — the product of
+        Higher-order (k>=2): multi-body nonlinear interaction -- the product of
         source states modulates the target (tensor contraction on simplices).
         This is what makes pro/max qualitatively different from lite.
+
+        Channels with topology gate < threshold are skipped entirely (compute savings).
         """
         new_states = [[0.0] * self._state_dim for _ in range(self._n_modules)]
         # Self-connection (identity with decay)
         for i in range(self._n_modules):
             for d in range(self._state_dim):
                 new_states[i][d] = self._module_states[i][d] * 0.8
+
+        # Get topology gate values for channel skipping
+        topo_gate = self._coupling.topology_gate
+        gate_values = topo_gate.gates if topo_gate is not None else None
+        gate_threshold = topo_gate.threshold if topo_gate is not None else 0.1
 
         # Pairwise coupling (always active in all tiers)
         for target in range(self._n_modules):
@@ -492,24 +508,35 @@ class ResonanceField:
 
         # Higher-order simplicial propagation (pro/max only)
         if self._higher_order_gain > 0:
-            self._propagate_higher_order(new_states)
+            self._propagate_higher_order(new_states, gate_values, gate_threshold)
 
         return new_states
 
-    def _propagate_higher_order(self, new_states: list[list[float]]) -> None:
-        """Multi-body interactions: tensor contraction on k-simplices (k≥2).
+    def _propagate_higher_order(
+        self,
+        new_states: list[list[float]],
+        gate_values: list[float] | None = None,
+        gate_threshold: float = 0.1,
+    ) -> None:
+        """Multi-body interactions: tensor contraction on k-simplices (k>=2).
 
-        For a k-simplex σ = {v₀,...,vₖ} with target vₜ:
-        contribution = gain · w_σ · Π_{v∈σ\\vₜ} ⟨x_v⟩ (mean activation product)
+        For a k-simplex sigma = {v0,...,vk} with target vt:
+        contribution = gain * w_sigma * product_{v in sigma\\vt} <x_v> (mean activation product)
 
         This creates nonlinear synergistic effects: a channel only fires strongly
         when ALL its source modules are co-active (AND-gate semantics).
+
+        Channels with gate < threshold are skipped entirely for compute savings.
         """
         channels = self._complex.directed_channels
         weights = self._coupling.plasticity.weights
-        # Skip pairwise (already handled above) — start from first higher-order channel
+        # Skip pairwise (already handled above) -- start from first higher-order channel
         pairwise_count = 42 if self._n_modules == 7 else self._n_modules * (self._n_modules - 1)
         for ch_idx in range(pairwise_count, len(channels)):
+            # Skip channels below gate threshold
+            if gate_values is not None and ch_idx < len(gate_values):
+                if gate_values[ch_idx] < gate_threshold:
+                    continue
             simplex, target = channels[ch_idx]
             if ch_idx >= len(weights):
                 break
@@ -623,6 +650,17 @@ class ResonanceField:
     def observe(self) -> dict[str, Any]:
         """Current field state observation."""
         magnitudes = [_vec_norm(s) for s in self._module_states]
+        topo_gate = self._coupling.topology_gate
+        if topo_gate is not None:
+            topology_info = {
+                "active_count": topo_gate.n_active,
+                "sparsity": topo_gate.sparsity,
+            }
+        else:
+            topology_info = {
+                "active_count": self._complex.total_directed,
+                "sparsity": 0.0,
+            }
         return {
             "module_magnitudes": magnitudes,
             "total_energy": self._last_energy,
@@ -631,6 +669,7 @@ class ResonanceField:
             "plasticity_ratio": self._coupling.plasticity.active_ratio,
             "convergence": self._convergence_history[-1] if self._convergence_history else 0.0,
             "total_resonances": self._total_resonances,
+            "topology": topology_info,
         }
 
     @property
@@ -757,3 +796,76 @@ class ResonanceField:
             self._reservoir = list(data["reservoir"])
         if "harmonic_identity" in data:
             self._harmonic_identity = list(data["harmonic_identity"])
+
+
+def create_resonance_field(
+    n_modules: int = 7,
+    tier: str = "lite",
+    epsilon: float = 1e-4,
+    backend: str | None = None,
+) -> ResonanceField:
+    """Factory function to create the appropriate ResonanceField backend.
+
+    Selection logic:
+    - backend="python" -> always ResonanceField (pure Python)
+    - backend="numpy"  -> NumpyResonanceField (raises if numpy unavailable)
+    - backend="torch"  -> TorchResonanceField (raises if torch unavailable)
+    - backend=None (auto-select based on tier):
+        - tier="lite" -> ResonanceField (pure Python, zero deps)
+        - tier="pro"  -> NumpyResonanceField (if numpy available, else pure Python)
+        - tier="max"  -> TorchResonanceField (if torch) -> NumpyResonanceField (if numpy) -> ResonanceField
+    """
+    # --- Explicit backend selection ---
+    if backend == "python":
+        return ResonanceField(n_modules=n_modules, tier=tier, epsilon=epsilon)
+
+    if backend == "numpy":
+        try:
+            from .resonance_field_numpy import NumpyResonanceField
+
+            return NumpyResonanceField(n_modules=n_modules, tier=tier, epsilon=epsilon)  # type: ignore[return-value]
+        except ImportError as err:
+            raise ImportError(
+                "backend='numpy' was requested but NumPy is not installed. "
+                "Install with: pip install numpy"
+            ) from err
+
+    if backend == "torch":
+        try:
+            from .resonance_field_torch import TorchResonanceField
+
+            return TorchResonanceField(n_modules=n_modules, tier=tier, epsilon=epsilon)  # type: ignore[return-value]
+        except ImportError as err:
+            raise ImportError(
+                "backend='torch' was requested but PyTorch is not installed. "
+                "Install with: pip install torch"
+            ) from err
+
+    # --- Auto-select based on tier (backend=None) ---
+    if tier == "lite":
+        return ResonanceField(n_modules=n_modules, tier=tier, epsilon=epsilon)
+
+    if tier == "pro":
+        try:
+            from .resonance_field_numpy import NumpyResonanceField
+
+            return NumpyResonanceField(n_modules=n_modules, tier=tier, epsilon=epsilon)  # type: ignore[return-value]
+        except ImportError:
+            return ResonanceField(n_modules=n_modules, tier=tier, epsilon=epsilon)
+
+    # tier == "max": torch -> numpy -> python
+    try:
+        from .resonance_field_torch import TorchResonanceField
+
+        return TorchResonanceField(n_modules=n_modules, tier=tier, epsilon=epsilon)  # type: ignore[return-value]
+    except ImportError:
+        pass
+
+    try:
+        from .resonance_field_numpy import NumpyResonanceField
+
+        return NumpyResonanceField(n_modules=n_modules, tier=tier, epsilon=epsilon)  # type: ignore[return-value]
+    except ImportError:
+        pass
+
+    return ResonanceField(n_modules=n_modules, tier=tier, epsilon=epsilon)

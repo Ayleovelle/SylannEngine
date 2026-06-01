@@ -43,7 +43,7 @@ from .personality import (
 from .phase_transition import PhaseTransitionExpression
 from .predictive_coding import PredictiveCodingGate
 from .relational_sheaf import ScarSheaf
-from .resonance_field import ResonanceField
+from .resonance_field import create_resonance_field
 from .void_scar_engine import VoidScarEngine
 
 if TYPE_CHECKING:
@@ -120,7 +120,7 @@ class ResonanceSpine:
         self._tier = profile.mode
 
         # Resonance field + emergence
-        self._field = ResonanceField(n_modules=7, tier=self._tier)
+        self._field = create_resonance_field(n_modules=7, tier=self._tier)
         self._emergence = EmergenceTracker(window=50)
 
         # Real computation modules (same as ComputationSpine)
@@ -269,6 +269,17 @@ class ResonanceSpine:
             silence_drop_rate=0.005 + neuroticism * 0.008,
             min_threshold_floor=0.15 + sovereignty * 0.2,
         )
+
+        # === Topology gate: initialize priors from personality ===
+        from .topology_gate import personality_to_gate_prior
+
+        topo_gate = self._field._coupling.topology_gate
+        if topo_gate is not None:
+            priors = personality_to_gate_prior(personality, topo_gate.n_channels)
+            topo_gate._logits = priors
+            topo_gate._openness_lr_mod = 0.5 + openness
+            topo_gate._conscientiousness_decay_mod = 1.0 - conscientiousness * 0.7
+            topo_gate._enforce_min_connectivity()
 
     def set_diagnostics(self, enabled: bool) -> None:
         self._diagnostics_enabled = enabled
@@ -573,8 +584,21 @@ class ResonanceSpine:
             }
         return {"intensity": 0.0, "urgency": 0.0, "mode": "resonance", "ready": False}
 
+    def topology_summary(self) -> dict[str, Any]:
+        """Return topology gate statistics (active channels, sparsity, feedback counts)."""
+        topo_gate = self._field._coupling.topology_gate
+        if topo_gate is not None:
+            return topo_gate.get_topology_summary()
+        return {
+            "n_active": self._field._complex.total_directed,
+            "n_total": self._field._complex.total_directed,
+            "sparsity": 0.0,
+            "feedback_counts": {},
+            "total_updates": 0,
+        }
+
     def feedback(self, outcome: str, dt: float = 1.0, session_key: str = "") -> dict[str, float]:
-        """Feedback modulates coupling plasticity + real engine state."""
+        """Feedback modulates coupling plasticity + real engine state + topology."""
         if outcome in self._feedback_counts:
             self._feedback_counts[outcome] += 1
         # Real engine feedback (scar healing/deepening)
@@ -589,6 +613,11 @@ class ResonanceSpine:
             self._field._coupling.plasticity.update([0.0] * n_weights)
         elif outcome == "ignored":
             self._field._coupling.plasticity.update([0.05] * n_weights)
+        # Topology gate feedback (learn which channels to keep/prune)
+        topo_gate = self._field._coupling.topology_gate
+        if topo_gate is not None:
+            active_channels = topo_gate.get_active_channels()
+            self._field._coupling.feedback_topology(outcome, active_channels)
         # Update per-relationship personality deltas
         if session_key:
             self._update_relationship_delta(session_key, outcome)
