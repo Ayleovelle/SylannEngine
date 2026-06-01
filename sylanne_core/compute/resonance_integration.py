@@ -705,6 +705,7 @@ class ResonanceSpine:
             "relationship_deltas": dict(self._relationship_deltas),
             "drift_tick": self._drift_tick,
             "last_drift_time": self._last_drift_time,
+            "drift_min_interval": self._drift_min_interval,
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
@@ -743,12 +744,14 @@ class ResonanceSpine:
             for name, tm_data in data["embodiment_traits"].items():
                 if name in self._embodiment_traits and isinstance(tm_data, dict):
                     self._embodiment_traits[name] = TraitMemory.from_dict(tm_data)
-        # Restore relationship deltas
+        # Restore relationship deltas (reinitialize to avoid stale data)
         if "relationship_deltas" in data:
+            self._relationship_deltas = BoundedDict(maxsize=200)
             for key, val in data["relationship_deltas"].items():
                 self._relationship_deltas[key] = val
         self._drift_tick = data.get("drift_tick", 0)
         self._last_drift_time = data.get("last_drift_time", 0.0)
+        self._drift_min_interval = data.get("drift_min_interval", 30.0)
 
     # ------------------------------------------------------------------
     # Public properties for kernel/adapter/prompt_surface compatibility

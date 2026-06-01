@@ -100,7 +100,7 @@ def run_comparison(tier: str, n_ticks: int, seed: int) -> dict:
     v2_fresh.apply_personality(personality)
     v1_diversity = len(
         set(
-            tuple(round(v, 2) for v in r.get("emotion", {}).values())
+            tuple(round(v, 2) for v in (r.get("emotion") or {}).values())
             for r in [
                 v1_fresh.process(t, base_time + 999 * 60 + j) for j, t in enumerate(SAMPLE_TEXTS)
             ]
@@ -108,7 +108,7 @@ def run_comparison(tier: str, n_ticks: int, seed: int) -> dict:
     )
     v2_diversity = len(
         set(
-            tuple(round(v, 2) for v in r.get("emotion", {}).values())
+            tuple(round(v, 2) for v in (r.get("emotion") or {}).values())
             for r in [
                 v2_fresh.process(t, base_time + 999 * 60 + j) for j, t in enumerate(SAMPLE_TEXTS)
             ]
