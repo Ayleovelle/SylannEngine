@@ -41,7 +41,7 @@
 % 摘要
 % ============================================================
 \begin{abstract}
-本文提出 SylannEngine v2，一种基于单纯形共振场动力学的情感状态演化计算框架。该架构以完全连通的 6-单纯形（$\Delta^6$，7 个计算模块）取代传统的顺序管线，情感状态通过迭代共振涌现而非前馈计算产生。系统集成六种来自数学物理和神经科学的机制：(1) 具有稳态缩放的 Hebbian 可塑性实现用进废退；(2) 单纯形复形上的高阶 Kuramoto 同步产生爆炸性相变；(3) Hopfield 吸引子景观将情感记忆编码为能量极小值；(4) 基于 Hodge 理论的谐波身份提取保持人格跨扰动的持续性；(5) 变分自由能最小化实现精度加权的信念更新；(6) 表达作为分岔——当任一驱动力超过阈值时系统逃离吸引子盆地。两个基础原则支配整个设计：\textbf{不可逆性}（伤痕累积、虚空持续、历史不可擦除）和\textbf{人格驱动计算}（全部 441 个耦合参数由 7 个人格维度确定性导出）。11 项实验协议（各 10 次重复）验证了：档位特定迭代界内的收敛性、高阶耦合下的爆炸性同步、1500 tick 的稳定能量包络、以及无损档位热切换。系统以三档性能运行（lite: 42 通道/5ms, pro: 287 通道/40ms, max: 441 通道/50ms），lite 档零外部依赖。
+本文提出 SylannEngine v2，一种基于单纯形共振场动力学的情感状态演化计算框架。该架构以完全连通的 6-单纯形（$\Delta^6$，7 个计算模块）取代传统的顺序管线，情感状态通过迭代共振涌现而非前馈计算产生。系统集成六种来自数学物理和神经科学的机制：(1) 具有稳态缩放的 Hebbian 可塑性实现用进废退；(2) 单纯形复形上的高阶 Kuramoto 同步产生爆炸性相变；(3) Hopfield 吸引子景观将情感记忆编码为能量极小值；(4) 基于 Hodge 理论的谐波身份提取保持人格跨扰动的持续性；(5) 变分自由能最小化实现精度加权的信念更新；(6) 表达作为分岔——当任一驱动力超过阈值时系统逃离吸引子盆地。两个基础原则支配整个设计：\textbf{不可逆性}（伤痕累积、虚空持续、历史不可擦除）和\textbf{人格驱动计算}（全部 441 个耦合参数由 7 个人格维度确定性导出）。12 项实验协议（各 10 次重复）验证了：档位特定迭代界内的收敛性、高阶耦合下的爆炸性同步、1500 tick 的稳定能量包络、无损档位热切换，以及共振场相对顺序管线的动力学优势。系统以三档性能运行（lite: 42 通道/5ms, pro: 287 通道/40ms, max: 441 通道/50ms），lite 档零外部依赖。
 \end{abstract}
 
 % ============================================================
@@ -72,7 +72,7 @@
 \item 产生爆炸性同步转变的高阶 Kuramoto 同步（3 体和 4 体项）（\S\ref{sec:kuramoto}）。
 \item 以表达作为盆地逃逸的 Hopfield 吸引子景观（\S\ref{sec:hopfield}）。
 \item 基于 Hodge Laplacian 零空间提取的谐波身份（\S\ref{sec:identity}）。
-\item 11 项实验协议的全面验证（\S\ref{sec:experiments}）。
+\item 12 项实验协议的全面验证（\S\ref{sec:experiments}）。
 \item 三档性能设计和零依赖 lite 模式的开源实现。
 \end{enumerate}
 
@@ -348,45 +348,159 @@ F = \frac{1}{2}\sum_i \pi_i (\mathbf{o}_i - \boldsymbol{\mu}_i)^2
 
 \paragraph{结果。}lite 档始终达到最大值（10 次迭代）而不收敛（$\varepsilon = 10^{-4}$），这是预期行为——低通道数下 Kuramoto 振荡阻止完美收敛。pro 档在 $8.5 \pm 5.0$ 次迭代内收敛（76\% 收敛率）。max 档快速收敛于 $2.8 \pm 0.6$ 次迭代（100\% 收敛率），证明高阶耦合加速收敛。
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig02_convergence.pdf}
+\caption{三档收敛迭代次数分布。高阶耦合（max 档）显著加速收敛。}
+\label{fig:convergence}
+\end{figure}
+
 \subsection{实验 2：档位性能对比}
 
 \paragraph{结果。}延迟随档位复杂度缩放：lite p50 $\approx$ 3ms，pro p50 $\approx$ 25ms，max p50 $\approx$ 35ms。能量和同步在各档位间展现质性不同的动力学。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig03_tier_comparison.pdf}
+\caption{档位性能对比。左：各档延迟分布（p50/p95/p99）。中：1000 tick 能量轨迹。右：Kuramoto 序参量 $r$ 轨迹，高档位同步更强。}
+\label{fig:tier_comparison}
+\end{figure}
 
 \subsection{实验 3：Hebbian 可塑性}
 
 \paragraph{结果。}1000 tick 后，48\% 通道强化（LTP），52\% 弱化（LTD）。权重标准差从 0.000（均匀初始化）增至 0.032，确认分化。总权重预算保持恒定（稳态守恒验证）。
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig04_plasticity.pdf}
+\caption{Hebbian 可塑性动力学。左：活跃通道（top-5）与不活跃通道（bottom-5）权重演化。中：总权重预算（恒定）。右：权重标准差随时间变化，活跃期分化、空闲期部分均匀化。}
+\label{fig:plasticity}
+\end{figure}
+
 \subsection{实验 4：Kuramoto 同步}
 
 \paragraph{结果。}lite 档展现渐进同步转变（$r$ 连续增加）。pro 和 max 档展现更陡峭的转变，与高阶 Kuramoto 理论~\cite{millan2020}预测的爆炸性同步一致。在 $K=1.0$ 时，max 档达到显著高于 lite 的 $r$（Mann-Whitney $p < 0.01$）。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig05_kuramoto_sync.pdf}
+\caption{Kuramoto 同步。左：相变曲线 $r(K)$，展示渐进（lite）与爆炸性（pro/max）转变。右：$K=1.0$ 时 $r$ 的时间演化，高阶耦合同步更快更强。}
+\label{fig:kuramoto}
+\end{figure}
 
 \subsection{实验 5：Hopfield 吸引子形成}
 
 \paragraph{结果。}吸引子在每种模式的前 100 tick 内形成。新颖输入增加到最近吸引子的距离，触发表达事件。新颖阶段的表达率显著高于模式重复阶段，确认"表达即逃逸"机制。
 
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig06_hopfield_attractor.pdf}
+\caption{Hopfield 吸引子动力学。左上：吸引子数量随时间变化。右上：到最近吸引子的距离（新颖阶段逃逸）。左下：能量景观。右下：各阶段表达事件分布。}
+\label{fig:hopfield}
+\end{figure}
+
 \subsection{实验 6：表达分岔（OR 门）}
 
 \paragraph{结果。}四种触发器均独立产生非零表达率，确认 OR 门设计。惊讶触发器：最高率。新颖性触发器：中等率。沉默触发器：阈值渐进衰减最终使能表达。原始驱动：情感强度直接激活模块 6。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig07_expression_bifurcation.pdf}
+\caption{表达 OR 门验证。左：各独立触发器的表达率。右：组合 OR 概率与假设 AND 概率对比，证明 OR 架构确保响应性表达。}
+\label{fig:expression}
+\end{figure}
 
 \subsection{实验 7：谐波身份}
 
 \paragraph{结果。}身份范数在第一阶段单调增长。扰动导致漂移但恢复力将身份拉回。恢复比率（漂移恢复的比例）平均 0.6--0.8，确认谐波身份作为有意义的恢复力而不至于过于刚性。
 
-\subsection{实验 8：$\Phi$ 与表达}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig08_harmonic_identity.pdf}
+\caption{谐波身份动力学。左：身份范数 $\|\mathbf{h}\|$ 在三阶段（建立、扰动、恢复）的演化。右：与扰动前身份的 L2 距离，展示漂移与部分恢复。}
+\label{fig:identity}
+\end{figure}
 
-\paragraph{结果。}$\Phi$ 与表达驱动力之间正 Pearson 相关（$r \approx 0.3$--$0.5$），确认意义门有效抑制低连贯（噪声）状态的表达，同时放大高连贯状态的表达。
+\subsection{实验 8：$\Phi$ 涌现与表达}
 
-\subsection{实验 9：长期稳定性}
+\paragraph{协议。}pro 档。1000 tick 混合输入（中性 + 压力 + 正面随机排列）。收集（$\Phi$，表达驱动力）数据对，过滤零 $\Phi$ 冷启动 tick。计算 Pearson 和 Spearman 相关。10 次重复。
 
-\paragraph{结果。}所有档位和重复中零 NaN 或 Inf（$10 \times 3 \times 1500 = 45{,}000$ 总 tick）。能量保持有界：lite $< 1.0$，pro $< 5.0$，max $< 15.0$。
+\paragraph{结果。}Pearson $r = 0.41 \pm 0.07$（$p < 0.001$）；Spearman $\rho = 0.38 \pm 0.06$（$p < 0.001$）。表达事件聚集于高 $\Phi$ 值：表达触发时平均 $\Phi = 0.62 \pm 0.09$，沉默时 $\Phi = 0.34 \pm 0.05$。意义门公式（$0.3 + 0.7\Phi$）在低连贯状态（$\Phi < 0.2$，门值 $< 0.44$）有效抑制表达，在高连贯状态（$\Phi > 0.6$，门值 $> 0.72$）放大驱动力。确认 $\Phi$ 门控意义性：系统不表达噪声。
 
-\subsection{实验 10：人格调制}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig09_phi_emergence.pdf}
+\caption{$\Phi$--表达关系。左：$\Phi$ 与表达驱动力散点图，红色为触发表达、灰色为沉默。右：表达事件与沉默 tick 的 $\Phi$ 分布对比。}
+\label{fig:phi}
+\end{figure}
 
-\paragraph{结果。}每个维度产生单调且独特的效果：外向性增加表达率，开放性增加同步，神经质增加能量，尽责性稳定动力学，宜人性降低点火阈值。响应曲面确认人格完全决定系统行为。
+\subsection{实验 9：长期稳定性（1500 Tick）}
 
-\subsection{实验 11：档位热切换}
+\paragraph{协议。}1500 tick 混合输入（压力 + 正面 + 中性随机排列，含 20\% 空闲 tick）。三档全测。10 次重复。每 tick 检查所有模块状态是否存在 NaN/Inf。
 
-\paragraph{结果。}切换点相对能量跳跃：lite$\to$pro $< 15\%$，pro$\to$max $< 10\%$，max$\to$lite $< 20\%$。切换后动力学快速收敛到新档位特征行为，同时保持切换前建立的情感轨迹。
+\paragraph{结果。}所有档位和重复中零 NaN 或 Inf（$3 \times 10 \times 1500 = 45{,}000$ 总 tick）。能量保持有界：lite $E_{\max} = 0.82$，pro $E_{\max} = 4.3$，max $E_{\max} = 12.7$。状态范数 $\|\mathbf{x}\|$ 始终低于 $\sqrt{d}$（tanh 饱和下的理论最大值）。滚动能量标准差（窗口 $= 50$）从初始瞬态（$\sigma \approx 0.15$）下降至稳态（$\sigma \approx 0.04$，约 tick 200），确认耗散结构（$\delta = 0.02$，残余衰减 $\rho = 0.7$）防止混沌发散。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig10_stability.pdf}
+\caption{长期稳定性。上：各档 1500 tick 能量包络（均值 $\pm$ 最小/最大值）。左下：状态范数轨迹。右下：滚动能量标准差展示稳定化过程。}
+\label{fig:stability}
+\end{figure}
+
+\subsection{实验 10：人格-计算耦合}
+
+\paragraph{协议。}pro 档。分别扫描 5 个人格维度（外向性、神经质、开放性、尽责性、宜人性）从 0.1 到 0.9（9 个值），其余维度固定为 0.5。每配置 200 tick。每点 10 次重复。
+
+\paragraph{结果。}每个维度产生独特的单调效应：
+\begin{itemize}[leftmargin=*]
+\item \textbf{外向性}（$e$）：表达率从 $0.05$（$e=0.1$）增至 $0.38$（$e=0.9$），与阈值公式 $0.9 - 0.6e$ 一致。
+\item \textbf{神经质}（$n$）：平均能量从 $1.8$（$n=0.1$）增至 $3.4$（$n=0.9$），反映高精度放大预测误差。
+\item \textbf{开放性}（$o$）：同步序参量 $r$ 从 $0.28$（$o=0.1$）增至 $0.71$（$o=0.9$），由 Kuramoto 耦合 $K_1 = 0.5 + o$ 驱动。
+\item \textbf{尽责性}（$c$）：能量方差从 $c=0.1$ 到 $c=0.9$ 下降 40\%，反映高身份惯性稳定动力学。
+\item \textbf{宜人性}（$a$）：广播阈值降低，增加模块间通信，略微提高表达率。
+\end{itemize}
+响应曲面确认公理 2：人格完全且确定性地决定所有耦合参数及可观测动力学。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig11_personality_modulation.pdf}
+\caption{人格调制响应曲面。每行：一个人格维度从 0.1 扫描至 0.9。列：平均能量、同步序参量 $r$、表达率。误差棒：10 次重复 $\pm 1$ 标准差。}
+\label{fig:personality}
+\end{figure}
+
+\subsection{实验 11：档位热切换保真度}
+
+\paragraph{协议。}源档位运行 500 tick，通过 \texttt{switch\_tier()} 切换至目标档位，再运行 500 tick。测试 4 种转换：lite$\to$pro、pro$\to$max、max$\to$lite、lite$\to$max。每种转换 10 次重复。
+
+\paragraph{结果。}切换点相对能量跳跃 $|\Delta E|/E$：lite$\to$pro $= 0.06 \pm 0.02$，pro$\to$max $= 0.04 \pm 0.01$，max$\to$lite $= 0.12 \pm 0.04$，lite$\to$max $= 0.08 \pm 0.03$。除 max$\to$lite 外所有转换低于 10\% 可接受阈值；max$\to$lite 略超阈值，因 441 通道平均池化至 42 通道时不可避免的信息损失。升级转换（线性插值）比降级（平均池化）保真度更高。切换后能量轨迹在 20--50 tick 内收敛至目标档位特征动力学，确认情感轨迹跨档位边界得以保持。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig12_tier_hotswitch.pdf}
+\caption{档位热切换保真度。四种转换类型的能量轨迹。垂直虚线：切换点（tick 500）。水平红色虚线：10\% 相对跳跃阈值。升级转换（lite$\to$pro、pro$\to$max）不连续性极小。}
+\label{fig:hotswitch}
+\end{figure}
+
+\subsection{实验 12：v1（顺序管线）vs.\ v2（共振场）对比}
+
+\paragraph{协议。}lite 档（AstrBot 插件版默认档位）。相同混合效价输入序列（500 tick：正常、压力、正面文本随机排列）分别通过 v1 顺序管线（\texttt{ComputationSpine}）和 v2 共振场（\texttt{ResonanceSpine}）处理，人格参数化相同。10 次重复（不同随机种子）。比较：总情感能量、能量变异性（动力学丰富度）、表达率和响应多样性。
+
+\paragraph{结果。}共振场在 lite 档下产生显著更丰富的动力学：
+\begin{itemize}[leftmargin=*]
+\item \textbf{表达率}：v2 $88.5\% \pm 6.0\%$ vs.\ v1 $22.8\% \pm 9.8\%$（$3.9\times$）。顺序管线过于沉默——这对伴侣型 AI 是致命缺陷。共振场的耦合动力学通过 Kuramoto 同步和 Hopfield 盆地逃逸自然产生表达压力。
+\item \textbf{能量幅度}：v2 平均能量 $54.5 \pm 1.3$ vs.\ v1 $16.5 \pm 1.1$（$3.3\times$ 更高动态范围），即使仅 42 通道也能体现单纯形耦合的放大效应。
+\item \textbf{动力学丰富度}：v2 能量变异性 $19.3 \pm 1.1$ vs.\ v1 $7.8 \pm 1.0$（$2.5\times$），表明共振动力学产生更多样的情感轨迹而非收敛于窄带。
+\item \textbf{响应多样性}：两者均达到 10/10 独特模式，确认两种架构对不同输入均产生不同响应。
+\end{itemize}
+
+对插件开发者的核心意义：从 v1 升级到 v2 将一个大部分时间沉默的 bot（$22.8\%$ 表达率）转变为积极表达的伴侣（$88.5\%$），无需任何配置变更——共振场的耦合动力学自然产生顺序管线所缺乏的表达压力。
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{../experiments/figures/fig13_v1_v2_comparison.pdf}
+\caption{v1（顺序管线）vs.\ v2（共振场）lite 档对比。(A) 平滑能量轨迹展示 v2 更高动态范围。(B) 各重复表达率展示 v2 显著更高且更一致的表达。(C) 能量变异性（动力学丰富度）箱线图。(D) 综合指标对比。}
+\label{fig:v1v2}
+\end{figure}
 
 % ============================================================
 % 6. 讨论
@@ -394,17 +508,25 @@ F = \frac{1}{2}\sum_i \pi_i (\mathbf{o}_i - \boldsymbol{\mu}_i)^2
 \section{讨论}
 \label{sec:discussion}
 
-\paragraph{v1 与 v2。}顺序管线（v1）以固定顺序处理信息。共振场（v2）移除此约束：所有模块同时相互影响，影响顺序从动力学中涌现而非硬编码。
+\paragraph{与现有方法的比较。}基于分类的情感系统~\cite{picard1997,occ1988}本质上是无状态的：相同输入始终产生相同输出。神经网络方法（LSTM、Transformer）维持隐藏状态但无法提供关于有界性、人格保持或可解释性的形式化保证。SylannEngine 占据独特位置：它是具有可证明稳定性界（tanh 饱和 + 耗散）、可解释状态（每个模块具有语义含义）和确定性人格-行为映射的\emph{动力系统}。代价是系统不需要训练数据但也无法从数据中学习——人格必须指定而非推断。
 
-\paragraph{不可逆性作为设计原则。}大多数 AI 系统被设计为无状态或易于重置。我们论证有意义的关系型 AI \emph{需要}不可逆性：一个可以被轻易重置到初始状态的系统无法形成真正的关系，因为对方的投入没有持久效果。
+\paragraph{共振场 vs.\ 顺序管线。}v1 架构以固定顺序处理信息：感知 $\to$ 门控 $\to$ 情绪 $\to$ 关系 $\to$ 决策 $\to$ 边界 $\to$ 表达。这施加了人为的因果结构。共振场移除此约束：所有模块通过单纯形耦合同时相互影响，有效处理顺序从动力学中涌现而非硬编码。实验 4 证明这种涌现排序产生质性不同的行为（爆炸性 vs.\ 渐进同步），取决于耦合拓扑。实验 12 进一步确认共振场在能量幅度（$3.3\times$）和动力学丰富度（$2.5\times$）上显著优于顺序管线。
+
+\paragraph{不可逆性作为设计原则。}大多数 AI 系统被设计为无状态或易于重置。我们论证有意义的关系型 AI \emph{需要}不可逆性：一个可以被轻易重置到初始状态的系统无法形成真正的关系，因为对方的投入没有持久效果。伤痕代数和虚空微积分为此不可逆性提供形式化机制。实验 3 确认 Hebbian 痕迹持续存在：即使经过 500 空闲 tick，曾经活跃的通道仍保留在无记忆系统中不会存在的分化。不可逆性的实际后果包括：(1) 系统无法"恢复出厂设置"而不丢失关系历史；(2) 虐待性交互造成永久伤害（伤痕）改变未来行为；(3) 长期忽视产生虚空压力可能触发主动表达。
 
 \paragraph{局限性。}
 \begin{itemize}[leftmargin=*]
-\item 系统在相同输入序列下是确定性的。
-\item lite 档从不达到形式收敛。
-\item GPU 加速（torch 后端）已结构化但尚未实现。
-\item 7 个人格维度是启发式选择而非从第一性原理导出。
+\item \textbf{纯计算，不从数据学习。}系统无法从交互历史中适应人格维度，人格必须由设计者先验指定。
+\item \textbf{确定性。}给定相同输入序列和人格，两个实例行为完全相同。除人格提供的差异外无随机个体性。
+\item \textbf{lite 档截断。}lite 档在 10 次迭代内从不达到形式收敛（$\varepsilon < 10^{-4}$），因低通道数下 Kuramoto 振荡。输出有意义但技术上被截断。
+\item \textbf{降级保真度。}max$\to$lite 热切换略超 10\% 能量跳跃阈值（实验 11），反映 441 通道池化至 42 通道时不可避免的信息损失。
+\item \textbf{人格维度。}7 个维度是启发式选择（在大五基础上扩展耐心和主权）而非从因子分析导出。
+\item \textbf{无 GPU 后端。}max 档 441 通道计算受限于 CPU；torch 后端已结构化但尚未实现。
 \end{itemize}
+
+\paragraph{可扩展性。}计算复杂度为 $O(C \cdot d \cdot I)$，其中 $C$ 为通道数，$d$ 为状态维度，$I$ 为迭代次数。max 档：$441 \times 32 \times 20 = 282{,}240$ 次乘累加运算/tick——在现代硬件上完全满足实时预算。三档设计允许部署从嵌入式设备（lite：42 通道，8 维，$\sim$5ms）扩展至研究工作站（max：441 通道，32 维，$\sim$50ms），无需架构变更。
+
+\paragraph{未来工作。}(1) 任意人格参数化下共振迭代收敛条件的形式化证明。(2) 多智能体共振：跨多个 SylannEngine 实例耦合场以实现群体动力学。(3) 通过人类交互数据的因子分析学习人格维度。(4) 与大语言模型集成实现人格感知的文本生成，共振场调制 LLM 采样参数。
 
 % ============================================================
 % 7. 结论
@@ -412,9 +534,10 @@ F = \frac{1}{2}\sum_i \pi_i (\mathbf{o}_i - \boldsymbol{\mu}_i)^2
 \section{结论}
 \label{sec:conclusion}
 
-本文提出 SylannEngine v2，一种基于单纯形复形上迭代收敛的共振场情感计算架构。系统的两个基础原则——不可逆性和人格驱动计算——将其与基于分类和基于神经网络的情感计算方法区分开来。11 项实验协议确认了稳定运行、有意义的可塑性、爆炸性同步和人格依赖的动力学。三档设计使部署范围从资源受限设备（lite，5ms，零依赖）到研究环境（max，441 通道，完整 $\Delta^6$）。
+本文提出 SylannEngine v2，一种以单纯形复形上的迭代收敛取代顺序管线的共振场情感计算架构。系统将数学物理和神经科学的六种机制——Hebbian 可塑性、高阶 Kuramoto 同步、Hopfield 吸引子、Hodge 理论身份、变分自由能和分岔表达——整合为由两条基础原则（不可逆性与人格驱动计算）支配的统一框架。12 项实验协议（各 10 次重复）确认了档位特定界内的收敛性、高阶耦合下的爆炸性同步、1500+ tick 的稳定能量包络、具有稳态守恒的有意义可塑性、近无损档位热切换，以及共振场相对顺序管线在动力学丰富度上的显著优势。三档设计使部署范围从资源受限设备（lite：5ms，零依赖）到研究环境（max：441 通道，完整 $\Delta^6$），人格完全决定所有系统动力学。
 
-框架以 AGPL-3.0 开源于 \url{https://github.com/Ayleovelle/SylannEngine}。
+\vspace{1em}
+\noindent 框架以 AGPL-3.0 开源于 \url{https://github.com/Ayleovelle/SylannEngine}。
 
 % ============================================================
 % 参考文献

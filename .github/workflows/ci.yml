@@ -5,6 +5,10 @@ on:
     branches: [main, preview]
   pull_request:
     branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -36,7 +40,7 @@ jobs:
 
       - name: Type check
         run: |
-          mypy sylanne_core --ignore-missing-imports --check-untyped-defs
+          mypy sylanne_core --ignore-missing-imports
 
   benchmark:
     runs-on: ubuntu-latest

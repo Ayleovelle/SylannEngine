@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/License-AGPL_3.0-blue.svg" alt="License: AGPL-3.0">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/AstrBot-v4.11.2+-orange.svg" alt="AstrBot v4.11.2+">
-  <img src="https://img.shields.io/badge/Status-1.0.0rc1-green.svg" alt="Status: 1.0.0rc1">
+  <img src="https://img.shields.io/badge/Status-1.0.0rc3-green.svg" alt="Status: 1.0.0rc3">
 </p>
 
 <p align="center">
@@ -203,6 +203,9 @@ flowchart LR
 ### 安装
 
 通过 AstrBot 插件系统安装本仓库后，你的插件里直接 import 即可：
+
+```python
+from sylanne_core import get_engine
 ```
 
 ### 使用引擎
