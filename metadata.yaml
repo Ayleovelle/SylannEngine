@@ -2,7 +2,7 @@ name: astrbot_plugin_sylannengine
 display_name: SylannEngine SDK
 desc: "SylannEngine 前置插件：安装后其他插件可直接 from sylanne_core import SylanneEngine，避免重复内置。"
 short_desc: "情感计算引擎前置依赖"
-version: "1.0.0rc3"
+version: "2.0.0"
 author: Ayleovelle
 license: AGPL-3.0-only
 repo: "https://github.com/Ayleovelle/SylannEngine"

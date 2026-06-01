@@ -8,7 +8,7 @@ from typing import Any
 from .compute.pad_interop import PADProjector
 from .types import Dynamics, PADOutput, Surface
 
-_SCHEMA_VERSION = "sylanne.core.v1"
+_SCHEMA_VERSION = "sylanne.engine.v1"
 
 # Module-level projector cache keyed by n_dims to avoid re-creating per call
 _projector_cache: dict[int, PADProjector] = {}
