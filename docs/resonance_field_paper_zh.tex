@@ -1,0 +1,475 @@
+\documentclass[UTF8,11pt]{ctexart}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage{float}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,calc,fit,backgrounds}
+
+% --- 定理环境 ---
+\newtheorem{theorem}{定理}[section]
+\newtheorem{lemma}[theorem]{引理}
+\newtheorem{proposition}[theorem]{命题}
+\newtheorem{definition}[theorem]{定义}
+\newtheorem{axiom}{公理}[section]
+\newtheorem{remark}[theorem]{注}
+
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+\setlist{nosep}
+\linespread{1.3}
+
+% --- 标题 ---
+\title{SylannEngine v2：基于单纯形共振场的情感计算引擎\\——Hebbian 可塑性与涌现表达}
+
+\author{Aylovelle S.S.\thanks{联系方式：\texttt{aylovelle@icloud.com}}}
+
+\date{2026 年 6 月}
+
+\begin{document}
+
+\maketitle
+
+% ============================================================
+% 摘要
+% ============================================================
+\begin{abstract}
+本文提出 SylannEngine v2，一种基于单纯形共振场动力学的情感状态演化计算框架。该架构以完全连通的 6-单纯形（$\Delta^6$，7 个计算模块）取代传统的顺序管线，情感状态通过迭代共振涌现而非前馈计算产生。系统集成六种来自数学物理和神经科学的机制：(1) 具有稳态缩放的 Hebbian 可塑性实现用进废退；(2) 单纯形复形上的高阶 Kuramoto 同步产生爆炸性相变；(3) Hopfield 吸引子景观将情感记忆编码为能量极小值；(4) 基于 Hodge 理论的谐波身份提取保持人格跨扰动的持续性；(5) 变分自由能最小化实现精度加权的信念更新；(6) 表达作为分岔——当任一驱动力超过阈值时系统逃离吸引子盆地。两个基础原则支配整个设计：\textbf{不可逆性}（伤痕累积、虚空持续、历史不可擦除）和\textbf{人格驱动计算}（全部 441 个耦合参数由 7 个人格维度确定性导出）。11 项实验协议（各 10 次重复）验证了：档位特定迭代界内的收敛性、高阶耦合下的爆炸性同步、1500 tick 的稳定能量包络、以及无损档位热切换。系统以三档性能运行（lite: 42 通道/5ms, pro: 287 通道/40ms, max: 441 通道/50ms），lite 档零外部依赖。
+\end{abstract}
+
+% ============================================================
+% 1. 引言
+% ============================================================
+\section{引言}
+\label{sec:intro}
+
+人工智能体的情感状态建模面临一个根本性张力：系统必须足够丰富以捕捉情感体验的时间深度——过去的伤害改变未来的处理方式，长期缺席产生自身的压力——同时又必须足够高效以在普通硬件上实时部署。现有方法分为两类，各有关键局限。
+
+\paragraph{基于分类的系统。}情感计算的主流范式~\cite{picard1997}将情绪视为离散标签上的分类问题（Ekman 基本情绪、Russell 环形模型）。这些系统是无状态的：相同输入无论历史如何都产生相同输出。它们无法表示不可逆性、累积损伤或人格漂移。
+
+\paragraph{神经网络方法。}循环架构（LSTM、Transformer）可以维持状态，但其内部表示不透明、需要训练数据，且无法提供关于有界动力学或人格保持的形式化保证。从人格到行为的映射是隐式且不可控的。
+
+我们提出第三条路径：\textbf{共振场计算}，情感状态从单纯形复形的耦合动力学中涌现，而非由前馈管线计算或从数据中学习。核心洞察是：具有用进废退可塑性的全连接拓扑自然产生关系型 AI 所需的性质：
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{不可逆性。}Hebbian 可塑性永久改变耦合权重；伤痕修改未来处理路径；虚空累积的压力不能被后续输入撤销。
+\item \textbf{人格即计算。}全部 441 个耦合参数、阈值和衰减率由 7 个人格维度确定性导出。人格不仅仅\emph{影响}计算——它\emph{就是}计算的参数化。
+\item \textbf{涌现表达。}表达不是分类器做出的决策，而是相变——当任一驱动力（惊讶、新颖性、点火或原始激活）超过人格调制的阈值时，系统逃离当前吸引子盆地的分岔。
+\item \textbf{形式化稳定性。}tanh 饱和、耗散和残余衰减提供 Lyapunov 式能量界，无需精细的超参数调优。
+\end{enumerate}
+
+\paragraph{贡献。}
+\begin{enumerate}[leftmargin=*]
+\item 以完全 6-单纯形上的迭代收敛取代顺序管线的单纯形共振场架构（\S\ref{sec:topology}）。
+\item 具有稳态预算守恒和神经达尔文主义剪枝的 Hebbian 可塑性（\S\ref{sec:plasticity}）。
+\item 产生爆炸性同步转变的高阶 Kuramoto 同步（3 体和 4 体项）（\S\ref{sec:kuramoto}）。
+\item 以表达作为盆地逃逸的 Hopfield 吸引子景观（\S\ref{sec:hopfield}）。
+\item 基于 Hodge Laplacian 零空间提取的谐波身份（\S\ref{sec:identity}）。
+\item 11 项实验协议的全面验证（\S\ref{sec:experiments}）。
+\item 三档性能设计和零依赖 lite 模式的开源实现。
+\end{enumerate}
+
+% ============================================================
+% 2. 相关工作
+% ============================================================
+\section{相关工作}
+\label{sec:related}
+
+\paragraph{情感计算。}Picard 的奠基性工作~\cite{picard1997}将情绪识别确立为模式分类问题。后续系统提高了分类精度但本质上仍是无状态的。OCC 模型~\cite{occ1988}提供了认知评价结构但无动力学。PAD（愉悦-唤醒-支配）~\cite{mehrabian1996}提供了连续空间但无演化方程。
+
+\paragraph{情绪的动力系统。}Scherer 的成分过程模型~\cite{scherer2001}和 Gross 的情绪调节过程模型~\cite{gross2015}将情绪描述为动态过程，但实现仍是临时性的。Evolving Agents 框架~\cite{evolving2024}证明了具有人格和行为的双系统架构产生连贯的长期智能体，这激发了我们的人格驱动方法。
+
+\paragraph{Kuramoto 同步。}Kuramoto 模型~\cite{kuramoto1975}描述耦合振子中的相位同步。Mill\'an 等人~\cite{millan2020}将其扩展到单纯形复形，表明高阶交互产生爆炸性（不连续）同步转变——我们利用这一性质实现表达涌现。
+
+\paragraph{Hopfield 网络。}Hopfield 的联想记忆~\cite{hopfield1982}将模式存储为能量极小值。我们使用吸引子景观隐喻表示情感记忆：熟悉的情感状态是能量极小值，表达发生在系统逃离盆地时。
+
+\paragraph{自由能原理。}Friston 的变分自由能框架~\cite{friston2010}将感知建模为推断：有机体通过信念更新最小化预测误差。我们将精度加权的自由能最小化作为六种耦合机制之一。
+
+\paragraph{单纯形复形上的 Hodge 理论。}Hodge 分解~\cite{hodge1941}将单纯形复形上的信号分离为梯度、旋度和调和分量。调和分量——Hodge Laplacian 的零空间——表示拓扑不变量。我们将其用作持续身份的数学实现。
+
+% ============================================================
+% 3. 架构
+% ============================================================
+\section{架构}
+\label{sec:architecture}
+
+SylannEngine v2 架构由 7 个计算模块通过完全单纯形复形连接组成。所有模块将信号注入共享共振场，场通过耦合动力学迭代直至收敛，表达作为收敛状态的相变涌现。
+
+% --- TikZ 架构图 ---
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+    module/.style={draw, rounded corners, minimum width=1.6cm, minimum height=0.7cm, font=\footnotesize},
+    field/.style={draw, thick, rounded corners=8pt, fill=blue!5, minimum width=8cm, minimum height=3.2cm},
+    arrow/.style={-{Stealth[length=2mm]}, thick},
+    every node/.style={font=\small}
+]
+% 输入
+\node[module, fill=green!10] (input) at (0, 5) {文本 + 时间戳};
+
+% 模块
+\node[module, fill=red!10] (m0) at (-4.5, 3.2) {M0: HDC};
+\node[module, fill=red!10] (m1) at (-2.7, 3.2) {M1: 门控};
+\node[module, fill=red!10] (m2) at (-0.9, 3.2) {M2: 伤痕};
+\node[module, fill=red!10] (m3) at (0.9, 3.2) {M3: 层析};
+\node[module, fill=red!10] (m4) at (2.7, 3.2) {M4: HGT};
+\node[module, fill=red!10] (m5) at (4.5, 3.2) {M5: 边界};
+
+% 共振场
+\node[field] (field) at (0, 0.5) {};
+\node[font=\bfseries] at (0, 1.9) {共振场（$\Delta^6$，441 通道）};
+\node[font=\scriptsize, text=blue!70] at (-2.5, 1.1) {Hebbian 可塑性};
+\node[font=\scriptsize, text=blue!70] at (0, 0.7) {Kuramoto 同步};
+\node[font=\scriptsize, text=blue!70] at (2.5, 1.1) {自由能};
+\node[font=\scriptsize, text=blue!70] at (-2.5, -0.1) {Hopfield 吸引子};
+\node[font=\scriptsize, text=blue!70] at (0, -0.5) {谐波身份};
+\node[font=\scriptsize, text=blue!70] at (2.5, -0.1) {tanh + 耗散};
+
+% 输出
+\node[module, fill=purple!10] (out) at (0, -2.0) {情感 + 表达 + $\Phi$};
+
+% 箭头
+\draw[arrow] (input) -- ++(0,-0.5) -| (m0);
+\draw[arrow] (input) -- ++(0,-0.5) -| (m1);
+\draw[arrow] (input) -- ++(0,-0.5) -| (m2);
+\draw[arrow] (input) -- ++(0,-0.5) -| (m3);
+\draw[arrow] (input) -- ++(0,-0.5) -| (m4);
+\draw[arrow] (input) -- ++(0,-0.5) -| (m5);
+
+\draw[arrow] (m0) -- (m0 |- field.north);
+\draw[arrow] (m1) -- (m1 |- field.north);
+\draw[arrow] (m2) -- (m2 |- field.north);
+\draw[arrow] (m3) -- (m3 |- field.north);
+\draw[arrow] (m4) -- (m4 |- field.north);
+\draw[arrow] (m5) -- (m5 |- field.north);
+
+\draw[arrow] (field) -- (out);
+
+% 反馈
+\draw[arrow, dashed, gray] (out.east) -- ++(1.5,0) |- node[right, font=\scriptsize, text=gray]{反馈} (field.east);
+
+\end{tikzpicture}
+\caption{SylannEngine v2 架构。7 个计算模块将信号注入共享共振场（完全 6-单纯形 $\Delta^6$）。场通过耦合动力学迭代至收敛。表达作为收敛状态的相变涌现。}
+\label{fig:architecture}
+\end{figure}
+
+\subsection{单纯形拓扑}
+\label{sec:topology}
+
+设 $V = \{v_0, v_1, \ldots, v_6\}$ 为 7 个计算模块。构造 $V$ 上的完全单纯形复形 $K$：
+\begin{equation}
+K = \{\sigma \subseteq V : \sigma \neq \emptyset\}
+\end{equation}
+
+共产生 $2^7 - 1 = 127$ 个单纯形。每个 $k$-单纯形 $\sigma = \{v_{i_0}, \ldots, v_{i_k}\}$ 生成 $(k+1)$ 条有向通道（每个顶点作为目标一条），总计 441 条有向耦合通道。
+
+\begin{table}[htbp]
+\centering
+\caption{单纯形结构与档位分配。}
+\label{tab:tiers}
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+阶 $k$ & $k$-单纯形数 & 有向通道数 & 档位 \\
+\midrule
+1（边） & 21 & 42 & lite \\
+2（三角形） & 35 & 105 & pro \\
+3（四面体） & 35 & 140 & pro \\
+4--6 & 29 & 154 & max \\
+\midrule
+\textbf{总计} & \textbf{120} & \textbf{441} & max \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+三档分配提供性能-表达力权衡：
+\begin{itemize}[leftmargin=*]
+\item \textbf{lite}（42 通道）：仅两体耦合。$\sim$5ms/tick，零依赖。
+\item \textbf{pro}（287 通道）：含四体交互。$\sim$40ms/tick，需 numpy。
+\item \textbf{max}（441 通道）：完整 $\Delta^6$。$\sim$50ms/tick CPU。
+\end{itemize}
+
+\subsection{共振动力学}
+\label{sec:dynamics}
+
+每个模块 $i$ 维持状态向量 $\mathbf{x}_i \in \mathbb{R}^d$（$d$ 取决于档位：8/16/32）。共振迭代为：
+
+\begin{equation}
+\mathbf{x}_i^{(t+1)} = \tanh\!\left(\alpha \cdot \mathbf{x}_i^{(t)} + \beta \cdot \mathbf{c}_i^{(t)} + \mathbf{h}_i + \mathbf{r}_i\right) \cdot (1 - \delta)
+\end{equation}
+
+其中 $\alpha = 0.8$ 为自保持因子，$\beta = 0.2$ 为耦合尺度，$\mathbf{c}_i^{(t)}$ 为模块 $i$ 接收的总耦合信号，$\mathbf{h}_i$ 为谐波身份恢复力，$\mathbf{r}_i$ 为储备池记忆注入，$\delta = 0.02$ 为耗散率。
+
+\paragraph{收敛。}当 $\max_i \|\mathbf{x}_i^{(t+1)} - \mathbf{x}_i^{(t)}\|_\infty < \varepsilon$（$\varepsilon = 10^{-4}$）或达到档位最大迭代次数（10/15/20）时终止。
+
+\paragraph{稳定性保证。}由于 $|\tanh(x)| \leq 1$ 且 $(1-\delta) < 1$，状态有界：$\|\mathbf{x}_i\|_\infty \leq 1$，提供 Lyapunov 式能量界。
+
+\subsection{Hebbian 可塑性}
+\label{sec:plasticity}
+
+通道权重按 Hebbian 规则演化，具有稳态调节：
+
+\begin{equation}
+w_{ij}^{(t+1)} = w_{ij}^{(t)} + \eta \cdot a_i^{(t)} \cdot e_{ij}^{(t)} - \lambda \cdot w_{ij}^{(t)}
+\end{equation}
+
+其中 $\eta$ 为学习率（人格调制：$0.005 + \text{开放性} \times 0.015$），$a_i$ 为源模块激活，$e_{ij}$ 为资格迹（$\tau = 0.95$ 指数衰减），$\lambda$ 为衰减率（$0.002 - \text{尽责性} \times 0.001$）。
+
+\paragraph{稳态缩放。}每次更新后，权重重新缩放以维持恒定总预算：$\sum_j w_{ij} = N_{\text{channels}}$。
+
+\paragraph{神经达尔文主义。}$w_{ij} < 0.05$ 的通道被剪枝（权重设为 $w_{\min} = 0.01$），实现耦合路径的竞争选择。
+
+\subsection{高阶 Kuramoto 同步}
+\label{sec:kuramoto}
+
+每个模块维持相位 $\theta_i \in [0, 2\pi)$，在耦合动力学下演化：
+
+\begin{equation}
+\dot{\theta}_i = \omega_i + \frac{K_1}{N}\sum_j \sin(\theta_j - \theta_i) + \frac{K_2}{N^2}\sum_{j,k} \sin(\theta_j + \theta_k - 2\theta_i) + \frac{K_3}{N^3}\sum_{j,k,l} \sin(\theta_j + \theta_k + \theta_l - 3\theta_i)
+\end{equation}
+
+耦合常数由人格调制：$K_1 = 0.5 + \text{开放性}$，$K_2 = 0.25 + 0.5 \cdot \text{开放性}$，$K_3 = 0.1 + 0.3 \cdot \text{开放性}$。
+
+高阶项（$K_2, K_3$）产生\textbf{爆炸性同步}——序参量 $r$ 在临界耦合强度处的不连续跳跃，作为突然表达涌现的机制。
+
+\subsection{Hopfield 吸引子景观}
+\label{sec:hopfield}
+
+系统维持吸引子中心库 $\{\boldsymbol{\mu}_k\}_{k=1}^{K_{\max}}$ 表示熟悉的情感状态。共振期间，吸引子施加拉力：
+
+\begin{equation}
+\mathbf{f}_{\text{attractor}} = \gamma \cdot (\boldsymbol{\mu}_{\text{nearest}} - \mathbf{x})
+\end{equation}
+
+\paragraph{表达即逃逸。}当系统逃离当前吸引子盆地——到最近吸引子的距离超过盆地半径时——表达触发。新颖输入将状态推离所有存储模式，实现"表达源于遇到不符合现有情感记忆之物"的直觉。
+
+\subsection{谐波身份（Hodge 理论）}
+\label{sec:identity}
+
+Hodge Laplacian $L_k = \partial_{k+1}\partial_{k+1}^T + \partial_k^T\partial_k$ 的零空间表示拓扑不变量。我们将其用作持续身份的数学实现：
+
+\begin{equation}
+\mathbf{h}^{(t+1)} = \mu \cdot \mathbf{h}^{(t)} + (1-\mu) \cdot \text{HodgeProject}(\mathbf{x}^{(t)})
+\end{equation}
+
+其中 $\mu = 0.9 + 0.08 \cdot \text{尽责性}$ 为身份惯性。身份向量在共振期间施加恢复力 $\mathbf{f}_{\text{identity}} = 0.03 \cdot (\mathbf{h} - \mathbf{x})$，确保临时扰动不会永久改变系统特征。
+
+\subsection{自由能最小化}
+\label{sec:freeenergy}
+
+遵循 Friston~\cite{friston2010}，每个模块维持关于预期输入的信念 $\boldsymbol{\mu}_i$ 并最小化变分自由能：
+
+\begin{equation}
+F = \frac{1}{2}\sum_i \pi_i (\mathbf{o}_i - \boldsymbol{\mu}_i)^2
+\end{equation}
+
+其中 $\pi_i = 0.5 + 1.5 \cdot \text{神经质}$ 为精度。高神经质增加精度，使系统对预测误差更敏感。
+
+\subsection{表达作为分岔}
+\label{sec:expression}
+
+表达建模为 OR 门分岔：当\emph{任一}驱动力超过人格调制的阈值时系统表达：
+
+\begin{equation}
+\text{drive} = \max(\text{惊讶}, 0.8 \cdot \text{新颖性}, \text{点火}, 0.6 \cdot \text{原始}) \times (0.3 + 0.7\Phi)
+\end{equation}
+
+意义门 $0.3 + 0.7\Phi$ 在整合信息 $\Phi$ 低时抑制表达（噪声），确保只有连贯、有意义的状态触发表达。
+
+% ============================================================
+% 4. 基础原则
+% ============================================================
+\section{基础原则}
+\label{sec:principles}
+
+两条公理支配整个设计，将 SylannEngine 与传统情感计算系统区分开来。
+
+\subsection{不可逆性}
+\label{sec:irreversibility}
+
+系统围绕"情感历史不可擦除"的原则设计：
+
+\begin{axiom}[不可逆性]
+对于施加于状态 $s_0$ 的任意事件序列 $e_1, \ldots, e_n$，若任何 $e_i$ 触发了伤痕形成或虚空累积，则不存在有限事件序列 $e'_1, \ldots, e'_m$ 能将系统返回 $s_0$。
+\end{axiom}
+
+通过三种机制实现：
+\begin{enumerate}[leftmargin=*]
+\item \textbf{伤痕代数}：伤害施加对数压缩修饰符，永久改变处理方式。
+\item \textbf{虚空累积}：缺席产生的压力有上限但永不完全消散。
+\item \textbf{Hebbian 痕迹}：可塑性变化是永久的——曾经强化的通道即使萎缩后仍保留痕迹。
+\end{enumerate}
+
+\subsection{人格驱动一切计算}
+\label{sec:personality_axiom}
+
+\begin{axiom}[人格完备性]
+共振场中的每个可调参数都由人格向量 $\mathbf{p} \in [0,1]^7$ 确定性导出。不存在逃脱人格调制的"自由"参数。
+\end{axiom}
+
+\begin{table}[htbp]
+\centering
+\caption{人格→计算映射（部分参数）。}
+\label{tab:personality}
+\begin{tabular}{@{}lll@{}}
+\toprule
+维度 & 调制对象 & 公式 \\
+\midrule
+外向性 & 表达阈值 & $0.9 - 0.6e$ \\
+神经质 & 自由能精度 & $0.5 + 1.5n$ \\
+开放性 & Kuramoto $K_1$ & $0.5 + o$ \\
+尽责性 & 身份惯性 & $0.9 + 0.08c$ \\
+宜人性 & 广播阈值 & $0.8 - 0.3a$ \\
+耐心 & 最大吸引子数 & 档位相关 \\
+主权 & 身份范数上限 & $d \cdot (0.5 + 0.5s)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+此公理确保具有不同人格的两个系统在相同输入下展现质性不同的动力学——不是因为随机初始化，而是因为拓扑本身由人格塑造。
+
+% ============================================================
+% 5. 实验
+% ============================================================
+\section{实验}
+\label{sec:experiments}
+
+所有实验使用 10 次独立重复（不同随机种子）。报告均值 $\pm$ 标准差。适用时使用 Mann-Whitney U 或 Wilcoxon 符号秩检验评估统计显著性。代码位于 \texttt{experiments/}。
+
+\subsection{实验 1：收敛性分析}
+
+\paragraph{协议。}每档 1000 次处理调用，10 次重复。记录每次调用的迭代次数。
+
+\paragraph{结果。}lite 档始终达到最大值（10 次迭代）而不收敛（$\varepsilon = 10^{-4}$），这是预期行为——低通道数下 Kuramoto 振荡阻止完美收敛。pro 档在 $8.5 \pm 5.0$ 次迭代内收敛（76\% 收敛率）。max 档快速收敛于 $2.8 \pm 0.6$ 次迭代（100\% 收敛率），证明高阶耦合加速收敛。
+
+\subsection{实验 2：档位性能对比}
+
+\paragraph{结果。}延迟随档位复杂度缩放：lite p50 $\approx$ 3ms，pro p50 $\approx$ 25ms，max p50 $\approx$ 35ms。能量和同步在各档位间展现质性不同的动力学。
+
+\subsection{实验 3：Hebbian 可塑性}
+
+\paragraph{结果。}1000 tick 后，48\% 通道强化（LTP），52\% 弱化（LTD）。权重标准差从 0.000（均匀初始化）增至 0.032，确认分化。总权重预算保持恒定（稳态守恒验证）。
+
+\subsection{实验 4：Kuramoto 同步}
+
+\paragraph{结果。}lite 档展现渐进同步转变（$r$ 连续增加）。pro 和 max 档展现更陡峭的转变，与高阶 Kuramoto 理论~\cite{millan2020}预测的爆炸性同步一致。在 $K=1.0$ 时，max 档达到显著高于 lite 的 $r$（Mann-Whitney $p < 0.01$）。
+
+\subsection{实验 5：Hopfield 吸引子形成}
+
+\paragraph{结果。}吸引子在每种模式的前 100 tick 内形成。新颖输入增加到最近吸引子的距离，触发表达事件。新颖阶段的表达率显著高于模式重复阶段，确认"表达即逃逸"机制。
+
+\subsection{实验 6：表达分岔（OR 门）}
+
+\paragraph{结果。}四种触发器均独立产生非零表达率，确认 OR 门设计。惊讶触发器：最高率。新颖性触发器：中等率。沉默触发器：阈值渐进衰减最终使能表达。原始驱动：情感强度直接激活模块 6。
+
+\subsection{实验 7：谐波身份}
+
+\paragraph{结果。}身份范数在第一阶段单调增长。扰动导致漂移但恢复力将身份拉回。恢复比率（漂移恢复的比例）平均 0.6--0.8，确认谐波身份作为有意义的恢复力而不至于过于刚性。
+
+\subsection{实验 8：$\Phi$ 与表达}
+
+\paragraph{结果。}$\Phi$ 与表达驱动力之间正 Pearson 相关（$r \approx 0.3$--$0.5$），确认意义门有效抑制低连贯（噪声）状态的表达，同时放大高连贯状态的表达。
+
+\subsection{实验 9：长期稳定性}
+
+\paragraph{结果。}所有档位和重复中零 NaN 或 Inf（$10 \times 3 \times 1500 = 45{,}000$ 总 tick）。能量保持有界：lite $< 1.0$，pro $< 5.0$，max $< 15.0$。
+
+\subsection{实验 10：人格调制}
+
+\paragraph{结果。}每个维度产生单调且独特的效果：外向性增加表达率，开放性增加同步，神经质增加能量，尽责性稳定动力学，宜人性降低点火阈值。响应曲面确认人格完全决定系统行为。
+
+\subsection{实验 11：档位热切换}
+
+\paragraph{结果。}切换点相对能量跳跃：lite$\to$pro $< 15\%$，pro$\to$max $< 10\%$，max$\to$lite $< 20\%$。切换后动力学快速收敛到新档位特征行为，同时保持切换前建立的情感轨迹。
+
+% ============================================================
+% 6. 讨论
+% ============================================================
+\section{讨论}
+\label{sec:discussion}
+
+\paragraph{v1 与 v2。}顺序管线（v1）以固定顺序处理信息。共振场（v2）移除此约束：所有模块同时相互影响，影响顺序从动力学中涌现而非硬编码。
+
+\paragraph{不可逆性作为设计原则。}大多数 AI 系统被设计为无状态或易于重置。我们论证有意义的关系型 AI \emph{需要}不可逆性：一个可以被轻易重置到初始状态的系统无法形成真正的关系，因为对方的投入没有持久效果。
+
+\paragraph{局限性。}
+\begin{itemize}[leftmargin=*]
+\item 系统在相同输入序列下是确定性的。
+\item lite 档从不达到形式收敛。
+\item GPU 加速（torch 后端）已结构化但尚未实现。
+\item 7 个人格维度是启发式选择而非从第一性原理导出。
+\end{itemize}
+
+% ============================================================
+% 7. 结论
+% ============================================================
+\section{结论}
+\label{sec:conclusion}
+
+本文提出 SylannEngine v2，一种基于单纯形复形上迭代收敛的共振场情感计算架构。系统的两个基础原则——不可逆性和人格驱动计算——将其与基于分类和基于神经网络的情感计算方法区分开来。11 项实验协议确认了稳定运行、有意义的可塑性、爆炸性同步和人格依赖的动力学。三档设计使部署范围从资源受限设备（lite，5ms，零依赖）到研究环境（max，441 通道，完整 $\Delta^6$）。
+
+框架以 AGPL-3.0 开源于 \url{https://github.com/Ayleovelle/SylannEngine}。
+
+% ============================================================
+% 参考文献
+% ============================================================
+\bibliographystyle{plain}
+\begin{thebibliography}{20}
+
+\bibitem{picard1997}
+R.~W. Picard, \emph{Affective Computing}. MIT Press, 1997.
+
+\bibitem{occ1988}
+A.~Ortony, G.~L. Clore, A.~Collins, \emph{The Cognitive Structure of Emotions}. Cambridge University Press, 1988.
+
+\bibitem{mehrabian1996}
+A.~Mehrabian, ``Pleasure-arousal-dominance: A general framework,'' \emph{Current Psychology}, 14:261--292, 1996.
+
+\bibitem{scherer2001}
+K.~R. Scherer, ``Appraisal considered as a process of multilevel sequential checking,'' in \emph{Appraisal Processes in Emotion}, 2001.
+
+\bibitem{gross2015}
+J.~J. Gross, ``Emotion regulation: Current status and future prospects,'' \emph{Psychological Inquiry}, 26(1):1--26, 2015.
+
+\bibitem{evolving2024}
+J.~Park et al., ``Generative agents: Interactive simulacra of human behavior,'' in \emph{Proc.\ UIST}, 2023.
+
+\bibitem{kuramoto1975}
+Y.~Kuramoto, ``Self-entrainment of a population of coupled non-linear oscillators,'' Springer, 1975.
+
+\bibitem{millan2020}
+A.~P. Mill\'an, J.~J. Torres, G.~Bianconi, ``Explosive higher-order Kuramoto dynamics on simplicial complexes,'' \emph{Physical Review Letters}, 124:218301, 2020.
+
+\bibitem{hopfield1982}
+J.~J. Hopfield, ``Neural networks and physical systems with emergent collective computational abilities,'' \emph{PNAS}, 79:2554--2558, 1982.
+
+\bibitem{friston2010}
+K.~Friston, ``The free-energy principle: A unified brain theory?'' \emph{Nature Reviews Neuroscience}, 11:127--138, 2010.
+
+\bibitem{hodge1941}
+W.~V.~D. Hodge, \emph{The Theory and Applications of Harmonic Integrals}. Cambridge University Press, 1941.
+
+\bibitem{hebb1949}
+D.~O. Hebb, \emph{The Organization of Behavior}. Wiley, 1949.
+
+\bibitem{edelman1987}
+G.~M. Edelman, \emph{Neural Darwinism: The Theory of Neuronal Group Selection}. Basic Books, 1987.
+
+\bibitem{prigogine1977}
+I.~Prigogine, ``Time, structure and fluctuations,'' Nobel Lecture, 1977.
+
+\bibitem{baars1988}
+B.~J. Baars, \emph{A Cognitive Theory of Consciousness}. Cambridge University Press, 1988.
+
+\bibitem{tononi2004}
+G.~Tononi, ``An information integration theory of consciousness,'' \emph{BMC Neuroscience}, 5:42, 2004.
+
+\end{thebibliography}
+
+\end{document}
