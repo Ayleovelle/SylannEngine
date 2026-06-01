@@ -945,12 +945,11 @@ class AlphaKernel:
 
         prev_now = float(self.previous_event.get("now") or 0.0)
         prev_text = str(self.previous_event.get("text") or "")
-        if prev_now > 0 and prev_text:
-            elapsed = _time.time() - prev_now
-            if elapsed > 300.0:
-                return False
-        elif not prev_text:
-            # No previous user text at all — no engagement history
+        if prev_now <= 0.0 or not prev_text:
+            return False
+
+        elapsed = _time.time() - prev_now
+        if elapsed > 300.0:
             return False
 
         # Check rejection signals in the most recent text
