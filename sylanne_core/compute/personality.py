@@ -417,15 +417,13 @@ def _seasonal_modulation(traits: dict[str, TraitMemory]) -> None:
     - 秋天（9-11月）：perception_acuity 微升 +0.01
 
     调制量极小，仅作为长期背景趋势存在，不会覆盖其他漂移机制。
-    注意：此函数保留用于独立调用场景，compute_embodiment_drift 中已通过
-    pending 机制纳入 drift cap 约束。
+    使用 TraitMemory.update() 以确保通过双 EMA 共识机制和 drift cap 约束。
     """
     target = _get_seasonal_target()
     if target and target in traits:
         tm = traits[target]
         if not tm.frozen:
-            tm.value = max(_TRAIT_FLOOR, min(_TRAIT_CEIL, tm.value + 0.01))
-            tm.set_point += 0.0002 * (tm.value - tm.set_point)
+            tm.update(0.01)
 
 
 # ---------------------------------------------------------------------------
@@ -513,7 +511,7 @@ def compute_embodiment_drift(
         pending.append((seasonal_target, 0.01 * dt_scale, "_seasonal"))
 
     total_abs = sum(abs(d) for _, d, _ in pending)
-    effective_cap = _TICK_DRIFT_CAP * dt_scale
+    effective_cap = _TICK_DRIFT_CAP * min(dt_scale, 3.0)
     if total_abs > effective_cap:
         scale = effective_cap / total_abs
         pending = [(name, delta * scale, sig) for name, delta, sig in pending]

@@ -98,7 +98,7 @@ __all__ = [
     # Shared engine
     "get_engine",
 ]
-__version__ = "1.0.0rc1"
+__version__ = "1.0.0rc3"
 
 _shared_engine: SylanneEngine | None = None
 
