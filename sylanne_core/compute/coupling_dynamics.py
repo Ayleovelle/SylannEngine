@@ -343,7 +343,7 @@ class CouplingDynamics:
     """Orchestrates all coupling mechanisms across the simplicial resonance field.
 
     Combines: Hebbian plasticity, higher-order Kuramoto sync, free energy
-    minimization, global broadcast, and criticality-modulated gain.
+    minimization, global broadcast, topology gating, and criticality-modulated gain.
     Emergence feeds back: near-critical states amplify coupling (self-organized criticality).
     """
 
@@ -353,6 +353,7 @@ class CouplingDynamics:
         "kuramoto",
         "free_energy",
         "broadcast",
+        "topology_gate",
         "_tier",
         "_n_modules",
         "_state_dim",
@@ -362,6 +363,8 @@ class CouplingDynamics:
     )
 
     def __init__(self, n_modules: int = 7, state_dim: int = 8, tier: str = "lite"):
+        from .topology_gate import TopologyGate
+
         self._n_modules = n_modules
         self._state_dim = state_dim
         self._tier = tier
@@ -373,6 +376,9 @@ class CouplingDynamics:
         self.kuramoto.set_simplices(self.complex.simplices)
         self.free_energy = FreeEnergyMinimizer(n=n_modules)
         self.broadcast = GlobalBroadcast(n=n_modules)
+        self.topology_gate: TopologyGate | None = TopologyGate(
+            n_channels=n_channels, n_modules=n_modules
+        )
         self._coupling_matrix = [[0.0] * n_modules for _ in range(n_modules)]
         self._criticality_gain = 1.0
         self._dissipation_rate = 0.05
@@ -383,11 +389,15 @@ class CouplingDynamics:
         self._criticality_gain = 1.0 + criticality * 0.5
 
     def _rebuild_coupling_matrix(self) -> None:
-        """Derive pairwise coupling matrix from simplicial weights."""
+        """Derive pairwise coupling matrix from simplicial weights, gated by topology."""
         mat = [[0.0] * self._n_modules for _ in range(self._n_modules)]
         channels = self.complex.directed_channels
+        gate_values = self.topology_gate.gates if self.topology_gate is not None else None
         for ch_idx, (simplex, target) in enumerate(channels):
             w = self.plasticity.weights[ch_idx] if ch_idx < len(self.plasticity.weights) else 1.0
+            # Apply topology gate: effective_weight = weight * gate
+            if gate_values is not None and ch_idx < len(gate_values):
+                w *= gate_values[ch_idx]
             for source in simplex:
                 if source != target:
                     mat[source][target] += w / len(simplex)
@@ -452,6 +462,11 @@ class CouplingDynamics:
             return self._coupling_matrix[source][target]
         return 0.0
 
+    def feedback_topology(self, outcome: str, active_channels: list[int] | None = None) -> None:
+        """Delegate feedback to the topology gate for topology learning."""
+        if self.topology_gate is not None:
+            self.topology_gate.update_from_feedback(outcome, active_channels)  # type: ignore[arg-type]
+
     def propagate(
         self, source_idx: int, signal: list[float], module_states: list[list[float]]
     ) -> list[list[float]]:
@@ -467,15 +482,20 @@ class CouplingDynamics:
         return result
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "tier": self._tier,
             "plasticity": self.plasticity.to_dict(),
             "phases": list(self.kuramoto.phases),
             "beliefs": self.free_energy.beliefs,
             "coupling_matrix": [list(row) for row in self._coupling_matrix],
         }
+        if self.topology_gate is not None:
+            result["topology_gate"] = self.topology_gate.to_dict()
+        return result
 
     def from_dict(self, data: dict[str, Any]) -> None:
+        from .topology_gate import TopologyGate
+
         if "plasticity" in data:
             self.plasticity.from_dict(data["plasticity"])
             self._rebuild_coupling_matrix()
@@ -483,3 +503,8 @@ class CouplingDynamics:
             self.kuramoto.phases = list(data["phases"])
         if "beliefs" in data:
             self.free_energy._beliefs = list(data["beliefs"])
+        if "topology_gate" in data:
+            self.topology_gate = TopologyGate.from_dict(data["topology_gate"])
+        elif self.topology_gate is None:
+            n_channels = self.complex.total_directed
+            self.topology_gate = TopologyGate(n_channels=n_channels, n_modules=self._n_modules)

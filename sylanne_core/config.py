@@ -133,18 +133,18 @@ _PROFILES: dict[str, dict[str, int | str]] = {
     },
     "max": {
         "hdc_dim": 16384,
-        "emotion_dim": 32,
+        "emotion_dim": 128,
         "scar_mlp_passes": 3,
-        "stalk_dim": 32,
-        "d_model": 64,
+        "stalk_dim": 64,
+        "d_model": 128,
         "n_heads": 16,
-        "d_head": 4,
-        "d_output": 16,
+        "d_head": 8,
+        "d_output": 32,
         "n_experts": 32,
         "top_k_min": 4,
         "top_k_max": 8,
         "attention_rounds": 4,
-        "identity_dim": 128,
+        "identity_dim": 256,
         "repair_passes": 4,
         "order_params": 6,
         "concurrency_target": 50,
@@ -152,10 +152,18 @@ _PROFILES: dict[str, dict[str, int | str]] = {
 }
 
 
-def build_profile(mode: Literal["lite", "pro", "max"]) -> DimensionProfile:
-    """Build a DimensionProfile for the given mode with auto-detected backend."""
+def build_profile(
+    mode: Literal["lite", "pro", "max"],
+    force_backend: str | None = None,
+) -> DimensionProfile:
+    """Build a DimensionProfile for the given mode with auto-detected backend.
+
+    Args:
+        mode: Computation tier.
+        force_backend: If set, override auto-detection with this backend.
+    """
     params = _PROFILES[mode]
-    backend = get_backend()
+    backend = force_backend if force_backend is not None else get_backend()
     # lite always uses python/numpy regardless of GPU availability
     if mode == "lite":
         backend = "numpy" if backend in ("numpy", "cupy", "torch") else "python"
@@ -163,7 +171,7 @@ def build_profile(mode: Literal["lite", "pro", "max"]) -> DimensionProfile:
     elif mode == "pro":
         if backend == "torch" or backend == "cupy":
             backend = "numpy"
-    # max uses best available
+    # max uses best available (or forced backend)
     return DimensionProfile(mode=mode, backend=backend, **params)  # type: ignore[arg-type]
 
 
@@ -183,6 +191,9 @@ class SylanneConfig:
         persistence_fsync: fsync after state writes (safer but slower).
         tick_drift_cap: Max personality drift per tick [0, 1].
         locale: Language for internal prompts ("zh" or "en").
+        force_backend: Override auto-detected compute backend.
+            None = auto-detect, "torch" = force GPU via PyTorch,
+            "python" = force pure-Python (useful for testing/debugging).
     """
 
     mode: Literal["lite", "pro", "max"] = "lite"
@@ -191,6 +202,7 @@ class SylanneConfig:
     persistence_fsync: bool = True
     tick_drift_cap: float = 0.05
     locale: str = "zh"
+    force_backend: str | None = None
 
     def __post_init__(self) -> None:
         if self.mode not in ("lite", "pro", "max"):
@@ -199,7 +211,14 @@ class SylanneConfig:
             raise ValueError("tick_drift_cap must be in [0.0, 1.0]")
         if self.locale not in ("zh", "en"):
             raise ValueError("locale must be 'zh' or 'en'")
+        if self.force_backend is not None and self.force_backend not in (
+            "torch",
+            "cupy",
+            "numpy",
+            "python",
+        ):
+            raise ValueError("force_backend must be None, 'torch', 'cupy', 'numpy', or 'python'")
 
     def profile(self) -> DimensionProfile:
         """Build the dimension profile for this config's mode."""
-        return build_profile(self.mode)
+        return build_profile(self.mode, force_backend=self.force_backend)
