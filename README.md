@@ -72,7 +72,7 @@ git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/syl
 - **三档性能**：lite (5ms, 42通道) / pro (40ms, 287通道) / max (50ms/CPU, 441通道)
 - **退化运行**：LLM 不可用时自动退化为本地规则引擎
 - **零外部依赖**（lite 档）：纯 Python 标准库
-- **使用案例**：[astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne)
+- **使用案例（v1 顺序管线）**：[astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne)
 
 ---
 
