@@ -108,8 +108,8 @@ class CircuitBreaker:
 class LayerRegistry:
     """计算层注册表：支持第三方注册自定义层。
 
-    既可作为实例使用（每个 ComputationSpine 持有独立注册表），
-    也保留 classmethod 接口委托到全局默认注册表（向后兼容）。
+    向后兼容：LayerRegistry.register("name", fn) 仍可直接在类上调用（操作全局注册表）。
+    实例方法 register_local() 用于实例级别的隔离注册。
     """
 
     _global_layers: dict[str, Callable[..., Any]] = {}
@@ -117,21 +117,26 @@ class LayerRegistry:
     def __init__(self) -> None:
         self._custom_layers: dict[str, Callable[..., Any]] = {}
 
-    def register(self, name: str, layer_fn: Callable[..., Any]) -> None:
-        """注册自定义计算层。layer_fn 签名: (input_data, config) -> output_data"""
+    # --- 实例级别方法（隔离注册表） ---
+
+    def register_local(self, name: str, layer_fn: Callable[..., Any]) -> None:
+        """注册到实例级注册表。"""
         self._custom_layers[name] = layer_fn
 
     def get_custom_layers(self) -> dict[str, Callable[..., Any]]:
-        return dict(self._custom_layers)
+        """获取实例级 + 全局注册表的合并结果。"""
+        merged = dict(self._global_layers)
+        merged.update(self._custom_layers)
+        return merged
 
     def has_custom(self, name: str) -> bool:
-        return name in self._custom_layers
+        return name in self._custom_layers or name in self._global_layers
 
-    # --- 向后兼容的 classmethod 接口（委托到全局注册表） ---
+    # --- 向后兼容的 classmethod 接口（操作全局注册表） ---
 
     @classmethod
-    def register_global(cls, name: str, layer_fn: Callable[..., Any]) -> None:
-        """注册到全局注册表（向后兼容 LayerRegistry.register() 的旧用法）。"""
+    def register(cls, name: str, layer_fn: Callable[..., Any]) -> None:
+        """注册自定义计算层到全局注册表。layer_fn 签名: (input_data, config) -> output_data"""
         cls._global_layers[name] = layer_fn
 
     @classmethod

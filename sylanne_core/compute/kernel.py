@@ -938,14 +938,20 @@ class AlphaKernel:
         if len(self.body._recent_texts) < 2:
             return False
 
-        # Check recency: last event must be within 5 minutes of current time
+        # Check recency: last USER-initiated event must be within 5 minutes.
+        # Note: self.last_event is already updated to the current tick's event,
+        # so we use previous_event to check the last real user interaction time.
         import time as _time
 
-        last_now = float(self.last_event.get("now") or 0.0)
-        if last_now > 0:
-            elapsed = _time.time() - last_now
+        prev_now = float(self.previous_event.get("now") or 0.0)
+        prev_text = str(self.previous_event.get("text") or "")
+        if prev_now > 0 and prev_text:
+            elapsed = _time.time() - prev_now
             if elapsed > 300.0:
                 return False
+        elif not prev_text:
+            # No previous user text at all — no engagement history
+            return False
 
         # Check rejection signals in the most recent text
         rejection_signals = ("别烦我", "不想聊", "安静", "别说了", "闭嘴")
