@@ -281,7 +281,7 @@ A conformance test suite verifies:
 
 ## 11. Reference Implementation
 
-The Sylanne SDK (`sylanne_core`) is the reference implementation:
+The SylannEngine SDK (`sylanne_core`) is the reference implementation:
 - **Level 0**: `ComputationSpine.process()` — sequential 7-layer pipeline (legacy)
 - **Level 0 (v2)**: `ResonanceSpine.process()` — simplicial resonance field (recommended)
 - **Level 1**: `AlphaKernel` with personality, persistence, text bridge

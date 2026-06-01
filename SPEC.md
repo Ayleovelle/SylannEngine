@@ -7,8 +7,8 @@
 
 ## 1. Overview / 概述
 
-Sylanne-Core is an affective computation engine SDK for AstrBot plugin developers.
-Sylanne-Core 是面向 AstrBot 插件开发者的情感计算引擎 SDK。
+SylannEngine is an affective computation engine SDK for AstrBot plugin developers.
+SylannEngine 是面向 AstrBot 插件开发者的情感计算引擎 SDK。
 
 **Positioning / 定位**: Pure computation black-box. Text in, structured data out. No reply generation, no prompt injection, no message routing.
 纯计算黑盒。文本输入，结构化数据输出。不生成回复，不注入 prompt，不管消息收发。
