@@ -9,7 +9,6 @@ Output: Weight evolution curves for active vs inactive channels.
 from __future__ import annotations
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     SAMPLE_TEXTS,
@@ -25,7 +24,6 @@ def run_single(seed: int) -> dict:
     field = spine._field
     plasticity = field._coupling.plasticity
 
-    n_channels = len(plasticity.weights)
     initial_weights = np.array(plasticity.weights)
 
     # Phase 1: 500 ticks of normal activity (builds up some channels)
@@ -98,11 +96,13 @@ def main():
     x = np.arange(len(active_mean))
 
     ax1.plot(x, active_mean, color="#E91E63", label="Top-5 active")
-    ax1.fill_between(x, active_mean - active_std, active_mean + active_std,
-                     color="#E91E63", alpha=0.2)
+    ax1.fill_between(
+        x, active_mean - active_std, active_mean + active_std, color="#E91E63", alpha=0.2
+    )
     ax1.plot(x, inactive_mean, color="#2196F3", label="Bottom-5 inactive")
-    ax1.fill_between(x, inactive_mean - inactive_std, inactive_mean + inactive_std,
-                     color="#2196F3", alpha=0.2)
+    ax1.fill_between(
+        x, inactive_mean - inactive_std, inactive_mean + inactive_std, color="#2196F3", alpha=0.2
+    )
     ax1.axvline(500, color="gray", linestyle="--", label="Idle phase starts")
     ax1.set_xlabel("Tick")
     ax1.set_ylabel("Mean Weight")
@@ -113,18 +113,21 @@ def main():
     total_mean = np.mean([r["total"] for r in all_results], axis=0)
     total_std = np.std([r["total"] for r in all_results], axis=0)
     ax2.plot(x, total_mean, color="#4CAF50")
-    ax2.fill_between(x, total_mean - total_std, total_mean + total_std,
-                     color="#4CAF50", alpha=0.2)
+    ax2.fill_between(x, total_mean - total_std, total_mean + total_std, color="#4CAF50", alpha=0.2)
     ax2.axvline(500, color="gray", linestyle="--")
     ax2.set_xlabel("Tick")
     ax2.set_ylabel("Total Weight (sum)")
     ax2.set_title("Homeostatic Budget Conservation")
 
     # LTP/LTD ratio bar chart
-    ax3.bar(["LTP\n(strengthened)", "LTD\n(weakened)"],
-            [np.mean(ltp_ratios), np.mean(ltd_ratios)],
-            yerr=[np.std(ltp_ratios), np.std(ltd_ratios)],
-            color=["#E91E63", "#2196F3"], alpha=0.7, capsize=5)
+    ax3.bar(
+        ["LTP\n(strengthened)", "LTD\n(weakened)"],
+        [np.mean(ltp_ratios), np.mean(ltd_ratios)],
+        yerr=[np.std(ltp_ratios), np.std(ltd_ratios)],
+        color=["#E91E63", "#2196F3"],
+        alpha=0.7,
+        capsize=5,
+    )
     ax3.set_ylabel("Fraction of channels")
     ax3.set_title("LTP vs LTD After 1000 Ticks")
     ax3.set_ylim(0, 1)

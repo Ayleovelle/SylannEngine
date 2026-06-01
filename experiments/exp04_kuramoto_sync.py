@@ -9,7 +9,6 @@ Output: Phase transition curve r(K) showing explosive vs gradual sync.
 from __future__ import annotations
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     SAMPLE_TEXTS,
@@ -44,7 +43,11 @@ def measure_sync_at_coupling(tier: str, k_scale: float, n_ticks: int, seed: int)
         sync_values.append(meta.get("sync_order", 0.0))
 
     # Return mean of last 100 ticks (steady state)
-    return float(np.mean(sync_values[-100:])) if len(sync_values) >= 100 else float(np.mean(sync_values))
+    return (
+        float(np.mean(sync_values[-100:]))
+        if len(sync_values) >= 100
+        else float(np.mean(sync_values))
+    )
 
 
 def run_sweep(tier: str, k_values: np.ndarray, n_ticks: int = 200) -> list[list[float]]:
@@ -76,8 +79,7 @@ def main():
         r_std = np.std(results, axis=0)
 
         ax1.plot(k_values, r_mean, color=color, linewidth=2, label=f"{tier.upper()}")
-        ax1.fill_between(k_values, r_mean - r_std, r_mean + r_std,
-                         color=color, alpha=0.15)
+        ax1.fill_between(k_values, r_mean - r_std, r_mean + r_std, color=color, alpha=0.15)
 
     ax1.set_xlabel("Coupling Strength K (scaled)")
     ax1.set_ylabel("Order Parameter r")
@@ -117,6 +119,7 @@ def main():
 
     try:
         from scipy.stats import mannwhitneyu
+
         stat, p = mannwhitneyu(max_r, lite_r, alternative="greater")
         print(f"  Mann-Whitney U (max > lite): p={p:.6f}")
     except ImportError:

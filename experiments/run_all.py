@@ -50,11 +50,12 @@ def main():
             elapsed = time.time() - start
             print(f"  FAILED after {elapsed:.1f}s: {e}\n")
             import traceback
+
             traceback.print_exc()
 
     total = time.time() - total_start
     print(f"\nAll experiments completed in {total:.1f}s")
-    print(f"Figures saved to: experiments/figures/")
+    print("Figures saved to: experiments/figures/")
 
 
 if __name__ == "__main__":

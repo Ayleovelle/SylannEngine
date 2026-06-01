@@ -6,8 +6,6 @@ All experiments import from here for consistency.
 
 from __future__ import annotations
 
-import asyncio
-import json
 import sys
 import time
 from pathlib import Path
@@ -18,8 +16,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sylanne_core import SylanneEngine
-from sylanne_core.config import SylanneConfig, build_profile
 from sylanne_core.compute.resonance_integration import ResonanceSpine
+from sylanne_core.config import SylanneConfig, build_profile
 
 FIGURES_DIR = Path(__file__).parent / "figures"
 FIGURES_DIR.mkdir(exist_ok=True)
@@ -113,6 +111,7 @@ def print_stats(name: str, values: list[float]):
 def wilcoxon_test(a: list[float], b: list[float]) -> float:
     """Wilcoxon signed-rank test, returns p-value."""
     from scipy.stats import wilcoxon
+
     stat, p = wilcoxon(a, b)
     return p
 
@@ -120,6 +119,7 @@ def wilcoxon_test(a: list[float], b: list[float]) -> float:
 def ttest(a: list[float], b: list[float]) -> float:
     """Independent t-test, returns p-value."""
     from scipy.stats import ttest_ind
+
     stat, p = ttest_ind(a, b)
     return p
 

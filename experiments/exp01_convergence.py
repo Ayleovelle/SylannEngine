@@ -7,12 +7,8 @@ Output: iteration count distribution (histogram) per tier.
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
-
 from utils import (
-    FIGURES_DIR,
     N_REPEATS,
     N_TICKS,
     SAMPLE_TEXTS,

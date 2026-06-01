@@ -8,12 +8,10 @@ Output: Response surface showing personality→dynamics mapping.
 from __future__ import annotations
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     SAMPLE_TEXTS,
     make_spine,
-    print_stats,
     process_text,
     save_figure,
 )
@@ -62,8 +60,10 @@ def run_sweep_single(dim: str, value: float, seed: int) -> dict:
 def main():
     import matplotlib.pyplot as plt
 
-    print(f"  Running personality sweep ({len(PERSONALITY_DIMS)} dims x "
-          f"{len(SWEEP_VALUES)} values x {N_REPEATS} repeats)...")
+    print(
+        f"  Running personality sweep ({len(PERSONALITY_DIMS)} dims x "
+        f"{len(SWEEP_VALUES)} values x {N_REPEATS} repeats)..."
+    )
 
     # Collect data
     data = {}
@@ -97,8 +97,9 @@ def main():
             y = [v[1] for v in vals]
             err = [v[2] for v in vals]
 
-            ax.errorbar(x, y, yerr=err, color=color, linewidth=2,
-                        capsize=3, marker="o", markersize=4)
+            ax.errorbar(
+                x, y, yerr=err, color=color, linewidth=2, capsize=3, marker="o", markersize=4
+            )
             if row == 0:
                 ax.set_title(dim.capitalize(), fontsize=10)
             if col == 0:

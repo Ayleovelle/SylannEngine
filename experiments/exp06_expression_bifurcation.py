@@ -9,12 +9,10 @@ Output: Expression rate per trigger type, combined vs isolated.
 from __future__ import annotations
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     POSITIVE_TEXTS,
     SAMPLE_TEXTS,
-    STRESS_TEXTS,
     make_spine,
     print_stats,
     process_text,
@@ -150,15 +148,25 @@ def main():
     # Annotate with significance
     for bar, mean in zip(bars, means):
         if mean > 0:
-            ax1.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
-                     f"{mean:.2f}", ha="center", fontsize=9)
+            ax1.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.02,
+                f"{mean:.2f}",
+                ha="center",
+                fontsize=9,
+            )
 
     # Comparison: any-trigger vs all-triggers-needed (hypothetical)
     any_trigger_rate = 1.0 - np.prod([1.0 - np.mean(results[n]) for n in names])
-    ax2.bar(["Any Single Trigger\n(OR-gate, observed)"],
-            [any_trigger_rate], color="#4CAF50", alpha=0.7)
-    ax2.bar(["All Triggers Required\n(AND-gate, hypothetical)"],
-            [np.prod(means)], color="#9E9E9E", alpha=0.7)
+    ax2.bar(
+        ["Any Single Trigger\n(OR-gate, observed)"], [any_trigger_rate], color="#4CAF50", alpha=0.7
+    )
+    ax2.bar(
+        ["All Triggers Required\n(AND-gate, hypothetical)"],
+        [np.prod(means)],
+        color="#9E9E9E",
+        alpha=0.7,
+    )
     ax2.set_ylabel("Combined Expression Probability")
     ax2.set_title("OR-Gate vs AND-Gate")
     ax2.set_ylim(0, 1.0)
