@@ -40,8 +40,8 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from sylanne_core.compute.hot_pool import InfluenceType
-from sylanne_core.standard import EmotionVector
+from .compute.hot_pool import InfluenceType
+from .standard import EmotionVector
 
 # ---------------------------------------------------------------------------
 # Helpers

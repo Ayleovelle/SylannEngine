@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import logging
 import time
 from collections import deque
@@ -107,20 +108,22 @@ class CircuitBreaker:
 class LayerRegistry:
     """计算层注册表：支持第三方注册自定义层。"""
 
-    _custom_layers: dict[str, Callable[..., Any]] = {}
+    def __init__(self) -> None:
+        self._custom_layers: dict[str, Callable[..., Any]] = {}
 
-    @classmethod
-    def register(cls, name: str, layer_fn: Callable[..., Any]) -> None:
+    def register(self, name: str, layer_fn: Callable[..., Any]) -> None:
         """注册自定义计算层。layer_fn 签名: (input_data, config) -> output_data"""
-        cls._custom_layers[name] = layer_fn
+        self._custom_layers[name] = layer_fn
 
-    @classmethod
-    def get_custom_layers(cls) -> dict[str, Callable[..., Any]]:
-        return dict(cls._custom_layers)
+    def get_custom_layers(self) -> dict[str, Callable[..., Any]]:
+        return dict(self._custom_layers)
 
-    @classmethod
-    def has_custom(cls, name: str) -> bool:
-        return name in cls._custom_layers
+    def has_custom(self, name: str) -> bool:
+        return name in self._custom_layers
+
+
+# 全局默认注册表实例（向后兼容）
+_default_registry = LayerRegistry()
 
 
 _L1_PAYLOAD_FALLBACK: dict[str, object] = {
@@ -183,7 +186,7 @@ class ComputationSpine:
         "_layer_enabled",
         "_result_cache",
         "_drift_attribution",
-        "_parallel_eligible",
+        "_pad_projector_cache",
     )
 
     def __init__(self, plugin: Any = None, profile: DimensionProfile | None = None):
@@ -301,12 +304,8 @@ class ComputationSpine:
         # 计算结果缓存（Item 20）：相同文本短时间内命中缓存，避免重复计算
         self._result_cache: BoundedDict = BoundedDict(maxsize=50, ttl=30)
 
-        # Item 11: 流水线并行化标记。
-        # L1-L2 与 L4 理论上可并行，但 L4 依赖 L3 输出，且 process() 为同步方法，
-        # 无法使用 asyncio.gather。此标记供未来 async 重构时识别可并行段。
-        # 当前语义：在 normal/full path 中 L4(sheaf) 和 L5(hgt) 可与 L6(boundary)
-        # 并行执行（它们之间无数据依赖），但需要 async 化后才能实现。
-        self._parallel_eligible: bool = False
+        # PADProjector 缓存：(n_dims, personality_dict, projector_instance)
+        self._pad_projector_cache: tuple[int, dict[str, float], PADProjector] | None = None
 
     def embodiment_bounds(self) -> dict[str, float] | None:
         """Public accessor for embodiment trait bounds (used by kernel personality drift)."""
@@ -578,7 +577,11 @@ class ComputationSpine:
         """
         # 结果缓存层（Item 20）：相同文本+相同评估短时间内直接返回缓存
         # assessment 不同意味着 LLM 给出了新评估，必须重新计算
-        assess_sig = hash(str(sorted(assessment.items()))) if assessment else 0
+        assess_sig = (
+            hashlib.sha256(str(sorted(assessment.items())).encode()).hexdigest()[:16]
+            if assessment
+            else ""
+        )
         cache_key = (text, session_key or "", assess_sig)
         cached = self._result_cache.get(cache_key)
         if cached is not None:
@@ -1090,7 +1093,13 @@ class ComputationSpine:
             PADVector: 当前情感状态的 PAD 表示。
         """
         n_dims = self.engine.scar_state.n_dims
-        projector = PADProjector(n_dims, self._personality)
+        # 缓存 projector 实例，仅在维度或人格变化时重建
+        cache = self._pad_projector_cache
+        if cache is None or cache[0] != n_dims or cache[1] != self._personality:
+            projector = PADProjector(n_dims, self._personality)
+            self._pad_projector_cache = (n_dims, dict(self._personality), projector)
+        else:
+            projector = cache[2]
         internal_state = list(self.engine.scar_state.base)
         return projector.project(internal_state)
 

@@ -28,8 +28,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from sylanne_core.compute.pad_interop import PADVector
-from sylanne_core.standard import EmotionVector
+from .compute.pad_interop import PADVector
+from .standard import EmotionVector
 
 # ---------------------------------------------------------------------------
 # Utility

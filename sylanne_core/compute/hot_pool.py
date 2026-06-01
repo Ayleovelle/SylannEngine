@@ -20,10 +20,13 @@
 
 from __future__ import annotations
 
+import itertools
 import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Literal
+
+from .vector import clamp as _clamp
 
 # ---------------------------------------------------------------------------
 # 类型定义
@@ -46,14 +49,11 @@ _VALID_INFLUENCE_TYPES: frozenset[str] = frozenset(
 # 辅助函数
 # ---------------------------------------------------------------------------
 
+# _clamp is from vector.py — same signature (value, lo=0.0, hi=1.0).
+# vector.py's version additionally handles NaN/Inf → lo, which is a strict superset.
 
-def _clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
-    """将值钳制到 [lo, hi] 范围。"""
-    if value < lo:
-        return lo
-    if value > hi:
-        return hi
-    return value
+# Monotonic counter for generating unique material IDs within the same process.
+_material_id_counter = itertools.count()
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -220,6 +220,7 @@ class CollapseRecord:
         post_collapse_traits: 坍缩后的人格特质快照
         trait_deltas: 各特质的变化量
         recovery_ticks_remaining: 恢复期剩余 tick 数
+        collapse_tick: 坍缩发生时的热池 tick 编号
     """
 
     timestamp: float
@@ -230,6 +231,7 @@ class CollapseRecord:
     post_collapse_traits: dict[str, float]
     trait_deltas: dict[str, float]
     recovery_ticks_remaining: int
+    collapse_tick: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -241,6 +243,7 @@ class CollapseRecord:
             "post_collapse_traits": {k: round(v, 6) for k, v in self.post_collapse_traits.items()},
             "trait_deltas": {k: round(v, 6) for k, v in self.trait_deltas.items()},
             "recovery_ticks_remaining": self.recovery_ticks_remaining,
+            "collapse_tick": self.collapse_tick,
         }
 
     @classmethod
@@ -254,6 +257,7 @@ class CollapseRecord:
             post_collapse_traits=data.get("post_collapse_traits", {}),
             trait_deltas=data.get("trait_deltas", {}),
             recovery_ticks_remaining=int(data.get("recovery_ticks_remaining", 0)),
+            collapse_tick=int(data.get("collapse_tick", 0)),
         )
 
 
@@ -493,7 +497,7 @@ class HotPool:
         else:
             self._add_material(
                 HotMaterial(
-                    id=f"contradiction_{now:.0f}",
+                    id=f"contradiction_{time.time_ns()}_{next(_material_id_counter)}",
                     origin_type="contradiction",
                     heat=_clamp(heat_delta),
                     mass=_clamp(eff_intensity * 0.4),
@@ -513,7 +517,7 @@ class HotPool:
         else:
             self._add_material(
                 HotMaterial(
-                    id=f"reinforcement_{now:.0f}",
+                    id=f"reinforcement_{time.time_ns()}_{next(_material_id_counter)}",
                     origin_type="reinforcement",
                     heat=_clamp(heat_delta),
                     mass=_clamp(eff_intensity * 0.3),
@@ -535,7 +539,7 @@ class HotPool:
         else:
             self._add_material(
                 HotMaterial(
-                    id=f"revelation_{now:.0f}",
+                    id=f"revelation_{time.time_ns()}_{next(_material_id_counter)}",
                     origin_type="revelation",
                     heat=_clamp(heat_delta),
                     mass=_clamp(mass_delta),
@@ -560,7 +564,7 @@ class HotPool:
         mass_delta = eff_intensity * 0.7
         self._add_material(
             HotMaterial(
-                id=f"betrayal_{now:.0f}",
+                id=f"betrayal_{time.time_ns()}_{next(_material_id_counter)}",
                 origin_type="betrayal",
                 heat=_clamp(heat_delta),
                 mass=_clamp(mass_delta),
@@ -848,6 +852,9 @@ class HotPool:
         self._in_recovery = True
         self._recovery_ticks_remaining = recovery_ticks
 
+        # 保存级联持续时间（reset 会清零，必须在 reset 之前读取）
+        cascade_duration = self._cascade.ticks_above_critical
+
         # 重置级联
         self._cascade.reset()
 
@@ -861,12 +868,16 @@ class HotPool:
             timestamp=time.time(),
             trigger_temperature=self._temperature,
             trigger_pressure=self._pressure,
-            cascade_duration_ticks=self._cascade.ticks_above_critical,
+            cascade_duration_ticks=cascade_duration,
             pre_collapse_traits={},  # 由调用方填充
             post_collapse_traits={},  # 由调用方填充
             trait_deltas=trait_deltas,
             recovery_ticks_remaining=recovery_ticks,
+            collapse_tick=self._tick,
         )
+        # 限制历史记录长度，防止长会话无限增长
+        if len(self._collapse_history) >= 50:
+            self._collapse_history = self._collapse_history[-49:]
         self._collapse_history.append(record)
 
         return record
@@ -1012,7 +1023,7 @@ class HotPool:
         if existing_wound is None:
             self._add_material(
                 HotMaterial(
-                    id=f"wound_{time.time():.0f}",
+                    id=f"wound_{time.time_ns()}_{next(_material_id_counter)}",
                     origin_type="wound",
                     heat=_clamp(wound_open * 0.6),
                     mass=_clamp(wound_open * 0.4),
@@ -1058,7 +1069,7 @@ class HotPool:
             return 0.0
         latest = self._collapse_history[-1]
         # 坍缩后 3 tick 内强制表达
-        ticks_since_collapse = self._tick - latest.cascade_duration_ticks
+        ticks_since_collapse = self._tick - latest.collapse_tick
         if 0 <= ticks_since_collapse < 3:
             return 1.5  # 超过表达阈值的倍数
         return 0.0
