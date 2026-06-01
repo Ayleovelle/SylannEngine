@@ -10,13 +10,11 @@ from __future__ import annotations
 import time
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     N_TICKS,
     SAMPLE_TEXTS,
     make_spine,
-    print_stats,
     process_text,
     save_figure,
 )
@@ -66,9 +64,11 @@ def main():
         for r in results[tier]:
             all_lat.extend(r["latencies"])
         arr = np.array(all_lat)
-        print(f"  {tier}: p50={np.percentile(arr, 50):.2f}ms, "
-              f"p95={np.percentile(arr, 95):.2f}ms, "
-              f"p99={np.percentile(arr, 99):.2f}ms")
+        print(
+            f"  {tier}: p50={np.percentile(arr, 50):.2f}ms, "
+            f"p95={np.percentile(arr, 95):.2f}ms, "
+            f"p99={np.percentile(arr, 99):.2f}ms"
+        )
 
     # Figure: 3 subplots
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(14, 4))

@@ -9,11 +9,9 @@ Output: Attractor landscape visualization, escape dynamics.
 from __future__ import annotations
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     POSITIVE_TEXTS,
-    SAMPLE_TEXTS,
     STRESS_TEXTS,
     make_spine,
     print_stats,
@@ -24,7 +22,6 @@ from utils import (
 
 def run_single(seed: int) -> dict:
     spine = make_spine("pro")
-    field = spine._field
 
     base_time = 1_000_000.0 + seed * 100_000
     attractor_counts = []
@@ -125,8 +122,7 @@ def main():
     dist_std = np.std([r["distances"] for r in all_results], axis=0)
     x = np.arange(len(dist_mean))
     ax2.plot(x, dist_mean, color="#FF5722", linewidth=1)
-    ax2.fill_between(x, dist_mean - dist_std, dist_mean + dist_std,
-                     color="#FF5722", alpha=0.2)
+    ax2.fill_between(x, dist_mean - dist_std, dist_mean + dist_std, color="#FF5722", alpha=0.2)
     ax2.axvline(500, color="gray", linestyle="--", label="Novel input")
     ax2.set_xlabel("Tick")
     ax2.set_ylabel("Distance to Nearest Attractor")

@@ -8,7 +8,6 @@ Output: Scatter plot of Phi vs expression drive, Pearson/Spearman correlation.
 from __future__ import annotations
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     POSITIVE_TEXTS,
@@ -72,6 +71,7 @@ def main():
         if mask.sum() > 10:
             try:
                 from scipy.stats import pearsonr, spearmanr
+
                 r_p, _ = pearsonr(phi[mask], drive[mask])
                 r_s, _ = spearmanr(phi[mask], drive[mask])
             except ImportError:
@@ -96,10 +96,12 @@ def main():
     drive = np.array(all_results[0]["drive"])
     expressed = np.array(all_results[0]["expressed"])
 
-    ax1.scatter(phi[~expressed], drive[~expressed], s=8, alpha=0.3,
-                color="#9E9E9E", label="No expression")
-    ax1.scatter(phi[expressed], drive[expressed], s=20, alpha=0.7,
-                color="#F44336", label="Expression fired")
+    ax1.scatter(
+        phi[~expressed], drive[~expressed], s=8, alpha=0.3, color="#9E9E9E", label="No expression"
+    )
+    ax1.scatter(
+        phi[expressed], drive[expressed], s=20, alpha=0.7, color="#F44336", label="Expression fired"
+    )
     ax1.set_xlabel("Phi (Integrated Information)")
     ax1.set_ylabel("Expression Drive")
     ax1.set_title("Phi vs Expression Drive")
@@ -117,11 +119,23 @@ def main():
 
     # Correlation distribution
     if correlations_pearson:
-        ax3.hist(correlations_pearson, bins=max(2, len(correlations_pearson) // 2),
-                 color="#4CAF50", alpha=0.7, edgecolor="white", label="Pearson")
+        ax3.hist(
+            correlations_pearson,
+            bins=max(2, len(correlations_pearson) // 2),
+            color="#4CAF50",
+            alpha=0.7,
+            edgecolor="white",
+            label="Pearson",
+        )
     if correlations_spearman:
-        ax3.hist(correlations_spearman, bins=max(2, len(correlations_spearman) // 2),
-                 color="#FF9800", alpha=0.5, edgecolor="white", label="Spearman")
+        ax3.hist(
+            correlations_spearman,
+            bins=max(2, len(correlations_spearman) // 2),
+            color="#FF9800",
+            alpha=0.5,
+            edgecolor="white",
+            label="Spearman",
+        )
     ax3.axvline(0, color="gray", linestyle="--")
     ax3.set_xlabel("Correlation Coefficient")
     ax3.set_ylabel("Count")

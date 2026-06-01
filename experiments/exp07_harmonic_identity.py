@@ -8,7 +8,6 @@ Output: Identity norm over time, perturbation recovery curve.
 from __future__ import annotations
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     POSITIVE_TEXTS,
@@ -49,9 +48,9 @@ def run_single(seed: int) -> dict:
         state_norms.append(float(field._last_energy))
 
     identity_after_perturbation = np.array(field._harmonic_identity)
-    perturbation_drift = float(np.linalg.norm(
-        identity_after_perturbation - identity_before_perturbation
-    ))
+    perturbation_drift = float(
+        np.linalg.norm(identity_after_perturbation - identity_before_perturbation)
+    )
 
     # Phase 3: Recovery (300 ticks of neutral input)
     for i in range(300):
@@ -97,8 +96,7 @@ def main():
     norms_std = np.std([r["identity_norms"] for r in all_results], axis=0)
     x = np.arange(len(norms_mean))
     ax1.plot(x, norms_mean, color="#673AB7", linewidth=1.5)
-    ax1.fill_between(x, norms_mean - norms_std, norms_mean + norms_std,
-                     color="#673AB7", alpha=0.2)
+    ax1.fill_between(x, norms_mean - norms_std, norms_mean + norms_std, color="#673AB7", alpha=0.2)
     ax1.axvline(500, color="red", linestyle="--", label="Perturbation")
     ax1.axvline(700, color="green", linestyle="--", label="Recovery")
     ax1.set_xlabel("Tick")
@@ -109,8 +107,12 @@ def main():
     # Recovery ratio
     recovery_ratios = [r["recovery_ratio"] for r in all_results]
     ax2.hist(recovery_ratios, bins=10, color="#4CAF50", alpha=0.7, edgecolor="white")
-    ax2.axvline(np.mean(recovery_ratios), color="red", linestyle="--",
-                label=f"Mean={np.mean(recovery_ratios):.2f}")
+    ax2.axvline(
+        np.mean(recovery_ratios),
+        color="red",
+        linestyle="--",
+        label=f"Mean={np.mean(recovery_ratios):.2f}",
+    )
     ax2.set_xlabel("Recovery Ratio")
     ax2.set_ylabel("Count")
     ax2.set_title("Identity Recovery After Perturbation")

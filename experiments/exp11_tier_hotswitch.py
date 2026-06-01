@@ -9,7 +9,6 @@ Output: State L2 distance before/after switch, emotion continuity.
 from __future__ import annotations
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     SAMPLE_TEXTS,
@@ -96,8 +95,8 @@ def main():
             r = run_switch(from_t, to_t, seed=rep)
             results.append(r)
         all_results[key] = results
-        print_stats(f"    Energy jump", [r["energy_jump"] for r in results])
-        print_stats(f"    Relative jump", [r["energy_relative_jump"] for r in results])
+        print_stats("    Energy jump", [r["energy_jump"] for r in results])
+        print_stats("    Relative jump", [r["energy_relative_jump"] for r in results])
 
     # Figure
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
@@ -118,7 +117,7 @@ def main():
     jumps_mean = [np.mean([r["energy_relative_jump"] for r in all_results[k]]) for k in keys]
     jumps_std = [np.std([r["energy_relative_jump"] for r in all_results[k]]) for k in keys]
 
-    bars = ax2.bar(keys, jumps_mean, yerr=jumps_std, color=colors, alpha=0.7, capsize=5)
+    ax2.bar(keys, jumps_mean, yerr=jumps_std, color=colors, alpha=0.7, capsize=5)
     ax2.set_ylabel("Relative Energy Jump |ΔE|/E")
     ax2.set_title("Tier Switch Fidelity")
     ax2.axhline(0.1, color="red", linestyle="--", alpha=0.5, label="10% threshold")

@@ -8,7 +8,6 @@ Output: Energy envelope, NaN/Inf check, state norm trajectory.
 from __future__ import annotations
 
 import numpy as np
-
 from utils import (
     N_REPEATS,
     POSITIVE_TEXTS,
@@ -45,9 +44,9 @@ def run_single(tier: str, seed: int) -> dict:
 
         # Mix in idle ticks (20% of the time)
         if np.random.random() < 0.2:
-            result = spine.process("", now)
+            spine.process("", now)
         else:
-            result = process_text(spine, text, now=now)
+            process_text(spine, text, now=now)
 
         energy = field._last_energy
         energies.append(energy)
@@ -60,7 +59,7 @@ def run_single(tier: str, seed: int) -> dict:
             if np.any(np.isinf(s)):
                 inf_count += 1
 
-        state_norm = float(np.sqrt(sum(np.sum(np.array(s)**2) for s in states)))
+        state_norm = float(np.sqrt(sum(np.sum(np.array(s) ** 2) for s in states)))
         state_norms.append(state_norm)
 
     return {
@@ -92,8 +91,10 @@ def main():
         inf_total = sum(r["inf_count"] for r in all_results[tier])
         print(f"    NaN occurrences: {nan_total}")
         print(f"    Inf occurrences: {inf_total}")
-        print_stats(f"    Max energy", [r["max_energy"] for r in all_results[tier]])
-        print_stats(f"    Final energy std (last 100)", [r["energy_stable"] for r in all_results[tier]])
+        print_stats("    Max energy", [r["max_energy"] for r in all_results[tier]])
+        print_stats(
+            "    Final energy std (last 100)", [r["energy_stable"] for r in all_results[tier]]
+        )
 
     # Figure
     fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
@@ -129,7 +130,7 @@ def main():
         window = 50
         for i in range(len(e_mean)):
             start = max(0, i - window)
-            rolling_std.append(np.std(e_mean[start:i + 1]))
+            rolling_std.append(np.std(e_mean[start : i + 1]))
         ax3.plot(rolling_std, color=color, linewidth=1, label=f"{tier.upper()}")
 
     ax3.set_xlabel("Tick")
