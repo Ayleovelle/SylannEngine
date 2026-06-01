@@ -106,7 +106,13 @@ class CircuitBreaker:
 
 
 class LayerRegistry:
-    """计算层注册表：支持第三方注册自定义层。"""
+    """计算层注册表：支持第三方注册自定义层。
+
+    既可作为实例使用（每个 ComputationSpine 持有独立注册表），
+    也保留 classmethod 接口委托到全局默认注册表（向后兼容）。
+    """
+
+    _global_layers: dict[str, Callable[..., Any]] = {}
 
     def __init__(self) -> None:
         self._custom_layers: dict[str, Callable[..., Any]] = {}
@@ -121,9 +127,20 @@ class LayerRegistry:
     def has_custom(self, name: str) -> bool:
         return name in self._custom_layers
 
+    # --- 向后兼容的 classmethod 接口（委托到全局注册表） ---
 
-# 全局默认注册表实例（向后兼容）
-_default_registry = LayerRegistry()
+    @classmethod
+    def register_global(cls, name: str, layer_fn: Callable[..., Any]) -> None:
+        """注册到全局注册表（向后兼容 LayerRegistry.register() 的旧用法）。"""
+        cls._global_layers[name] = layer_fn
+
+    @classmethod
+    def get_global_layers(cls) -> dict[str, Callable[..., Any]]:
+        return dict(cls._global_layers)
+
+    @classmethod
+    def has_global(cls, name: str) -> bool:
+        return name in cls._global_layers
 
 
 _L1_PAYLOAD_FALLBACK: dict[str, object] = {

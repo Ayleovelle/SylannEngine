@@ -90,12 +90,17 @@ def run_comparison(tier: str, n_ticks: int, seed: int) -> dict:
             v2_express_count += 1
         v2_decisions.append("resonance")
 
-    # Compute diversity (unique emotion patterns)
+    # Compute diversity (unique emotion patterns) using fresh spines
+    # to avoid contamination from the 500-tick experiment
+    v1_fresh = make_v1_spine(tier)
+    v2_fresh = make_spine(tier)
+    v1_fresh.apply_personality(personality)
+    v2_fresh.apply_personality(personality)
     v1_diversity = len(set(tuple(round(v, 2) for v in r.get("emotion", {}).values())
-                         for r in [v1.process(t, base_time + 999 * 60 + j)
+                         for r in [v1_fresh.process(t, base_time + 999 * 60 + j)
                                    for j, t in enumerate(SAMPLE_TEXTS)]))
     v2_diversity = len(set(tuple(round(v, 2) for v in r.get("emotion", {}).values())
-                         for r in [v2.process(t, base_time + 999 * 60 + j)
+                         for r in [v2_fresh.process(t, base_time + 999 * 60 + j)
                                    for j, t in enumerate(SAMPLE_TEXTS)]))
 
     return {

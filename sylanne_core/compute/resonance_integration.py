@@ -671,6 +671,12 @@ class ResonanceSpine:
             "feedback_counts": dict(self._feedback_counts),
             "expression_drive": self._expression_drive,
             "expression_threshold": self._expression_threshold,
+            "embodiment_traits": {
+                name: tm.to_dict() for name, tm in self._embodiment_traits.items()
+            },
+            "relationship_deltas": dict(self._relationship_deltas),
+            "drift_tick": self._drift_tick,
+            "last_drift_time": self._last_drift_time,
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
@@ -704,6 +710,17 @@ class ResonanceSpine:
             self._feedback_counts = dict(data["feedback_counts"])
         self._expression_drive = data.get("expression_drive", 0.0)
         self._expression_threshold = data.get("expression_threshold", 0.6)
+        # Restore embodiment traits
+        if "embodiment_traits" in data:
+            for name, tm_data in data["embodiment_traits"].items():
+                if name in self._embodiment_traits:
+                    self._embodiment_traits[name] = TraitMemory.from_dict(tm_data)
+        # Restore relationship deltas
+        if "relationship_deltas" in data:
+            for key, val in data["relationship_deltas"].items():
+                self._relationship_deltas[key] = val
+        self._drift_tick = data.get("drift_tick", 0)
+        self._last_drift_time = data.get("last_drift_time", 0.0)
 
     # ------------------------------------------------------------------
     # Public properties for kernel/adapter/prompt_surface compatibility
