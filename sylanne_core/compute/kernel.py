@@ -938,13 +938,13 @@ class AlphaKernel:
         if len(self.body._recent_texts) < 2:
             return False
 
-        # Check recency: last event must be within 5 minutes (300 seconds)
+        # Check recency: last event must be within 5 minutes of current time
+        import time as _time
+
         last_now = float(self.last_event.get("now") or 0.0)
-        previous_now = float(self.previous_event.get("now") or 0.0)
-        if last_now > 0 and previous_now > 0:
-            gap = last_now - previous_now
-            # If the gap between last two events exceeds 5 minutes, engagement is stale
-            if gap > 300.0:
+        if last_now > 0:
+            elapsed = _time.time() - last_now
+            if elapsed > 300.0:
                 return False
 
         # Check rejection signals in the most recent text
