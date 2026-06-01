@@ -17,11 +17,18 @@
 
 from __future__ import annotations
 
-import array
 import hashlib
 import math
 import struct
 from typing import Any
+
+# Lazy numpy detection for pro/max mode acceleration
+try:
+    import numpy as _np  # noqa: F401
+
+    _HAS_NUMPY = True
+except ImportError:
+    _HAS_NUMPY = False
 
 # 7 种异构 token 类型，对应计算栈各子系统的输出
 TOKEN_TYPES = (
@@ -36,8 +43,42 @@ TOKEN_TYPES = (
 _TYPE_INDEX = {t: i for i, t in enumerate(TOKEN_TYPES)}
 _NUM_TYPES = len(TOKEN_TYPES)
 _N_EXPERTS = 5
-# 5 个情境专家，对应不同的行为策略
-_EXPERT_NAMES = ("defense", "curiosity", "social", "silence", "repair")
+# Expert names: base 5 + extended for pro/max modes
+_EXPERT_NAMES_BASE = ("defense", "curiosity", "social", "silence", "repair")
+_EXPERT_NAMES_EXTENDED = (
+    "defense",
+    "curiosity",
+    "social",
+    "silence",
+    "repair",
+    "empathy",
+    "analysis",
+    "boundary",
+    "novelty",
+    "coherence",
+    "energy",
+    "timing",
+    "trust",
+    "growth",
+    "safety",
+    "meaning",
+    "reciprocity",
+    "vigilance",
+    "flow",
+    "depth",
+    "ambivalence",
+    "momentum",
+    "anticipation",
+    "recognition",
+    "integration",
+    "calibration",
+    "resonance",
+    "adaptation",
+    "persistence",
+    "release",
+    "grounding",
+    "perspective",
+)
 
 _exp = math.exp
 _sqrt = math.sqrt
@@ -59,16 +100,14 @@ def _deterministic_floats(seed: bytes, count: int) -> list[float]:
     return result
 
 
-def _make_flat(seed: bytes, rows: int, cols: int, scale: float = 1.0) -> array.array:
+def _make_flat(seed: bytes, rows: int, cols: int, scale: float = 1.0) -> list[float]:
     """生成扁平化权重矩阵（Xavier 初始化 + 确定性种子）。"""
     floats = _deterministic_floats(seed, rows * cols)
     xavier = scale * _sqrt(2.0 / (rows + cols))
-    return array.array("d", (f * xavier for f in floats))
+    return [f * xavier for f in floats]
 
 
-def _matmul_vec_flat(
-    mat: list[float], vec: list[float], rows: int, cols: int
-) -> list[float]:
+def _matmul_vec_flat(mat: list[float], vec: list[float], rows: int, cols: int) -> list[float]:
     """扁平化矩阵与向量的乘法：mat[rows×cols] × vec[cols] → result[rows]。"""
     result = [0.0] * rows
     idx = 0
@@ -185,9 +224,7 @@ class MultiHeadCrossAttention:
         self._wq: list[list[list[float]]] = []
         self._wk: list[list[list[float]]] = []
         self._wv: list[list[list[float]]] = []
-        self._attention_prior: list[list[float]] = [
-            [0.0] * _NUM_TYPES for _ in range(_NUM_TYPES)
-        ]
+        self._attention_prior: list[list[float]] = [[0.0] * _NUM_TYPES for _ in range(_NUM_TYPES)]
         self._gamma: list[float] = [1.0] * d_model
 
     def derive(self, base_seed: bytes, personality: dict[str, float]) -> None:
@@ -214,23 +251,13 @@ class MultiHeadCrossAttention:
         self._derive_attention_prior(personality)
 
     def _derive_attention_prior(self, personality: dict[str, float]) -> None:
-        N = float(
-            personality.get("neuroticism", personality.get("perception_acuity", 0.5))
-        )
-        E = float(
-            personality.get(
-                "extraversion", personality.get("expression_drive_trait", 0.5)
-            )
-        )
-        C = float(
-            personality.get("conscientiousness", personality.get("inner_order", 0.5))
-        )
+        N = float(personality.get("neuroticism", personality.get("perception_acuity", 0.5)))
+        E = float(personality.get("extraversion", personality.get("expression_drive_trait", 0.5)))
+        C = float(personality.get("conscientiousness", personality.get("inner_order", 0.5)))
         openness_val = float(
             personality.get("openness", personality.get("boundary_permeability", 0.5))
         )
-        A = float(
-            personality.get("agreeableness", personality.get("relational_gravity", 0.5))
-        )
+        A = float(personality.get("agreeableness", personality.get("relational_gravity", 0.5)))
         mu = [[1.0] * _NUM_TYPES for _ in range(_NUM_TYPES)]
         si, vi, bi, pi, sui, ei, ci = range(_NUM_TYPES)
         mu[si][vi] += N * 1.5
@@ -282,9 +309,9 @@ class MultiHeadCrossAttention:
         for h in range(n_h):
             h_off = h * d_h
             # Inline 4x4 Q/K/V projections (unrolled for d_head=4)
-            q_vecs = [None] * n
-            k_vecs = [None] * n
-            v_vecs = [None] * n
+            q_vecs: list[Any] = [None] * n
+            k_vecs: list[Any] = [None] * n
+            v_vecs: list[Any] = [None] * n
             for i in range(n):
                 ti = types[i]
                 x0 = tokens[i][h_off]
@@ -324,12 +351,7 @@ class MultiHeadCrossAttention:
                         scores[j] = float("-inf")
                     else:
                         kj = k_vecs[j]
-                        s = (
-                            qi[0] * kj[0]
-                            + qi[1] * kj[1]
-                            + qi[2] * kj[2]
-                            + qi[3] * kj[3]
-                        ) * scale
+                        s = (qi[0] * kj[0] + qi[1] * kj[1] + qi[2] * kj[2] + qi[3] * kj[3]) * scale
                         bias = prior[ti][tj]
                         if prior_drift is not None:
                             bias += prior_drift[ti][tj]
@@ -417,13 +439,13 @@ class SituationExpert:
 
 
 class MoELayer:
-    """混合专家层：top-2 门控选择 + 负载均衡 + 休眠专家唤醒。
+    """混合专家层：动态 top-k 门控选择 + 负载均衡 + 休眠专家唤醒。
 
     门控机制：
       1. 路由器计算每个专家的 logit
       2. 加入 BCM 适应偏置和休眠奖励
-      3. softmax 后选择 top-2 专家
-      4. 两个专家的输出按归一化门控值加权求和
+      3. softmax 后选择 top-k 专家（k 由输入复杂度动态决定）
+      4. 选中专家的输出按归一化门控值加权求和
       5. 残差连接 + RMSNorm
     """
 
@@ -432,17 +454,28 @@ class MoELayer:
         "router_flat",
         "d_model",
         "n_experts",
+        "top_k_min",
+        "top_k_max",
         "gamma",
         "_expert_last_active",
         "_dormancy_threshold",
         "_tick",
     )
 
-    def __init__(self, d_model: int = 16, n_experts: int = _N_EXPERTS):
+    def __init__(
+        self,
+        d_model: int = 16,
+        n_experts: int = _N_EXPERTS,
+        top_k_min: int = 2,
+        top_k_max: int = 2,
+    ):
         self.d_model = d_model
         self.n_experts = n_experts
+        self.top_k_min = top_k_min
+        self.top_k_max = top_k_max
+        d_hidden = max(24, d_model + 8)
         self.experts: list[SituationExpert] = [
-            SituationExpert(d_model, 24) for _ in range(n_experts)
+            SituationExpert(d_model, d_hidden) for _ in range(n_experts)
         ]
         self.router_flat: list[float] = []
         self.gamma: list[float] = [1.0] * d_model
@@ -451,27 +484,40 @@ class MoELayer:
         self._tick: int = 0
 
     def derive(self, base_seed: bytes) -> None:
-        for i, name in enumerate(_EXPERT_NAMES):
+        names = _EXPERT_NAMES_EXTENDED
+        for i in range(self.n_experts):
+            name = names[i] if i < len(names) else f"expert_{i}"
             self.experts[i].derive(base_seed + name.encode())
-        self.router_flat = _make_flat(
-            base_seed + b"ROUTER", self.n_experts, self.d_model
-        )
+        self.router_flat = _make_flat(base_seed + b"ROUTER", self.n_experts, self.d_model)
         g_floats = _deterministic_floats(base_seed + b"GAMMA3", self.d_model)
         self.gamma = [0.8 + 0.4 * (f * 0.5 + 0.5) for f in g_floats]
+
+    def _dynamic_k(self, gate_probs: list[float]) -> int:
+        """Determine top-k based on input entropy (higher entropy = more experts needed)."""
+        if self.top_k_min == self.top_k_max:
+            return self.top_k_min
+        entropy = 0.0
+        for p in gate_probs:
+            if p > 1e-9:
+                entropy -= p * math.log(p)
+        max_entropy = math.log(self.n_experts) if self.n_experts > 1 else 1.0
+        normalized = entropy / max_entropy if max_entropy > 0 else 0.0
+        k = self.top_k_min + int(normalized * (self.top_k_max - self.top_k_min) + 0.5)
+        return min(k, self.top_k_max)
 
     def forward(
         self,
         pooled: list[float],
         router_bias: list[float] | None = None,
     ) -> tuple[list[float], list[int], list[float]]:
-        """MoE 前向传播：top-2 门控选择专家。
+        """MoE 前向传播：动态 top-k 门控选择专家。
 
         Args:
-            pooled: 池化后的 16 维输入
+            pooled: 池化后的 d_model 维输入
             router_bias: BCM 适应产生的路由偏置（可选）
 
         Returns:
-            (16 维输出, 激活的专家索引列表, 门控概率列表)
+            (d_model 维输出, 激活的专家索引列表, 门控概率列表)
         """
         d = self.d_model
         n_e = self.n_experts
@@ -479,7 +525,7 @@ class MoELayer:
 
         logits = _matmul_vec_flat(self.router_flat, pooled, n_e, d)
         if router_bias is not None:
-            for i in range(n_e):
+            for i in range(min(n_e, len(router_bias))):
                 logits[i] += router_bias[i]
 
         # Load balancing: bonus for dormant experts
@@ -490,36 +536,29 @@ class MoELayer:
 
         gate_probs = _softmax(logits)
 
-        # Top-2 selection
-        top1 = 0
-        top2 = 1
-        if gate_probs[1] > gate_probs[0]:
-            top1, top2 = 1, 0
-        for i in range(2, n_e):
-            if gate_probs[i] > gate_probs[top1]:
-                top2 = top1
-                top1 = i
-            elif gate_probs[i] > gate_probs[top2]:
-                top2 = i
+        # Dynamic top-k selection
+        k = self._dynamic_k(gate_probs)
+        indexed = sorted(range(n_e), key=lambda i: gate_probs[i], reverse=True)
+        top_indices = indexed[:k]
 
         # Update last active for selected experts
-        self._expert_last_active[top1] = tick
-        self._expert_last_active[top2] = tick
+        for idx in top_indices:
+            self._expert_last_active[idx] = tick
 
-        g1 = gate_probs[top1]
-        g2 = gate_probs[top2]
-        norm = g1 + g2 + 1e-12
-        g1 /= norm
-        g2 /= norm
+        # Normalize gate values for selected experts
+        gate_sum = sum(gate_probs[i] for i in top_indices) + 1e-12
+        weights = [gate_probs[i] / gate_sum for i in top_indices]
 
-        e1_out = self.experts[top1].forward(pooled)
-        e2_out = self.experts[top2].forward(pooled)
+        # Weighted combination of expert outputs
+        result = list(pooled)  # start with residual
+        for rank, idx in enumerate(top_indices):
+            e_out = self.experts[idx].forward(pooled)
+            w = weights[rank]
+            for dd in range(d):
+                result[dd] += w * e_out[dd]
 
-        # Combine + residual + RMSNorm
-        result = [pooled[dd] + g1 * e1_out[dd] + g2 * e2_out[dd] for dd in range(d)]
         _rmsnorm_inplace(result, self.gamma, d)
-
-        return result, [top1, top2], gate_probs
+        return result, top_indices, gate_probs
 
 
 # === Hebbian 慢适应机制 ===
@@ -543,13 +582,13 @@ class RouterAdaptation:
         self.activity_ema: list[float] = [0.2] * n_experts
         self.plasticity: float = 0.5
 
-    def adapt(
-        self, outcome: str, active_experts: list[int], gate_values: list[float]
-    ) -> None:
+    def adapt(self, outcome: str, active_experts: list[int], gate_values: list[float]) -> None:
         eta = 0.008 * self.plasticity
         for idx in active_experts:
+            if idx >= len(gate_values):
+                continue
             y = gate_values[idx]
-            theta = self.activity_ema[idx]
+            theta = self.activity_ema[idx] if idx < len(self.activity_ema) else 0.2
             if outcome == "accepted":
                 delta = eta * max(y, 0.05) * (y - theta)
             elif outcome == "rejected":
@@ -557,7 +596,8 @@ class RouterAdaptation:
             else:
                 delta = -eta * 0.3 * max(y, 0.05)
             self.bias[idx] = max(-1.0, min(1.0, self.bias[idx] + delta))
-            self.activity_ema[idx] = 0.99 * theta + 0.01 * (y * y)
+            if idx < len(self.activity_ema):
+                self.activity_ema[idx] = 0.99 * theta + 0.01 * (y * y)
         for i in range(self.n_experts):
             self.bias[i] *= 0.998
 
@@ -569,8 +609,15 @@ class RouterAdaptation:
         }
 
     def from_dict(self, data: dict[str, Any]) -> None:
-        self.bias = list(data.get("bias", [0.0] * self.n_experts))
-        self.activity_ema = list(data.get("activity_ema", [0.2] * self.n_experts))
+        saved_bias = list(data.get("bias", []))
+        saved_ema = list(data.get("activity_ema", []))
+        # Handle size mismatch (e.g., upgrading from lite 5 experts to pro 16)
+        self.bias = [0.0] * self.n_experts
+        self.activity_ema = [0.2] * self.n_experts
+        for i in range(min(len(saved_bias), self.n_experts)):
+            self.bias[i] = float(saved_bias[i])
+        for i in range(min(len(saved_ema), self.n_experts)):
+            self.activity_ema[i] = float(saved_ema[i])
         self.plasticity = float(data.get("plasticity", 0.5))
 
 
@@ -627,9 +674,7 @@ class AttentionPriorAdaptation:
 
 def _derive_plasticity(personality: dict[str, float]) -> float:
     """从人格参数派生可塑性：开放性↑ → 可塑性↑，尽责性↑ → 可塑性↓。"""
-    openness_val = float(
-        personality.get("openness", personality.get("boundary_permeability", 0.5))
-    )
+    openness_val = float(personality.get("openness", personality.get("boundary_permeability", 0.5)))
     C = float(personality.get("conscientiousness", personality.get("inner_order", 0.5)))
     base = 0.3 + openness_val * 0.5 - C * 0.3
     return max(0.05, min(0.85, base))
@@ -663,6 +708,7 @@ class HeterogeneousGraphTransformer:
         "d_model",
         "n_heads",
         "d_output",
+        "_attention_rounds",
         "_type_experts",
         "_attention",
         "_moe",
@@ -673,24 +719,37 @@ class HeterogeneousGraphTransformer:
         "_last_attention_weights",
         "_last_active_experts",
         "_last_gate_values",
+        "_use_numpy",
     )
 
-    def __init__(self, d_model: int = 16, n_heads: int = 4, d_output: int = 4):
+    def __init__(
+        self,
+        d_model: int = 16,
+        n_heads: int = 4,
+        d_output: int = 4,
+        n_experts: int = _N_EXPERTS,
+        top_k_min: int = 2,
+        top_k_max: int = 2,
+        attention_rounds: int = 1,
+    ):
         self.d_model = d_model
         self.n_heads = n_heads
         self.d_output = d_output
+        self._attention_rounds = attention_rounds
+        d_hidden = max(20, d_model + 4)
         self._type_experts: list[TypeExpertFFN] = [
-            TypeExpertFFN(d_model, 20) for _ in range(_NUM_TYPES)
+            TypeExpertFFN(d_model, d_hidden) for _ in range(_NUM_TYPES)
         ]
         self._attention = MultiHeadCrossAttention(d_model, n_heads)
-        self._moe = MoELayer(d_model, _N_EXPERTS)
+        self._moe = MoELayer(d_model, n_experts, top_k_min, top_k_max)
         self._decision_flat: list[float] = []
         self._personality_cache: str = ""
-        self._router_adapt = RouterAdaptation(_N_EXPERTS)
+        self._router_adapt = RouterAdaptation(n_experts)
         self._attn_adapt = AttentionPriorAdaptation(_NUM_TYPES)
         self._last_attention_weights: list[list[float]] = []
         self._last_active_experts: list[int] = []
         self._last_gate_values: list[float] = []
+        self._use_numpy: bool = _HAS_NUMPY
 
     def derive_params(self, personality: dict[str, float]) -> None:
         cache_key = str(sorted(personality.items()))
@@ -745,30 +804,126 @@ class HeterogeneousGraphTransformer:
 
         # Stage 1: Type-Expert FFN
         te = self._type_experts
-        encoded: list[list[float]] = [te[types[i]].forward(vecs[i]) for i in range(n)]
+        if self._use_numpy:
+            from sylanne_core.compute.hgt_numpy import numpy_type_expert_forward
 
-        # Stage 2: Multi-Head Cross-Attention
-        attended, attn_weights = self._attention.forward(
-            encoded,
-            types,
-            prior_drift=self._attn_adapt.drift,
-        )
+            encoded: list[list[float]] = [
+                numpy_type_expert_forward(
+                    vecs[i],
+                    te[types[i]].w1_flat,
+                    te[types[i]].w2_flat,
+                    te[types[i]].gamma,
+                    te[types[i]].d_in,
+                    te[types[i]].d_hidden,
+                )
+                for i in range(n)
+            ]
+        else:
+            encoded = [te[types[i]].forward(vecs[i]) for i in range(n)]
+
+        # Stage 2: Multi-Head Cross-Attention (multi-round for pro/max)
+        attended = encoded
+        attn_weights: list[list[float]] = []
+        if self._use_numpy:
+            from sylanne_core.compute.hgt_numpy import numpy_multi_head_attention
+
+            attn = self._attention
+            for _round in range(self._attention_rounds):
+                attended, attn_weights = numpy_multi_head_attention(
+                    attended,
+                    types,
+                    attn._wq,
+                    attn._wk,
+                    attn._wv,
+                    attn.n_heads,
+                    attn.d_head,
+                    attn._attention_prior,
+                    self._attn_adapt.drift,
+                    attn._gamma,
+                )
+        else:
+            for _round in range(self._attention_rounds):
+                attended, attn_weights = self._attention.forward(
+                    attended,
+                    types,
+                    prior_drift=self._attn_adapt.drift,
+                )
         self._last_attention_weights = attn_weights
 
         # Mean-pool attended tokens for Stage 3
-        pooled = [0.0] * d
-        for tok in attended:
+        if self._use_numpy:
+            import numpy as _np_local
+
+            pooled = (_np_local.array(attended, dtype=_np_local.float64).mean(axis=0)).tolist()
+        else:
+            pooled = [0.0] * d
+            for tok in attended:
+                for dd in range(d):
+                    pooled[dd] += tok[dd]
+            inv_n = 1.0 / n
             for dd in range(d):
-                pooled[dd] += tok[dd]
-        inv_n = 1.0 / n
-        for dd in range(d):
-            pooled[dd] *= inv_n
+                pooled[dd] *= inv_n
 
         # Stage 3: Situation-Expert MoE (on pooled representation)
-        moe_out, active_experts, gate_values = self._moe.forward(
-            pooled,
-            router_bias=self._router_adapt.bias,
-        )
+        # Routing logic (dynamic k, dormancy, load balancing) stays in pure Python
+        # to preserve exact stateful behavior. Only expert computation is accelerated.
+        moe = self._moe
+        d_moe = moe.d_model
+        n_e = moe.n_experts
+        moe._tick += 1
+
+        logits = _matmul_vec_flat(moe.router_flat, pooled, n_e, d_moe)
+        router_bias = self._router_adapt.bias
+        if router_bias is not None:
+            for i in range(min(n_e, len(router_bias))):
+                logits[i] += router_bias[i]
+
+        tick = moe._tick
+        for i in range(n_e):
+            if tick - moe._expert_last_active[i] > moe._dormancy_threshold:
+                logits[i] += 0.15
+
+        gate_probs = _softmax(logits)
+        k = moe._dynamic_k(gate_probs)
+        indexed = sorted(range(n_e), key=lambda i: gate_probs[i], reverse=True)
+        top_indices = indexed[:k]
+
+        for idx in top_indices:
+            moe._expert_last_active[idx] = tick
+
+        gate_sum = sum(gate_probs[i] for i in top_indices) + 1e-12
+        weights_moe = [gate_probs[i] / gate_sum for i in top_indices]
+
+        if self._use_numpy:
+            from sylanne_core.compute.hgt_numpy import numpy_moe_forward
+
+            expert_w1s = [moe.experts[idx].w1_flat for idx in top_indices]
+            expert_w2s = [moe.experts[idx].w2_flat for idx in top_indices]
+            d_hidden = moe.experts[0].d_hidden
+            moe_out = numpy_moe_forward(
+                pooled,
+                moe.router_flat,
+                expert_w1s,
+                expert_w2s,
+                n_e,
+                top_indices,
+                weights_moe,
+                d_moe,
+                d_hidden,
+                moe.gamma,
+            )
+        else:
+            result_moe = list(pooled)
+            for rank, idx in enumerate(top_indices):
+                e_out = moe.experts[idx].forward(pooled)
+                w = weights_moe[rank]
+                for dd in range(d_moe):
+                    result_moe[dd] += w * e_out[dd]
+            _rmsnorm_inplace(result_moe, moe.gamma, d_moe)
+            moe_out = result_moe
+
+        active_experts = top_indices
+        gate_values = gate_probs
         self._last_active_experts = active_experts
         self._last_gate_values = list(gate_values)
 
@@ -782,18 +937,12 @@ class HeterogeneousGraphTransformer:
         decision = [max(-1.0, min(1.0, d)) for d in decision]
         return decision
 
-    def adapt(
-        self, outcome: str, attention_snapshot: list[list[float]] | None = None
-    ) -> None:
+    def adapt(self, outcome: str, attention_snapshot: list[list[float]] | None = None) -> None:
         if outcome not in ("accepted", "ignored", "rejected"):
             return
         if self._last_active_experts and self._last_gate_values:
-            self._router_adapt.adapt(
-                outcome, self._last_active_experts, self._last_gate_values
-            )
-        weights = (
-            attention_snapshot if attention_snapshot else self._last_attention_weights
-        )
+            self._router_adapt.adapt(outcome, self._last_active_experts, self._last_gate_values)
+        weights = attention_snapshot if attention_snapshot else self._last_attention_weights
         if weights and len(weights) == _NUM_TYPES:
             self._attn_adapt.adapt(outcome, weights)
 

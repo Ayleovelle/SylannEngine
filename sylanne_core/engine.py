@@ -1,23 +1,57 @@
-"""SylanneEngine — the public entry point for Sylanne-Core SDK."""
+"""SylanneEngine — the public entry point for Sylanne-Core SDK.
+
+Provides the async API for integrating affective computation into chatbots.
+Designed as an AstrBot plugin dependency: downstream plugins call get_engine()
+to obtain a pre-configured instance.
+
+Typical usage::
+
+    from sylanne_core import SylanneEngine, SylanneConfig
+
+    engine = SylanneEngine(data_dir="./data", llm=my_llm_fn)
+    await engine.start()
+    surface = await engine.process("session_1", "你好")
+    print(surface["decision"]["action"])  # e.g. "express"
+    await engine.shutdown()
+"""
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any
 
+from .compute.utils import safe_filename
 from .config import SylanneConfig
-from .types import Surface
+from .types import EngineStatus, HealthStatus, Surface
+
+logger = logging.getLogger("sylanne_core")
 
 
 class SylanneEngine:
-    """情感计算引擎。
+    """Affective computation engine with session management and persistence.
 
-    Usage:
-        engine = SylanneEngine(data_dir="./data", llm=my_llm_fn)
+    Each session maintains independent emotional state that evolves through
+    a 7-layer computation pipeline on every process() call.
+
+    Args:
+        data_dir: Directory for session state persistence (created if missing).
+        llm: Async function(system_prompt, user_prompt) -> str for semantic assessment.
+        embedding: Optional async function(text) -> list[float] for memory retrieval.
+        config: Engine configuration. Defaults to SylanneConfig().
+
+    Example::
+
+        async def my_llm(system: str, user: str) -> str:
+            return await call_openai(system, user)
+
+        engine = SylanneEngine(data_dir="./data", llm=my_llm)
         await engine.start()
-        surface = await engine.process("session_1", "你好")
+        surface = await engine.process("user_123", "hello")
+        # surface["decision"]["action"] in {"express", "listen", "hold", ...}
         await engine.shutdown()
     """
 
@@ -32,16 +66,17 @@ class SylanneEngine:
         self._llm = llm
         self._embedding = embedding
         self._config = config or SylanneConfig()
-        self._status: str = "init"
+        self._status: EngineStatus = "init"
         self._hosts: dict[str, Any] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._listeners: list[Callable[[str, Surface], Any]] = []
 
     @property
-    def status(self) -> str:
+    def status(self) -> EngineStatus:
         return self._status
 
     async def start(self) -> None:
+        """Initialize the engine. Must be called before process/tick."""
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._status = "running"
 
@@ -53,7 +88,7 @@ class SylanneEngine:
         """移除推送监听器。"""
         self._listeners = [fn for fn in self._listeners if fn is not listener]
 
-    def health(self) -> dict[str, Any]:
+    def health(self) -> HealthStatus:
         """引擎健康检查，开发者用于判断计算模块是否正常。"""
         return {
             "status": self._status,
@@ -64,36 +99,64 @@ class SylanneEngine:
         }
 
     async def shutdown(self) -> None:
+        """Flush all sessions and release resources. Engine becomes 'closed'."""
         for host in self._hosts.values():
-            self._persist(host)
+            try:
+                host.flush()
+            except Exception:
+                if self._status == "running":
+                    self._status = "degraded"
         self._hosts.clear()
         self._locks.clear()
         self._status = "closed"
+
+    async def __aenter__(self) -> SylanneEngine:
+        await self.start()
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.shutdown()
 
     async def process(
         self,
         session_id: str,
         text: str,
         *,
-        confidence: float = 0.0,
+        confidence: float | None = None,
         flags: list[str] | None = None,
         now: float | None = None,
         values: dict[str, float] | None = None,
     ) -> Surface:
+        """Process a user message and return the computed emotional surface.
+
+        Args:
+            session_id: Unique session identifier (e.g. user ID or chat ID).
+            text: The user's message text.
+            confidence: Pre-computed confidence score [0,1]. Overrides LLM assessment.
+            flags: Semantic flags (e.g. ["safe"], ["hurt", "boundary"]).
+            now: Unix timestamp. Defaults to current time.
+            values: Additional numeric signals (e.g. {"group_heat": 0.7}).
+
+        Returns:
+            Surface dict with keys: state, decision, guard, personality, memory, dynamics.
+        """
+        if self._status == "closed":
+            await self.start()
+        assessment = await self._assess(text) if self._config.assessor_enabled else None
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
-            assessment = (
-                await self._assess(text) if self._config.assessor_enabled else None
-            )
             event = {
                 "text": text,
-                "confidence": confidence or (assessment or {}).get("confidence", 0.0),
-                "flags": flags or (assessment or {}).get("flags", []),
-                "now": now or time.time(),
+                "confidence": (
+                    confidence
+                    if confidence is not None
+                    else (assessment or {}).get("confidence", 0.0)
+                ),
+                "flags": (flags if flags is not None else (assessment or {}).get("flags", [])),
+                "now": now if now is not None else time.time(),
                 "values": values or {},
             }
             result = host.on_request(event, assessment=assessment)
-            self._persist(host)
             surface = self._to_surface(session_id, host, result)
             await self._notify(session_id, surface)
             return surface
@@ -103,6 +166,9 @@ class SylanneEngine:
         session_id: str,
         flags: list[str] | None = None,
     ) -> Surface:
+        """Advance session state without user input (background heartbeat)."""
+        if self._status == "closed":
+            await self.start()
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
             event = {
@@ -113,29 +179,74 @@ class SylanneEngine:
                 "values": {},
             }
             result = host.on_request(event)
-            self._persist(host)
             return self._to_surface(session_id, host, result)
 
-    def state(self, session_id: str) -> Surface:
-        host = self._get_or_create_host(session_id)
-        surface = host.diagnostics()
-        return self._to_surface(session_id, host, surface)
+    async def state(self, session_id: str) -> Surface:
+        """Get current session state without advancing the pipeline."""
+        async with self._session_lock(session_id):
+            host = self._get_or_create_host(session_id)
+            surface = host.diagnostics()
+            return self._to_surface(session_id, host, surface)
 
-    def reset(self, session_id: str) -> None:
-        if session_id in self._hosts:
-            del self._hosts[session_id]
-        safe_name = "".join(
-            ch if ch.isalnum() or ch in {"-", "_", "."} else "_" for ch in session_id
-        )[:128]
-        for suffix in (".alpha.json", ".json"):
-            state_file = self._data_dir / f"{safe_name}{suffix}"
-            if state_file.exists():
-                state_file.unlink()
+    async def reset(self, session_id: str) -> None:
+        """Reset session to fresh state. Deletes persisted data."""
+        async with self._session_lock(session_id):
+            if session_id in self._hosts:
+                del self._hosts[session_id]
+            safe_name = safe_filename(session_id)
+            for suffix in (".alpha.json", ".json"):
+                state_file = self._data_dir / f"{safe_name}{suffix}"
+                if state_file.exists():
+                    state_file.unlink()
 
-    def destroy(self, session_id: str) -> None:
-        self.reset(session_id)
+    async def destroy(self, session_id: str) -> None:
+        """Permanently remove session state and release its lock."""
+        await self.reset(session_id)
         if session_id in self._locks:
             del self._locks[session_id]
+
+    async def inject(
+        self,
+        session_id: str,
+        source: str,
+        influence_type: str,
+        intensity: float,
+        target_dimension: str = "",
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Inject external influence into a session's hot pool.
+
+        Other plugins call this to affect the emotional state of a session.
+        For example, a memory plugin detecting contradiction with a previously
+        reflected topic can re-ignite that material in the hot pool.
+
+        Args:
+            session_id: Target session identifier.
+            source: Plugin identifier (e.g. "memory_plugin", "dialogue_agent").
+            influence_type: One of "contradiction", "reinforcement", "revelation",
+                           "betrayal", "validation".
+            intensity: Influence strength [0, 1].
+            target_dimension: Target dimension or material type in the hot pool.
+            payload: Optional metadata dict passed through to the influence.
+        """
+        if self._status == "closed":
+            await self.start()
+        async with self._session_lock(session_id):
+            host = self._get_or_create_host(session_id)
+            from .compute.hot_pool import Influence
+
+            influence = Influence(
+                source=source,
+                type=influence_type,  # type: ignore[arg-type]
+                intensity=max(0.0, min(1.0, intensity)),
+                target_dimension=target_dimension,
+                payload=payload or {},
+            )
+            host.kernel.hot_pool.receive_influence(influence)
+
+    def exists(self, session_id: str) -> bool:
+        """Check if a session exists without creating it."""
+        return session_id in self._hosts
 
     # --- internal ---
 
@@ -146,7 +257,7 @@ class SylanneEngine:
                 if asyncio.iscoroutine(ret) or asyncio.isfuture(ret):
                     await ret
             except Exception:
-                pass
+                logger.warning("Listener error", exc_info=True)
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         if session_id not in self._locks:
@@ -160,15 +271,9 @@ class SylanneEngine:
             self._hosts[session_id] = SylanneHost(
                 root=self._data_dir,
                 session_key=session_id,
+                profile=self._config.profile(),
             )
         return self._hosts[session_id]
-
-    def _persist(self, host: Any) -> None:
-        try:
-            host.runtime.save(host.kernel)
-        except Exception:
-            if self._status == "running":
-                self._status = "degraded"
 
     async def _assess(self, text: str) -> dict[str, Any] | None:
         if not text.strip():

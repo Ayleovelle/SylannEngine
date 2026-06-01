@@ -74,9 +74,7 @@ class PredictiveCodingGate:
             return 0.0
         if isinstance(input_vec, bytearray):
             # 逐字节 XOR 后统计 1 的个数 = Hamming 距离
-            xor_count = sum(
-                (a ^ b).bit_count() for a, b in zip(input_vec, self._prediction)
-            )
+            xor_count = sum((a ^ b).bit_count() for a, b in zip(input_vec, self._prediction))
             raw = xor_count / self.dim
         else:
             # 回退路径：对 list[int] 输入使用密度差异近似惊讶度
@@ -87,7 +85,7 @@ class PredictiveCodingGate:
         # precision 放大惊讶度：高精度时对微小差异更敏感
         return min(1.0, raw * self.precision * 2.0)
 
-    def update(self, input_vec: bytearray | list[int], surprise_value: float):
+    def update(self, input_vec: bytearray | list[int], surprise_value: float) -> None:
         """更新预测向量：通过概率性位翻转向输入靠拢。
 
         学习率与惊讶度正相关：高惊讶 → 更大的更新步长（因为预测明显错了）。
@@ -120,22 +118,15 @@ class PredictiveCodingGate:
             if current_ones < target_ones:
                 for i in range(self._byte_dim):
                     for bit in range(8):
-                        if (
-                            not (self._prediction[i] & (1 << bit))
-                            and self._rng.random() < lr * 0.1
-                        ):
+                        if not (self._prediction[i] & (1 << bit)) and self._rng.random() < lr * 0.1:
                             self._prediction[i] |= 1 << bit
             elif current_ones > target_ones:
                 for i in range(self._byte_dim):
                     for bit in range(8):
-                        if (
-                            self._prediction[i] & (1 << bit)
-                        ) and self._rng.random() < lr * 0.1:
+                        if (self._prediction[i] & (1 << bit)) and self._rng.random() < lr * 0.1:
                             self._prediction[i] &= ~(1 << bit)
         # 更新精度：指数移动平均，低惊讶 → 精度上升（预测越来越准）
-        self.precision = self.decay * self.precision + (1 - self.decay) * (
-            1.0 - surprise_value
-        )
+        self.precision = self.decay * self.precision + (1 - self.decay) * (1.0 - surprise_value)
         # clamp 精度到 [0.1, 1.0]，防止精度归零导致系统失灵
         self.precision = max(0.1, min(1.0, self.precision))
         self._surprise_history.append(surprise_value)
@@ -170,7 +161,7 @@ class PredictiveCodingGate:
             return 0.5
         return sum(self._surprise_history) / len(self._surprise_history)
 
-    def set_route_thresholds(self, fast_threshold: float, full_threshold: float):
+    def set_route_thresholds(self, fast_threshold: float, full_threshold: float) -> None:
         self._fast_threshold = fast_threshold
         self._full_threshold = full_threshold
 
@@ -187,7 +178,7 @@ class PredictiveCodingGate:
             "history_len": len(self._surprise_history),
         }
 
-    def from_dict(self, data: dict[str, Any]):
+    def from_dict(self, data: dict[str, Any]) -> None:
         """从持久化状态恢复。"""
         import base64
 

@@ -13,13 +13,13 @@
 核心职责：
 - 维护 29 维状态向量的读写
 - 通过 apply() 方法接收事件并演化状态
-- 管理记忆 traces（短期记忆池）
-- 提供关系记忆和影子记忆的观测接口
+- 提供关系信号和影子记忆的观测接口
 """
 
 from __future__ import annotations
 
-import time
+import math
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -27,7 +27,7 @@ from .attention import attention_delta
 from .shadow_memory import (
     ShadowMemory,
 )
-from .vector import EVENT_AXES, STATE_AXES, linear_delta
+from .vector import EVENT_AXES, linear_delta
 from .vector import clamp as _clamp
 
 SCHEMA_VERSION = "sylanne.alpha.body.v1"
@@ -63,10 +63,10 @@ class AlphaPulseState:
 class AlphaBloodflowState:
     """血流子系统状态。
 
-    模拟情感温度和记忆循环。
+    模拟情感温度和信息循环。
     - warmth: 关系温暖感 [0,1]，safe 事件升高，hurt 降低
     - circulation: 循环活力 [0,1]，有文本交互时升高
-    - memory_flow: 记忆流动强度 [0,1]，随 traces 数量和可塑性增长
+    - memory_flow: 信息流动强度 [0,1]，随可塑性增长
     """
 
     warmth: float = 0.4
@@ -229,7 +229,7 @@ class AlphaMortalityState:
 class AlphaBodyState:
     """Sylanne-Embodiment 完整身体状态模型。
 
-    聚合 8 个子系统 + 需求字典 + 记忆存储，构成 Sylanne 的「身体」。
+    聚合 8 个子系统 + 需求字典 + 关系/影子状态，构成 Sylanne 的「身体」。
     是 kernel 的核心数据载体，所有状态演化最终都反映在这里。
 
     与其他组件的关系：
@@ -255,13 +255,15 @@ class AlphaBodyState:
             "need_expression": 0.0,
         }
     )
-    memory: dict[str, Any] = field(default_factory=lambda: {"traces": []})
+    memory: dict[str, Any] = field(default_factory=lambda: {"relationship": {}, "shadow": {}})
+    _recent_texts: deque[str] = field(default_factory=lambda: deque(maxlen=20))
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AlphaBodyState":
+    def from_dict(cls, data: dict[str, Any]) -> AlphaBodyState:
         """从字典反序列化为 AlphaBodyState 实例。
 
         对每个子系统，只取 dataclass 声明的字段，忽略多余键。
+        单个子系统恢复失败时保留默认值，不影响其他子系统。
         """
         body = cls()
         for name, state_type in (
@@ -276,62 +278,64 @@ class AlphaBodyState:
         ):
             payload = data.get(name)
             if isinstance(payload, dict):
-                setattr(
-                    body,
-                    name,
-                    state_type(
-                        **{
-                            key: value
-                            for key, value in payload.items()
-                            if key in state_type.__dataclass_fields__
-                        }
-                    ),
-                )
+                try:
+                    fields = state_type.__dataclass_fields__
+                    safe: dict[str, bool | int | float] = {}
+                    for key, value in payload.items():
+                        if key not in fields:
+                            continue
+                        ftype = fields[key].type
+                        if ftype in ("bool", bool):
+                            safe[key] = bool(value)
+                        elif ftype in ("int", int):
+                            fval = float(value)
+                            if math.isfinite(fval):
+                                safe[key] = int(fval)
+                        else:
+                            fval = float(value)
+                            if math.isfinite(fval):
+                                safe[key] = fval
+                    setattr(body, name, state_type(**safe))  # type: ignore[arg-type]
+                except (TypeError, ValueError, OverflowError):
+                    pass
         if isinstance(data.get("needs"), dict):
             body.needs.update(
                 {str(key): _clamp(float(value)) for key, value in data["needs"].items()}
             )
         if isinstance(data.get("memory"), dict):
             memory_data = data["memory"]
-            traces = memory_data.get("traces", [])
             relationship = (
                 memory_data.get("relationship")
                 if isinstance(memory_data.get("relationship"), dict)
                 else {}
             )
             shadow = (
-                memory_data.get("shadow")
-                if isinstance(memory_data.get("shadow"), dict)
-                else {}
-            )
-            events = (
-                shadow.get("events", [])
-                if isinstance(shadow.get("events"), list)
-                else []
+                memory_data.get("shadow") if isinstance(memory_data.get("shadow"), dict) else {}
             )
             body.memory = {
-                "traces": [dict(item) for item in traces if isinstance(item, dict)][
-                    -50:
-                ],
                 "relationship": dict(relationship),
                 "shadow": {
-                    "events": [dict(item) for item in events if isinstance(item, dict)][
-                        -24:
-                    ]
+                    "events": [
+                        dict(item)
+                        for item in (
+                            shadow.get("events", [])
+                            if isinstance(shadow.get("events"), list)
+                            else []
+                        )
+                        if isinstance(item, dict)
+                    ][-24:]
                 },
             }
-            memory_system = memory_data.get("_memory_system")
-            if isinstance(memory_system, dict):
-                body.memory["_memory_system"] = dict(memory_system)
+            recent = memory_data.get("recent_texts")
+            if isinstance(recent, list):
+                body._recent_texts = deque(
+                    (str(t) for t in recent[-20:] if isinstance(t, str)), maxlen=20
+                )
         return body
 
-    def state_vector(self) -> dict[str, float]:
-        """将当前身体状态展平为 29 维状态向量字典。
-
-        键为 STATE_AXES 中定义的轴名，值为对应的浮点数。
-        用于 kernel 的决策计算和 codec 的二进制编码。
-        """
-        vector = {
+    def _raw_state_vector(self) -> dict[str, float]:
+        """内部快速路径：返回未 round 的原始状态向量。"""
+        return {
             "pulse.beat": self.pulse.beat,
             "pulse.rhythm": self.pulse.rhythm,
             "pulse.strain": self.pulse.strain,
@@ -362,7 +366,14 @@ class AlphaBodyState:
             "mortality.exhaustion": self.mortality.exhaustion,
             "mortality.recovery_debt": self.mortality.recovery_debt,
         }
-        return {axis: round(float(vector[axis]), 6) for axis in STATE_AXES}
+
+    def state_vector(self) -> dict[str, float]:
+        """将当前身体状态展平为 29 维状态向量字典。
+
+        键为 STATE_AXES 中定义的轴名，值为对应的浮点数。
+        用于 kernel 的决策计算和 codec 的二进制编码。
+        """
+        return {axis: round(float(v), 6) for axis, v in self._raw_state_vector().items()}
 
     def event_vector(
         self,
@@ -406,7 +417,7 @@ class AlphaBodyState:
         组合线性权重矩阵投影 + 注意力机制的非线性修正。
         """
         delta = linear_delta(event)
-        for axis, value in attention_delta(self.state_vector(), event).items():
+        for axis, value in attention_delta(self._raw_state_vector(), event).items():
             delta[axis] = delta.get(axis, 0.0) + value
         return delta
 
@@ -433,9 +444,7 @@ class AlphaBodyState:
         self.needs["need_expression"] = _clamp(
             self.needs["need_expression"] + delta.get("needs.need_expression", 0.0)
         )
-        self.nerve.plasticity = _clamp(
-            self.nerve.plasticity + delta.get("nerve.plasticity", 0.0)
-        )
+        self.nerve.plasticity = _clamp(self.nerve.plasticity + delta.get("nerve.plasticity", 0.0))
         self.nerve.sensitivity = _clamp(
             self.nerve.sensitivity + delta.get("nerve.sensitivity", 0.0)
         )
@@ -448,18 +457,12 @@ class AlphaBodyState:
         self.bloodflow.memory_flow = _clamp(
             self.bloodflow.memory_flow + delta.get("bloodflow.memory_flow", 0.0)
         )
-        self.bloodflow.warmth = _clamp(
-            self.bloodflow.warmth + delta.get("bloodflow.warmth", 0.0)
-        )
+        self.bloodflow.warmth = _clamp(self.bloodflow.warmth + delta.get("bloodflow.warmth", 0.0))
         self.muscle.trained_reach = _clamp(
             self.muscle.trained_reach + delta.get("muscle.trained_reach", 0.0)
         )
-        self.muscle.fatigue = _clamp(
-            self.muscle.fatigue + delta.get("muscle.fatigue", 0.0)
-        )
-        self.muscle.readiness = _clamp(
-            self.muscle.readiness + delta.get("muscle.readiness", 0.0)
-        )
+        self.muscle.fatigue = _clamp(self.muscle.fatigue + delta.get("muscle.fatigue", 0.0))
+        self.muscle.readiness = _clamp(self.muscle.readiness + delta.get("muscle.readiness", 0.0))
         self.temperature.warmth = _clamp(
             self.temperature.warmth + delta.get("temperature.warmth", 0.0)
         )
@@ -476,8 +479,7 @@ class AlphaBodyState:
             self.wound.sensitivity + delta.get("wound.sensitivity", 0.0)
         )
         self.immunity.boundary_pressure = _clamp(
-            self.immunity.boundary_pressure
-            + delta.get("immunity.boundary_pressure", 0.0)
+            self.immunity.boundary_pressure + delta.get("immunity.boundary_pressure", 0.0)
         )
         self.immunity.sovereignty = _clamp(
             self.immunity.sovereignty + delta.get("immunity.sovereignty", 0.0)
@@ -486,12 +488,9 @@ class AlphaBodyState:
             self.immunity.cooldown + delta.get("immunity.cooldown", 0.0)
         )
         self.immunity.interruption_budget = _clamp(
-            self.immunity.interruption_budget
-            + delta.get("immunity.interruption_budget", 0.0)
+            self.immunity.interruption_budget + delta.get("immunity.interruption_budget", 0.0)
         )
-        self.mortality.load = _clamp(
-            self.mortality.load + delta.get("mortality.load", 0.0)
-        )
+        self.mortality.load = _clamp(self.mortality.load + delta.get("mortality.load", 0.0))
         self.mortality.exhaustion = _clamp(
             self.mortality.exhaustion + delta.get("mortality.exhaustion", 0.0)
         )
@@ -507,36 +506,6 @@ class AlphaBodyState:
             now += max(1.0, float(event.get("elapsed", 1.0)))
             clone.apply_vector_delta(clone.vector_delta(event), now=now)
         return clone.state_vector()
-
-    def recall_memory(self, query: str, *, limit: int = 5) -> list[dict[str, Any]]:
-        """基于关键词匹配从 traces 中召回相关记忆。
-
-        评分规则：精确匹配 +1，词重叠 +1/词，权重加成。
-        """
-        terms = {part for part in query.strip().split() if part}
-        scored = []
-        for trace in self.memory.get("traces", []):
-            text = str(trace.get("text") or "")
-            overlap = sum(1 for term in terms if term in text)
-            exact = 1 if query and query in text else 0
-            score = exact + overlap + float(trace.get("weight") or 0.0)
-            scored.append((score, trace))
-        scored.sort(key=lambda item: item[0], reverse=True)
-        return [dict(trace) for _, trace in scored[: max(0, limit)]]
-
-    # Legacy: superseded by MemorySystem
-    def decay_memory(self, factor: float = 0.95) -> None:
-        factor = _clamp(factor)
-        for trace in self.memory.get("traces", []):
-            trace["weight"] = round(
-                _clamp(float(trace.get("weight") or 0.0) * factor), 6
-            )
-
-    # Legacy: superseded by MemorySystem
-    def compress_memory(self, *, limit: int = 50) -> None:
-        traces = [dict(trace) for trace in self.memory.get("traces", [])]
-        traces.sort(key=lambda trace: float(trace.get("weight") or 0.0), reverse=True)
-        self.memory["traces"] = traces[: max(0, limit)]
 
     def relationship_memory(self) -> dict[str, Any]:
         """返回关系记忆的结构化摘要。
@@ -611,25 +580,17 @@ class AlphaBodyState:
         self.memory["shadow"] = shadow.to_raw()
 
     def to_dict(self) -> dict[str, Any]:
-        shadow = (
-            self.memory.get("shadow")
-            if isinstance(self.memory.get("shadow"), dict)
-            else {}
-        )
+        raw_shadow = self.memory.get("shadow")
+        shadow: dict[str, Any] = dict(raw_shadow) if isinstance(raw_shadow, dict) else {}
         memory_payload = {
-            "traces": list(self.memory.get("traces", []))[-50:],
             "relationship": dict(self.memory.get("relationship") or {}),
             "shadow": {
                 "events": [
-                    dict(item)
-                    for item in shadow.get("events", [])
-                    if isinstance(item, dict)
+                    dict(item) for item in shadow.get("events", []) if isinstance(item, dict)
                 ][-24:]
             },
+            "recent_texts": list(self._recent_texts),
         }
-        memory_system = self.memory.get("_memory_system")
-        if isinstance(memory_system, dict):
-            memory_payload["_memory_system"] = dict(memory_system)
         return {
             "pulse": self.pulse.to_dict(),
             "bloodflow": self.bloodflow.to_dict(),
@@ -642,6 +603,24 @@ class AlphaBodyState:
             "needs": {key: round(value, 6) for key, value in self.needs.items()},
             "memory": memory_payload,
         }
+
+    def _passive_decay(self, elapsed: float) -> None:
+        """基于真实时间流逝的被动衰减/恢复。
+
+        elapsed 未截断，反映两次事件之间的真实秒数。
+        衰减速率以"每小时"为基准，按 elapsed 线性缩放，上限 4 小时防止溢出。
+        """
+        hours = min(elapsed / 3600.0, 4.0)
+        if hours < 0.001:
+            return
+        self.immunity.cooldown = _clamp(self.immunity.cooldown - 0.6 * hours)
+        self.muscle.fatigue = _clamp(self.muscle.fatigue - 0.15 * hours)
+        self.pulse.strain = _clamp(self.pulse.strain - 0.1 * hours)
+        self.mortality.exhaustion = _clamp(self.mortality.exhaustion - 0.08 * hours)
+        self.mortality.recovery_debt = _clamp(self.mortality.recovery_debt - 0.05 * hours)
+        if self.wound.open > 0.0:
+            self.wound.open = _clamp(self.wound.open - 0.04 * hours)
+        self.immunity.interruption_budget = _clamp(self.immunity.interruption_budget + 0.2 * hours)
 
     def apply(
         self,
@@ -669,10 +648,7 @@ class AlphaBodyState:
         flags = list(flags or [])
         text = text.strip()
         elapsed = max(0.0, now - self.pulse.last_tick) if now else 1.0
-        previous = [
-            str(item.get("text") or "") for item in self.memory.get("traces", [])
-        ]
-        repetition = previous.count(text) + 1 if text else 0
+        repetition = list(self._recent_texts).count(text) + 1 if text else 0
 
         event = self.event_vector(
             text=text,
@@ -684,103 +660,31 @@ class AlphaBodyState:
         self.apply_vector_delta(self.vector_delta(event), now=now)
         self.nerve.repetition = repetition
 
+        self._passive_decay(elapsed)
+
         self.muscle.fatigue = _clamp(
             self.muscle.fatigue + (0.06 if self.needs["need_contact"] > 0.65 else 0.0)
         )
         self.muscle.readiness = _clamp(
-            0.2
-            + self.muscle.trained_reach
-            + self.needs["need_expression"]
-            - self.muscle.fatigue
+            0.2 + self.muscle.trained_reach + self.needs["need_expression"] - self.muscle.fatigue
         )
         self.wound.repair = _clamp(
-            self.wound.repair
-            + (0.02 if self.wound.open > 0.0 and "repair" not in flags else 0.0)
+            self.wound.repair + (0.02 if self.wound.open > 0.0 and "repair" not in flags else 0.0)
         )
         self.wound.scar = _clamp(
             self.wound.scar + max(0.0, self.wound.open - self.wound.repair) * 0.05
         )
         self.wound.sensitivity = _clamp(self.wound.sensitivity + self.wound.scar * 0.02)
-        self.immunity.paused = (
-            "pause" in flags or self.immunity.paused and "resume" not in flags
-        )
+        self.immunity.paused = "pause" in flags or self.immunity.paused and "resume" not in flags
         if "reset" in flags:
             self.immunity.interruption_budget = 1.0
             self.immunity.cooldown = 0.0
             self.immunity.paused = False
-        target_flow = _clamp(
-            len(self.memory.get("traces", [])) / 50.0 + self.nerve.plasticity * 0.2
-        )
         self.bloodflow.memory_flow = _clamp(
-            self.bloodflow.memory_flow * 0.9 + target_flow * 0.1
+            self.bloodflow.memory_flow * 0.9 + self.nerve.plasticity * 0.2
         )
 
         if text:
-            self.memory.setdefault("traces", []).append(
-                {
-                    "id": f"trace-{len(self.memory.get('traces', [])) + 1}",
-                    "text": text[:500],
-                    "weight": round(_clamp(0.35 + repetition * 0.08), 6),
-                    "temperature": self.temperature.to_dict()["warmth"],
-                }
-            )
-            self.memory["traces"] = self.memory["traces"][-50:]
+            self._recent_texts.append(text)
             self._observe_relationship_signal(flags=flags, text=text)
             self.observe_shadow_signal(text=text, flags=flags)
-
-
-# ---------------------------------------------------------------------------
-# Item 97: 能量管理模型
-# ---------------------------------------------------------------------------
-
-
-class EnergyPool:
-    """Sylanne 的能量池：模拟认知负荷/情感消耗/恢复周期。"""
-
-    def __init__(self, max_energy: float = 1.0):
-        self._energy: float = max_energy
-        self._max: float = max_energy
-        self._last_tick: float = time.time()
-
-    @property
-    def energy(self) -> float:
-        return self._energy
-
-    @property
-    def is_fatigued(self) -> bool:
-        return self._energy < 0.3
-
-    def consume(self, amount: float):
-        """消耗能量（对话、情感处理、LLM 调用等）。"""
-        self._energy = max(0.0, self._energy - amount)
-
-    def recover(self, dt: float):
-        """自然恢复。dt 为距上次 tick 的秒数。"""
-        # 每小时恢复 0.2 能量
-        recovery = dt / 3600 * 0.2
-        self._energy = min(self._max, self._energy + recovery)
-
-    def tick(self):
-        """每轮对话调用。"""
-        now = time.time()
-        dt = now - self._last_tick
-        self._last_tick = now
-        self.recover(dt)
-
-    def get_fatigue_hint(self) -> str | None:
-        """疲劳时返回风格提示。"""
-        if self._energy < 0.15:
-            return "非常疲惫，回复极简短温和"
-        elif self._energy < 0.3:
-            return "有些疲惫，回复简短但保持温度"
-        return None
-
-    def to_dict(self) -> dict:
-        return {"energy": self._energy, "last_tick": self._last_tick}
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "EnergyPool":
-        pool = cls()
-        pool._energy = data.get("energy", 1.0)
-        pool._last_tick = data.get("last_tick", time.time())
-        return pool

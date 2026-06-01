@@ -1,8 +1,24 @@
-"""Type definitions for Sylanne-Core SDK output."""
+"""Type definitions for Sylanne-Core SDK output.
+
+All public API methods return typed dicts defined here. The Surface type
+is the primary output of engine.process() and engine.tick().
+
+Type hierarchy::
+
+    Surface
+    ├── state: AffectiveState (8 subsystems + needs)
+    ├── personality: PersonalityState (deep 5D + surface 6D)
+    ├── decision: Decision (action + confidence + urgency)
+    ├── guard: Guard (allowed + constraints)
+    ├── dynamics: Dynamics (affect/moral/uncertainty/relational_time)
+    └── debug: dict | None (pipeline internals, if diagnostics=True)
+"""
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
+
+EngineStatus = Literal["init", "running", "degraded", "closed"]
 
 
 class RhythmState(TypedDict):
@@ -114,16 +130,68 @@ class Guard(TypedDict):
     constraints: list[str]
 
 
-class MemoryEntry(TypedDict):
-    text: str
-    relevance: float
-    created_at: float
-    layer: str
+class AffectDynamics(TypedDict):
+    recovery_drive: float
+    expression_drive: float
+    quiet_drive: float
 
 
-class MemoryResult(TypedDict):
-    recalled: list[MemoryEntry]
-    total_stored: int
+class MoralState(TypedDict):
+    state: str
+    events: int
+
+
+class UncertaintyState(TypedDict):
+    claim_caution: float
+    events: int
+
+
+class RelationalTime(TypedDict):
+    interval_seconds: float
+    total_duration: float
+    phase: str
+
+
+class HotPoolDiagnostics(TypedDict):
+    temperature: float
+    volume: float
+    pressure: float
+    material_count: int
+    cascade_active: bool
+    cascade_intensity: float
+    sensitivity_multiplier: float
+    in_recovery: bool
+    collapse_count: int
+
+
+class Dynamics(TypedDict):
+    affect: AffectDynamics
+    moral_state: MoralState
+    uncertainty: UncertaintyState
+    relational_time: RelationalTime
+    hot_pool: HotPoolDiagnostics
+
+
+class PADOutput(TypedDict):
+    """PAD dimensional emotion output (Mehrabian & Russell 1974).
+
+    Maps the internal N-dim affective state to the standard 3D PAD space
+    plus a categorical label and confidence score.
+    """
+
+    valence: float  # [-1, 1] — hedonic tone (Pleasure axis)
+    arousal: float  # [0, 1] — physiological activation
+    dominance: float  # [0, 1] — perceived control
+    label: str  # categorical emotion label (e.g. "joy", "anger", "neutral")
+    confidence: float  # [0, 1] — classification confidence
+
+
+class HealthStatus(TypedDict):
+    status: EngineStatus
+    active_sessions: int
+    data_dir_exists: bool
+    llm_configured: bool
+    embedding_configured: bool
 
 
 class Surface(TypedDict):
@@ -135,6 +203,7 @@ class Surface(TypedDict):
     personality: PersonalityState
     decision: Decision
     guard: Guard
-    memory: MemoryResult
     pipeline: dict[str, Any]
-    dynamics: dict[str, Any]
+    dynamics: Dynamics
+    pad: PADOutput
+    debug: dict[str, Any] | None

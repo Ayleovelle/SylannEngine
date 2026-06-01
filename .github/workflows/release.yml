@@ -81,9 +81,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          PACKAGE_NAME="sylannengine"
+          PACKAGE_NAME="astrbot_plugin_sylannengine"
           VERSION="${{ steps.get_version.outputs.version }}"
-          BUILD_ROOT="${RUNNER_TEMP}/sdk-build"
+          BUILD_ROOT="${RUNNER_TEMP}/plugin-build"
           STAGE_DIR="${BUILD_ROOT}/${PACKAGE_NAME}"
           ZIP_NAME="${PACKAGE_NAME}-${VERSION}.zip"
 
@@ -91,24 +91,16 @@ jobs:
           mkdir -p "${STAGE_DIR}"
           mkdir -p "${GITHUB_WORKSPACE}/dist"
 
-          rsync -a \
-            --exclude '.git/' \
-            --exclude '.github/' \
-            --exclude '.idea/' \
-            --exclude '.vscode/' \
-            --exclude '.pytest_cache/' \
-            --exclude '.ruff_cache/' \
-            --exclude '.mypy_cache/' \
-            --exclude '.cache/' \
-            --exclude '.venv/' \
-            --exclude 'venv/' \
-            --exclude '__pycache__/' \
-            --exclude 'dist/' \
-            --exclude 'build/' \
-            --exclude '*.pyc' \
-            --exclude '*.pyo' \
-            --exclude '.DS_Store' \
-            ./ "${STAGE_DIR}/"
+          # Only include files needed for AstrBot plugin runtime
+          cp main.py "${STAGE_DIR}/"
+          cp metadata.yaml "${STAGE_DIR}/"
+          cp -r sylanne_core "${STAGE_DIR}/"
+          cp README.md "${STAGE_DIR}/" 2>/dev/null || true
+          cp LICENSE "${STAGE_DIR}/" 2>/dev/null || true
+
+          # Clean up bytecode
+          find "${STAGE_DIR}" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+          find "${STAGE_DIR}" -name '*.pyc' -delete 2>/dev/null || true
 
           cd "${BUILD_ROOT}"
           zip -r "${GITHUB_WORKSPACE}/dist/${ZIP_NAME}" "${PACKAGE_NAME}"
@@ -117,7 +109,7 @@ jobs:
         if: steps.check_release.outputs.exists == 'false'
         uses: actions/upload-artifact@v7
         with:
-          name: sdk-zip-${{ steps.get_version.outputs.version }}
+          name: plugin-zip-${{ steps.get_version.outputs.version }}
           path: dist/*.zip
           if-no-files-found: error
 
@@ -129,7 +121,7 @@ jobs:
           name: ${{ steps.get_version.outputs.version }}
           body: ${{ steps.get_changelog.outputs.changelog }}
           files: dist/*.zip
-          prerelease: ${{ contains(steps.get_version.outputs.version, 'preview') || contains(steps.get_version.outputs.version, 'alpha') || contains(steps.get_version.outputs.version, 'beta') }}
+          prerelease: ${{ contains(steps.get_version.outputs.version, 'preview') || contains(steps.get_version.outputs.version, 'alpha') || contains(steps.get_version.outputs.version, 'beta') || contains(steps.get_version.outputs.version, 'rc') || contains(steps.get_version.outputs.version, '0a') }}
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

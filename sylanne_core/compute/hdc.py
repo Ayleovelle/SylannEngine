@@ -36,7 +36,7 @@ _SEED_CACHE_EVICT_COUNT = 1000
 # 使用 SHA-256 哈希链确保确定性（与纯 Python 路径的 atom() 结果一致）。
 
 
-def _build_char_lut(dim: int) -> "np.ndarray":
+def _build_char_lut(dim: int) -> np.ndarray:
     """构建字符查找表：shape [256, dim], dtype uint8, 每个元素为 0 或 1。
 
     对每个字节值 b (0-255)，用 SHA-256 哈希链生成 dim 个随机比特。
@@ -47,12 +47,10 @@ def _build_char_lut(dim: int) -> "np.ndarray":
     for b in range(256):
         # 生成与 atom() 相同的随机字节序列
         token_bytes = chr(b).encode("utf-8")
-        parts = []
+        parts: list[bytes] = []
         chunk = 0
         while len(b"".join(parts)) < byte_dim:
-            parts.append(
-                hashlib.sha256(token_bytes + struct.pack("<I", chunk)).digest()
-            )
+            parts.append(hashlib.sha256(token_bytes + struct.pack("<I", chunk)).digest())
             chunk += 1
         raw = b"".join(parts)[:byte_dim]
         # 将 packed bytes 展开为 dim 个独立比特（little-endian 位序）
@@ -62,7 +60,7 @@ def _build_char_lut(dim: int) -> "np.ndarray":
     return lut
 
 
-def _build_shift_masks(byte_dim: int, dim: int) -> tuple:
+def _build_shift_masks(byte_dim: int, dim: int) -> tuple[None | tuple[int, int, int, int], ...]:
     """预计算每种子字节移位余数（1-7）对应的位掩码。
 
     对于移位余数 r，逐字节操作为：
@@ -75,7 +73,9 @@ def _build_shift_masks(byte_dim: int, dim: int) -> tuple:
     预计算这些掩码后，编码时每个 token 的移位操作只需 O(1) 次大整数运算。
     """
     full_mask = (1 << dim) - 1
-    masks = [None]  # index 0 unused (sr=0 means no sub-byte shift)
+    masks: list[None | tuple[int, int, int, int]] = [
+        None
+    ]  # index 0 unused (sr=0 means no sub-byte shift)
     for r in range(1, 8):
         keep_byte = (1 << (8 - r)) - 1  # bits 0..7-r
         low_byte = (1 << r) - 1  # bits 0..r-1
@@ -111,7 +111,7 @@ class HDCEncoder:
         self._shift_masks = _build_shift_masks(self._byte_dim, dim)
         # numpy 加速路径：预计算字符查找表
         # 查找表只在首次需要时构建（lazy init），避免 import 时的开销
-        self._np_char_lut: "np.ndarray | None" = None
+        self._np_char_lut: np.ndarray | None = None
 
     def atom(self, token: str) -> bytearray:
         """为单个 token 生成确定性随机二进制向量（packed bytes 格式）。
@@ -122,7 +122,7 @@ class HDCEncoder:
         if token in self._seed_cache:
             return self._seed_cache[token]
         # Generate enough random bytes
-        parts = []
+        parts: list[bytes] = []
         h = token.encode("utf-8")
         needed = self._byte_dim
         chunk = 0
@@ -187,7 +187,9 @@ class HDCEncoder:
                     v = rot_int
                 else:
                     # Sub-byte shift using pre-computed masks (no Python loop)
-                    keep_mask, low_mask, high_mask, shift_amt = shift_masks[sr]
+                    mask_entry = shift_masks[sr]
+                    assert mask_entry is not None
+                    keep_mask, low_mask, high_mask, shift_amt = mask_entry
                     # Part 1: right-shift within each byte (keep low bits)
                     part1 = (rot_int >> sr) & keep_mask
                     # Part 2: carry from previous byte (circular left shift)
@@ -313,7 +315,7 @@ class HDCEncoder:
         # 步骤 5：将 dim 维比特数组打包为 bytearray（little-endian 位序）
         return self._np_bits_to_bytearray(result_bits)
 
-    def _np_bits_to_bytearray(self, bits: "np.ndarray") -> bytearray:
+    def _np_bits_to_bytearray(self, bits: np.ndarray) -> bytearray:
         """将 dim 维 0/1 numpy 数组打包为 bytearray（little-endian 位序）。
 
         位序约定：bits[byte_idx*8 + bit_idx] 对应输出字节 byte_idx 的第 bit_idx 位。
@@ -327,14 +329,12 @@ class HDCEncoder:
         packed = reshaped.dot(powers).astype(np.uint8)  # shape [byte_dim]
         return bytearray(packed.tobytes())
 
-    def similarity(self, a: bytearray, b: bytearray) -> float:
+    def similarity(self, a: bytes | bytearray, b: bytes | bytearray) -> float:
         """计算两个超向量的 Hamming 相似度（1.0 = 完全相同，0.5 = 正交/随机）。"""
         if not a or not b:
             return 0.5
-        xor_count = 0
-        for x, y in zip(a, b):
-            xor_count += (x ^ y).bit_count()
-        return 1.0 - xor_count / self.dim
+        xor_int = int.from_bytes(a, "little") ^ int.from_bytes(b, "little")
+        return 1.0 - xor_int.bit_count() / self.dim
 
     def bind(self, a: bytearray, b: bytearray) -> bytearray:
         """XOR 绑定：表示两个概念之间的关系（结果与两者都不相似）。"""

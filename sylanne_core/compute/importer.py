@@ -57,9 +57,7 @@ def import_legacy_body(
         or data.get("relational")
         or data.get("relationship_state")
     )
-    repair = _mapping(
-        data.get("repair") or data.get("repair_state") or data.get("moral_repair")
-    )
+    repair = _mapping(data.get("repair") or data.get("repair_state") or data.get("moral_repair"))
     # 合并各子模块的 values 和 dynamics 字段为统一查找表
     values = dict(_mapping(emotion.get("values")))
     values.update(_mapping(lifelike.get("values")))
@@ -67,16 +65,14 @@ def import_legacy_body(
     dynamics = dict(_mapping(emotion.get("dynamics")))
     dynamics.update(_mapping(lifelike.get("dynamics")))
     dynamics.update(_mapping(relationship.get("dynamics")))
-    records = memory.get("records") if isinstance(memory.get("records"), list) else []
-    repair_records = (
-        repair.get("records") if isinstance(repair.get("records"), list) else []
-    )
+    _raw_records = memory.get("records")
+    records: list[Any] = _raw_records if isinstance(_raw_records, list) else []
+    _raw_repair = repair.get("records")
+    repair_records: list[Any] = _raw_repair if isinstance(_raw_repair, list) else []
 
     # 启发式映射：将旧版 dynamics/values 数值投影到当前身体向量各轴
     # pulse.beat 用历史轮次数近似（越多轮次，心跳累积越高）
-    body.pulse.beat = max(
-        0.0, _number(dynamics.get("pulse"), _number(data.get("turns"), 0.0))
-    )
+    body.pulse.beat = max(0.0, _number(dynamics.get("pulse"), _number(data.get("turns"), 0.0)))
     body.pulse.last_tick = _number(
         emotion.get("updated_at"), _number(lifelike.get("updated_at"), 0.0)
     )
@@ -114,9 +110,7 @@ def import_legacy_body(
     )
     body.temperature.volatility = _clamp(_number(values.get("arousal"), 0.0))
     body.immunity.boundary_pressure = _clamp(
-        _number(
-            values.get("boundary_sensitivity"), _number(values.get("boundary"), 0.0)
-        )
+        _number(values.get("boundary_sensitivity"), _number(values.get("boundary"), 0.0))
     )
     body.mortality.load = _clamp(
         _number(dynamics.get("load"), _number(values.get("arousal"), 0.0) * 0.25)

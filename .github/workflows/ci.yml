@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, preview]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint with ruff
+        run: |
+          ruff check sylanne_core/ tests/ --ignore=E501
+
+      - name: Run tests
+        run: |
+          pytest tests/ -q --ignore=tests/attention_test_plugin.py --ignore=tests/attention_demo.html
+
+      - name: Type check
+        run: |
+          mypy sylanne_core --ignore-missing-imports --check-untyped-defs
+
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: pip install -e .
+
+      - name: Performance regression check
+        run: |
+          python -c "
+          import time
+          from sylanne_core.compute.kernel import AlphaKernel, AlphaKernelEvent
+
+          kernel = AlphaKernel.boot('bench')
+          start = time.perf_counter()
+          for i in range(500):
+              kernel.tick(AlphaKernelEvent(text=f'msg {i}', now=float(i)))
+          elapsed = time.perf_counter() - start
+          ms_per_tick = elapsed / 500 * 1000
+          print(f'500 ticks in {elapsed:.2f}s ({ms_per_tick:.2f} ms/tick)')
+          assert ms_per_tick < 10.0, f'Performance regression: {ms_per_tick:.2f} ms/tick > 10ms threshold'
+          "

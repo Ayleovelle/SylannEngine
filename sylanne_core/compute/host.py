@@ -15,12 +15,19 @@ SylanneAlphaHost 是每个会话的顶层容器，持有：
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .kernel import AlphaKernelEvent
+from .kernel import AlphaKernel, AlphaKernelEvent
 from .runtime import AlphaRuntime
+
+if TYPE_CHECKING:
+    from ..config import DimensionProfile
+
+_FLUSH_INTERVAL: float = 5.0
+_FLUSH_TICK_THRESHOLD: int = 8
 
 
 @dataclass(slots=True)
@@ -59,21 +66,34 @@ class SylanneAlphaHost:
     3. 每次 tick 后自动持久化 kernel 状态
     4. 提供 on_chat 的简易对话循环（request → 生成回复 → response）
 
+    持久化策略（CoW）：
+    - tick 完成后立即取 snapshot（纯内存操作，微秒级）
+    - 按间隔/tick 数阈值决定是否落盘
+    - 落盘时写入的是之前缓存的 snapshot，不再访问 kernel 状态
+    - 这确保 tick 计算和磁盘 I/O 完全解耦，避免慢盘阻塞计算
+
     Args:
         root: 持久化根目录路径
         session_key: 会话标识符
         legacy: 可选的旧版 3.x 数据，用于首次迁移
+        profile: 计算维度配置（lite/pro/max）
     """
 
     root: Path | str
     session_key: str = "default"
     legacy: dict[str, Any] | None = None
+    profile: DimensionProfile | None = None
     runtime: AlphaRuntime = field(init=False)
-    kernel: Any = field(init=False)
+    kernel: AlphaKernel = field(init=False)
+    _dirty: bool = field(init=False, default=False)
+    _ticks_since_flush: int = field(init=False, default=0)
+    _last_flush_time: float = field(init=False, default=0.0)
+    _pending_snapshot: dict[str, Any] | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
-        self.runtime = AlphaRuntime(Path(self.root))
+        self.runtime = AlphaRuntime(Path(self.root), profile=self.profile)
         self.kernel = self.runtime.load(self.session_key, legacy=self.legacy)
+        self._last_flush_time = time.time()
 
     def on_request(
         self,
@@ -126,13 +146,13 @@ class SylanneAlphaHost:
         """主动发言检查：tick 后若 host_payload 指示应发送，则消耗中断预算并进入冷却。"""
         surface = self._tick(event, phase="proactive")
         if surface["host_payload"].get("should_send"):
+            # Direct state mutation — proactive check is outside the normal pipeline path
             self.kernel.body.immunity.interruption_budget = max(
                 0.0, self.kernel.body.immunity.interruption_budget - 0.2
             )
-            self.kernel.body.immunity.cooldown = max(
-                self.kernel.body.immunity.cooldown, 0.35
-            )
-            self.runtime.save(self.kernel)
+            self.kernel.body.immunity.cooldown = max(self.kernel.body.immunity.cooldown, 0.35)
+            self._dirty = True
+            self._flush()
         return surface
 
     def diagnostics(self) -> dict[str, Any]:
@@ -148,10 +168,10 @@ class SylanneAlphaHost:
         phase: str,
         assessment: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """内部 tick 实现：转换事件 → 注入 phase flag → 驱动 kernel → 持久化。"""
+        """内部 tick 实现：转换事件 → 注入 phase flag → 驱动 kernel → CoW snapshot → 按需持久化。"""
         host_event = self._event(event)
         flags = list(dict.fromkeys([phase, *host_event.flags]))
-        surface = self.kernel.tick(
+        surface: dict[str, Any] = self.kernel.tick(
             AlphaKernelEvent(
                 text=host_event.text,
                 values=dict(host_event.values),
@@ -162,8 +182,34 @@ class SylanneAlphaHost:
             ),
             assessment=assessment,
         )["surface"]
-        self.runtime.save(self.kernel)
+        # CoW: take snapshot immediately (pure memory, fast)
+        self._pending_snapshot = self.kernel.snapshot()
+        self._dirty = True
+        self._ticks_since_flush += 1
+        self._maybe_flush()
         return surface
+
+    def _maybe_flush(self) -> None:
+        """按间隔或 tick 数阈值决定是否落盘。"""
+        now = time.time()
+        elapsed = now - self._last_flush_time
+        if self._ticks_since_flush >= _FLUSH_TICK_THRESHOLD or elapsed >= _FLUSH_INTERVAL:
+            self._flush(now)
+
+    def _flush(self, now: float = 0.0) -> None:
+        if not self._dirty or self._pending_snapshot is None:
+            return
+        self.runtime.save_snapshot(self.kernel.session_key, self._pending_snapshot)
+        self._pending_snapshot = None
+        self._dirty = False
+        self._ticks_since_flush = 0
+        self._last_flush_time = now or time.time()
+
+    def flush(self) -> None:
+        """外部强制落盘入口。"""
+        if self._pending_snapshot is None and self._dirty:
+            self._pending_snapshot = self.kernel.snapshot()
+        self._flush()
 
     def _reply_text(self, surface: dict[str, Any]) -> str:
         """根据 decision/guard 生成简短的内置回复文本（on_chat 专用）。"""
@@ -179,9 +225,7 @@ class SylanneAlphaHost:
             return "我在听，你继续说。"
         return "嗯，我记下了。"
 
-    def _event(
-        self, event: SylanneAlphaHostEvent | dict[str, Any] | None
-    ) -> SylanneAlphaHostEvent:
+    def _event(self, event: SylanneAlphaHostEvent | dict[str, Any] | None) -> SylanneAlphaHostEvent:
         if isinstance(event, SylanneAlphaHostEvent):
             return event
         payload = event or {}
@@ -192,8 +236,6 @@ class SylanneAlphaHost:
             now=float(payload.get("now") or 0.0),
             values=dict(payload.get("values") or {}),
             event_time=dict(
-                payload.get("event_time")
-                if isinstance(payload.get("event_time"), dict)
-                else {}
+                payload.get("event_time") if isinstance(payload.get("event_time"), dict) else {}  # type: ignore[arg-type]
             ),
         )

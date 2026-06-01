@@ -86,7 +86,7 @@ class Scar:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Scar":
+    def from_dict(cls, data: dict[str, Any]) -> Scar:
         return cls(
             dimension=data["dimension"],
             timestamp=data["timestamp"],
@@ -122,6 +122,7 @@ class ScarredState:
         "_mlp_w1",
         "_mlp_w2",
         "_mlp_hidden_dim",
+        "_mlp_passes",
         "_neuroticism",
         # Session scar cap (sovereignty immune system)
         "_session_scar_count",
@@ -137,7 +138,7 @@ class ScarredState:
         "_modifier_cache_valid",
     )
 
-    def __init__(self, n_dims: int = 8, wound_threshold: float = 0.6):
+    def __init__(self, n_dims: int = 8, wound_threshold: float = 0.6, mlp_passes: int = 1):
         self.n_dims = n_dims
         self.wound_threshold = wound_threshold
         self.base = [0.0] * n_dims
@@ -148,8 +149,9 @@ class ScarredState:
         self._t_raw: int = 10
         self._t_closing: int = 40
         self._t_scarred: int = 150
-        # MLP parameters for base state evolution (initialized lazily)
-        self._mlp_hidden_dim: int = 12
+        # MLP hidden dim scales with n_dims for higher-dim modes
+        self._mlp_hidden_dim: int = max(12, n_dims + 4)
+        self._mlp_passes: int = max(1, mlp_passes)
         self._mlp_w1: list[list[float]] | None = None
         self._mlp_w2: list[list[float]] | None = None
         # Session scar cap (sovereignty immune system)
@@ -188,7 +190,7 @@ class ScarredState:
 
     def healing_duration(
         self,
-        stage: "HealingStage",
+        stage: HealingStage,
         dim: int | None = None,
         _dim_counts: dict[int, int] | None = None,
     ) -> int:
@@ -222,13 +224,9 @@ class ScarredState:
         hidden_dim = self._mlp_hidden_dim
 
         # Layer 1: hidden_dim x input_dim
-        self._mlp_w1 = [
-            [rng.gauss(0, 0.5) for _ in range(input_dim)] for _ in range(hidden_dim)
-        ]
+        self._mlp_w1 = [[rng.gauss(0, 0.5) for _ in range(input_dim)] for _ in range(hidden_dim)]
         # Layer 2: n_dims x hidden_dim
-        self._mlp_w2 = [
-            [rng.gauss(0, 0.5) for _ in range(hidden_dim)] for _ in range(self.n_dims)
-        ]
+        self._mlp_w2 = [[rng.gauss(0, 0.5) for _ in range(hidden_dim)] for _ in range(self.n_dims)]
         # Apply spectral normalization to both weight matrices
         self._mlp_w1 = self._spectral_normalize(self._mlp_w1, max_sigma=0.7)
         self._mlp_w2 = self._spectral_normalize(self._mlp_w2, max_sigma=0.7)
@@ -286,6 +284,7 @@ class ScarredState:
         """
         if self._mlp_w1 is None or self._mlp_w2 is None:
             self._init_mlp_weights()
+        assert self._mlp_w1 is not None and self._mlp_w2 is not None
 
         # Concatenate input: [x; e_tilde]
         inp = list(x) + list(e_tilde)
@@ -398,7 +397,9 @@ class ScarredState:
         modulated = self.modulate(event)
 
         # Step 2: Base state evolution (2-layer MLP with spectral normalization)
-        self.base = self._evolve_base(self.base, modulated)
+        # Multi-pass refinement: pro/max modes run multiple passes for deeper processing
+        for _pass in range(self._mlp_passes):
+            self.base = self._evolve_base(self.base, modulated)
 
         # Step 3: Scar formation (conditional, with session cap)
         existing_count = len(self.scars)
@@ -419,16 +420,14 @@ class ScarredState:
             # 新伤痕产生，使 modifier 缓存失效
             self._invalidate_modifier_cache()
             self._recent_scar_ticks.append(self._tick)
-            self._recent_scar_ticks = [
-                t for t in self._recent_scar_ticks if self._tick - t <= 10
-            ]
+            self._recent_scar_ticks = [t for t in self._recent_scar_ticks if self._tick - t <= 10]
             if len(self._recent_scar_ticks) >= 5 and not self._circuit_breaker_active:
                 self._circuit_breaker_active = True
                 self._circuit_breaker_remaining = 30
 
         # Step 4: Healing (using configurable per-dimension rates)
         # Only heal pre-existing scars; newly formed scars skip their birth tick.
-        healed = []
+        healed: list[int] = []
         if heal:
             # 预计算 per-dim scar count，避免 O(n²)——主循环和奖励愈合共用
             _dim_counts: dict[int, int] = {}
@@ -438,9 +437,7 @@ class ScarredState:
             # Time-aware healing: grant bonus ticks for real-time silence
             if timestamp > 0 and self._last_step_time > 0:
                 elapsed_minutes = (timestamp - self._last_step_time) / 60.0
-                bonus_ticks = int(
-                    elapsed_minutes / 5.0
-                )  # 1 bonus tick per 5 min silence
+                bonus_ticks = int(elapsed_minutes / 5.0)  # 1 bonus tick per 5 min silence
                 bonus_ticks = min(bonus_ticks, 10)  # cap at 10 bonus ticks
                 for _ in range(bonus_ticks):
                     self._heal_one_tick(existing_count, healed, _dim_counts)
@@ -461,9 +458,7 @@ class ScarredState:
             # Prune excess FADED scars to prevent unbounded growth
             faded = [s for s in self.scars if s.stage == HealingStage.FADED]
             if len(faded) > 50:
-                self.scars = [
-                    s for s in self.scars if s.stage != HealingStage.FADED
-                ] + faded[-50:]
+                self.scars = [s for s in self.scars if s.stage != HealingStage.FADED] + faded[-50:]
 
             # 愈合/修剪导致伤痕阶段变化或数量变化，使缓存失效
             if healed or len(faded) > 50:
@@ -595,7 +590,7 @@ class ScarredState:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ScarredState":
+    def from_dict(cls, data: dict[str, Any]) -> ScarredState:
         state = cls(n_dims=data["n_dims"], wound_threshold=data["wound_threshold"])
         state.base = list(data["base"])
         state.scars = [Scar.from_dict(s) for s in data.get("scars", [])]

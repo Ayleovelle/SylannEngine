@@ -24,13 +24,16 @@ AlphaKernel 是 Sylanne-Embodiment 的中枢调度器，驱动 7 层计算管线
 
 from __future__ import annotations
 
+import logging
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .attention import focus_information_flood
 from .body import SCHEMA_VERSION, AlphaBodyState
 from .computation_spine import ComputationSpine
+from .hot_pool import HotPool
 from .importer import import_legacy_body
 from .personality import drift_sylanne_traits, initial_personality
 from .prompt_surface import (
@@ -41,6 +44,11 @@ from .prompt_surface import (
 )
 from .workset import build_fragment_workset
 
+if TYPE_CHECKING:
+    from ..config import DimensionProfile
+
+logger = logging.getLogger("sylanne_core")
+
 # 各 alpha 层的 schema 版本标识，用于前向兼容检查
 SCHEMA_RELATIONAL_TIME_VERSION = "sylanne.alpha.relational_time.v1"
 SCHEMA_INTEGRATED_SELF_VERSION = "sylanne.alpha.integrated_self.v1"
@@ -49,6 +57,17 @@ SCHEMA_MORAL_REPAIR_VERSION = "sylanne.alpha.moral_repair.v1"
 SCHEMA_FALLIBILITY_VERSION = "sylanne.alpha.fallibility.v1"
 SCHEMA_GROUP_ATMOSPHERE_VERSION = "sylanne.alpha.group_atmosphere.v1"
 SCHEMA_PROACTIVE_SOURCE_VERSION = "sylanne.alpha.proactive_source.v1"
+
+
+def _as_dict(val: Any) -> dict[str, Any]:
+    return dict(val) if isinstance(val, dict) else {}
+
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    try:
+        return max(0, int(float(val)))
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 @dataclass(slots=True)
@@ -94,73 +113,58 @@ class AlphaKernel:
     moral_repair: dict[str, Any] = field(default_factory=dict)
     fallibility: dict[str, Any] = field(default_factory=dict)
     computation: ComputationSpine = field(default_factory=ComputationSpine)
+    hot_pool: HotPool = field(default_factory=HotPool)
     _last_computation_result: dict[str, Any] = field(default_factory=dict)
+    _cached_vector_summary: dict[str, float] | None = field(default=None, repr=False)
 
     @classmethod
     def boot(
-        cls, session_key: str, legacy: dict[str, Any] | None = None
-    ) -> "AlphaKernel":
+        cls,
+        session_key: str,
+        legacy: dict[str, Any] | None = None,
+        profile: DimensionProfile | None = None,
+    ) -> AlphaKernel:
         """从零创建或从旧版数据迁移创建 kernel。"""
         if legacy is None:
-            return cls(session_key=session_key)
-        body, audit, turns = import_legacy_body(legacy)
-        return cls(session_key=session_key, body=body, audit=audit, turns=turns)
+            kernel = cls(session_key=session_key)
+        else:
+            body, audit, turns = import_legacy_body(legacy)
+            kernel = cls(session_key=session_key, body=body, audit=audit, turns=turns)
+        if profile is not None:
+            kernel.computation = ComputationSpine(profile=profile)
+            kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
+        return kernel
 
     @classmethod
-    def restore(cls, snapshot: dict[str, Any]) -> "AlphaKernel":
+    def restore(
+        cls,
+        snapshot: dict[str, Any],
+        profile: DimensionProfile | None = None,
+    ) -> AlphaKernel:
         """从持久化快照恢复 kernel，对每个字段做类型安全的反序列化。"""
         kernel = cls(
             session_key=str(snapshot.get("session_key") or "default"),
-            body=AlphaBodyState.from_dict(
-                snapshot.get("body") if isinstance(snapshot.get("body"), dict) else {}
-            ),
-            audit=dict(
-                snapshot.get("audit") if isinstance(snapshot.get("audit"), dict) else {}
-            ),
-            turns=max(0, int(snapshot.get("turns") or 0)),
-            last_event=dict(
-                snapshot.get("last_event")
-                if isinstance(snapshot.get("last_event"), dict)
-                else {}
-            ),
-            previous_event=dict(
-                snapshot.get("previous_event")
-                if isinstance(snapshot.get("previous_event"), dict)
-                else {}
-            ),
-            relational_time=dict(
-                snapshot.get("relational_time")
-                if isinstance(snapshot.get("relational_time"), dict)
-                else {}
-            ),
-            last_decision=dict(
-                snapshot.get("last_decision")
-                if isinstance(snapshot.get("last_decision"), dict)
-                else {}
-            ),
-            last_guard=dict(
-                snapshot.get("last_guard")
-                if isinstance(snapshot.get("last_guard"), dict)
-                else {}
-            ),
-            personality=dict(
-                snapshot.get("personality")
-                if isinstance(snapshot.get("personality"), dict)
-                else {}
-            ),
-            moral_repair=dict(
-                snapshot.get("moral_repair")
-                if isinstance(snapshot.get("moral_repair"), dict)
-                else {}
-            ),
-            fallibility=dict(
-                snapshot.get("fallibility")
-                if isinstance(snapshot.get("fallibility"), dict)
-                else {}
-            ),
+            body=AlphaBodyState.from_dict(_as_dict(snapshot.get("body"))),
+            audit=_as_dict(snapshot.get("audit")),
+            turns=_safe_int(snapshot.get("turns")),
+            last_event=_as_dict(snapshot.get("last_event")),
+            previous_event=_as_dict(snapshot.get("previous_event")),
+            relational_time=_as_dict(snapshot.get("relational_time")),
+            last_decision=_as_dict(snapshot.get("last_decision")),
+            last_guard=_as_dict(snapshot.get("last_guard")),
+            personality=_as_dict(snapshot.get("personality")),
+            moral_repair=_as_dict(snapshot.get("moral_repair")),
+            fallibility=_as_dict(snapshot.get("fallibility")),
         )
+        if profile is not None:
+            kernel.computation = ComputationSpine(profile=profile)
+            kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
         if "computation" in snapshot and isinstance(snapshot["computation"], dict):
             kernel.computation.from_dict(snapshot["computation"])
+        if "hot_pool" in snapshot and isinstance(snapshot["hot_pool"], dict):
+            mode = profile.mode if profile else "lite"
+            n_dims = profile.emotion_dim if profile else 16
+            kernel.hot_pool = HotPool.from_dict(snapshot["hot_pool"], n_dims=n_dims, mode=mode)
         if "_last_computation_result" in snapshot and isinstance(
             snapshot["_last_computation_result"], dict
         ):
@@ -190,21 +194,47 @@ class AlphaKernel:
         Returns:
             包含 state/decision/guard/surface 的结果字典
         """
+        self._cached_vector_summary = None
         event = self._event(event)
+        try:
+            return self._tick_inner(event, assessment)
+        except Exception:
+            logger.warning("tick failed, returning fallback", exc_info=True)
+            return {
+                "state": self.body,
+                "decision": self.last_decision or self._decide(),
+                "guard": self.last_guard or self._guard(self.last_decision or self._decide()),
+                "surface": self.surface(),
+            }
+
+    def _tick_inner(
+        self,
+        event: AlphaKernelEvent,
+        assessment: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         self.body.apply(
             text=event.text,
             flags=event.flags,
             confidence=event.confidence,
             now=event.now,
         )
-        # Derive computation parameters from current personality
         personality = self._personality()
         if personality:
             self.computation.apply_personality(personality.get("traits", personality))
-        # Run computation spine for emotion/expression state
+            self.hot_pool.apply_personality(personality.get("traits", personality))
+        # Hot pool: amplify event during cascade, then tick
+        event_dict = {
+            "confidence": event.confidence,
+            "flags": list(event.flags),
+            "values": dict(event.values),
+        }
+        self.hot_pool.amplify_event(event_dict)
         self._last_computation_result = self.computation.process(
             event.text, event.now, assessment=assessment
         )
+        collapse_record = self.hot_pool.tick(body=self.body, spine=self.computation)
+        if collapse_record is not None:
+            self._apply_collapse(collapse_record)
         self._evolve_alpha_layers(event)
         self.turns += 1
         previous = dict(self.last_event)
@@ -229,6 +259,20 @@ class AlphaKernel:
             "surface": self.surface(),
         }
 
+    def _apply_collapse(self, record: Any) -> None:
+        """Apply personality collapse deltas from hot pool phase transition."""
+        traits = self._personality()
+        if not traits:
+            return
+        trait_dict = traits.get("traits", traits)
+        pre_snapshot = dict(trait_dict)
+        for trait, delta in record.trait_deltas.items():
+            if trait in trait_dict:
+                trait_dict[trait] = max(0.05, min(0.95, trait_dict[trait] + delta))
+        record.pre_collapse_traits = pre_snapshot
+        record.post_collapse_traits = dict(trait_dict)
+        self.computation.apply_personality(trait_dict)
+
     def surface(self) -> dict[str, Any]:
         """生成当前状态的完整对外表示（供 WebUI / prompt injection 使用）。"""
         decision = self.last_decision or self._decide()
@@ -244,6 +288,7 @@ class AlphaKernel:
             "workset": workset,
             "host_payload": self._host_payload(decision, guard),
             "diagnostics": self._diagnostics(decision, guard, workset),
+            "hot_pool": self.hot_pool.diagnostics(),
         }
 
     def snapshot(self) -> dict[str, Any]:
@@ -263,6 +308,7 @@ class AlphaKernel:
             "moral_repair": self._moral_repair_state(),
             "fallibility": self._fallibility_state(),
             "computation": self.computation.to_dict(),
+            "hot_pool": self.hot_pool.to_dict(),
             "_last_computation_result": self._last_computation_result,
         }
 
@@ -274,21 +320,11 @@ class AlphaKernel:
     ) -> dict[str, Any]:
         return render_diagnostics(self, decision, guard, workset)
 
-    def _workset(
-        self, decision: dict[str, Any], guard: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _workset(self, decision: dict[str, Any], guard: dict[str, Any]) -> dict[str, Any]:
         vector_summary = self._vector_summary()
-        memory_matches = (
-            self.body.recall_memory(str(self.last_event.get("text") or ""), limit=3)
-            if self.last_event.get("text")
-            else []
-        )
-        primary = (
-            "guard" if not guard["allowed"] else decision.get("reason_code", "body")
-        )
+        primary = "guard" if not guard["allowed"] else decision.get("reason_code", "body")
         if primary not in {
             "body",
-            "memory",
             "guard",
             "assessor",
             "dialogue",
@@ -312,7 +348,7 @@ class AlphaKernel:
         return build_fragment_workset(
             session_key=self.session_key,
             fragments=[str(self.last_event.get("text") or "")],
-            memory_matches=memory_matches,
+            memory_matches=[],
             dialogue={
                 "flags": list(self.last_event.get("flags", [])),
                 "confidence": self.last_event.get("confidence", 0.0),
@@ -333,7 +369,6 @@ class AlphaKernel:
                 "weights": {
                     "body": vector_summary["need"],
                     "guard": guard["risk_score"],
-                    "memory": min(1.0, len(memory_matches) / 3.0),
                 },
                 "pressure": flood["pressure"],
                 "flood_policy": flood["policy"],
@@ -359,8 +394,8 @@ class AlphaKernel:
         """
         # Drift Sylanne traits (fast, text-based) with Embodiment bounds from computation spine
         embodiment = (
-            self.computation._embodiment_traits
-            if hasattr(self.computation, "_embodiment_traits")
+            self.computation.embodiment_bounds()
+            if hasattr(self.computation, "embodiment_bounds")
             else None
         )
         self.personality = drift_sylanne_traits(
@@ -372,41 +407,22 @@ class AlphaKernel:
         repair_events = int(self.moral_repair.get("events") or 0)
         if "repair" in flags:
             repair_events += 1
-        self.moral_repair = {
-            "schema_version": SCHEMA_MORAL_REPAIR_VERSION,
-            "kind": "moral_repair_state",
-            "internal_only": True,
-            "read_only": True,
-            "state": "repairing" if repair_events else "stable",
-            "events": repair_events,
-            "repair_need": round(self.body.needs["need_repair"], 6),
-            "constraints": [
-                "brief_repair_only",
-                "no_guilt_loop",
-                "current_user_text_priority",
-            ],
-        }
+        mr = self._moral_repair_state()
+        mr["state"] = "repairing" if repair_events else "stable"
+        mr["events"] = repair_events
+        mr["repair_need"] = round(self.body.needs["need_repair"], 6)
+        self.moral_repair = mr
+
         fallibility_events = int(self.fallibility.get("events") or 0)
         if "fallibility" in flags or event.confidence < 0.45:
             fallibility_events += 1
-        self.fallibility = {
-            "schema_version": SCHEMA_FALLIBILITY_VERSION,
-            "kind": "fallibility_state",
-            "internal_only": True,
-            "read_only": True,
-            "events": fallibility_events,
-            "claim_caution": round(
-                max(
-                    0.0, min(1.0, (1.0 - event.confidence) + fallibility_events * 0.12)
-                ),
-                6,
-            ),
-            "constraints": [
-                "admit_uncertainty",
-                "correct_once",
-                "no_performative_self_blame",
-            ],
-        }
+        fb = self._fallibility_state()
+        fb["events"] = fallibility_events
+        fb["claim_caution"] = round(
+            max(0.0, min(1.0, (1.0 - event.confidence) + fallibility_events * 0.12)),
+            6,
+        )
+        self.fallibility = fb
 
     def _personality(self) -> dict[str, Any]:
         if not self.personality:
@@ -449,15 +465,13 @@ class AlphaKernel:
         return dict(self.fallibility)
 
     def _affect_dynamics(self) -> dict[str, Any]:
-        body = self.body.to_dict()
+        body = self.body
         repair_drive = max(
-            body["needs"]["need_repair"],
-            body["wound"]["repair"],
-            body["wound"]["open"] * 0.5,
+            body.needs["need_repair"],
+            body.wound.repair,
+            body.wound.open * 0.5,
         )
-        expression_drive = max(
-            body["needs"]["need_expression"], body["temperature"]["warmth"] * 0.3
-        )
+        expression_drive = max(body.needs["need_expression"], body.temperature.warmth * 0.3)
         return {
             "schema_version": SCHEMA_AFFECT_DYNAMICS_VERSION,
             "kind": "affect_body_coupling",
@@ -468,8 +482,8 @@ class AlphaKernel:
                 "expression_drive": round(expression_drive, 6),
                 "quiet_drive": round(
                     max(
-                        body["needs"]["need_quiet"],
-                        body["immunity"]["boundary_pressure"],
+                        body.needs["need_quiet"],
+                        body.immunity.boundary_pressure,
                     ),
                     6,
                 ),
@@ -483,14 +497,9 @@ class AlphaKernel:
 
     def _group_atmosphere(self) -> dict[str, Any]:
         flags = set(self.last_event.get("flags", []))
-        values = (
-            self.last_event.get("values")
-            if isinstance(self.last_event.get("values"), dict)
-            else {}
-        )
-        heat = max(
-            float(values.get("group_heat") or 0.0), 0.4 if "group" in flags else 0.0
-        )
+        raw_values = self.last_event.get("values")
+        values: dict[str, Any] = dict(raw_values) if isinstance(raw_values, dict) else {}
+        heat = max(float(values.get("group_heat") or 0.0), 0.4 if "group" in flags else 0.0)
         interrupt_risk = max(heat * 0.6, self.body.immunity.boundary_pressure)
         return {
             "schema_version": SCHEMA_GROUP_ATMOSPHERE_VERSION,
@@ -508,9 +517,7 @@ class AlphaKernel:
             ],
         }
 
-    def _proactive_source(
-        self, decision: dict[str, Any], guard: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _proactive_source(self, decision: dict[str, Any], guard: dict[str, Any]) -> dict[str, Any]:
         relationship = self.body.relationship_memory()["continuity"]
         drivers = {
             "body_need": round(
@@ -559,17 +566,13 @@ class AlphaKernel:
         """
         return self.computation.engine.observe()
 
-    def _host_payload(
-        self, decision: dict[str, Any], guard: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _host_payload(self, decision: dict[str, Any], guard: dict[str, Any]) -> dict[str, Any]:
         return render_host_payload(self, decision, guard)
 
     def _prompt_fragment(self, decision: dict[str, Any], guard: dict[str, Any]) -> str:
         return render_prompt_fragment(self, decision, guard)
 
-    def _integrated_self(
-        self, decision: dict[str, Any], guard: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _integrated_self(self, decision: dict[str, Any], guard: dict[str, Any]) -> dict[str, Any]:
         """生成自我整合仲裁结果。
 
         综合 body 状态、guard 结果、关系记忆、影子记忆，
@@ -582,20 +585,13 @@ class AlphaKernel:
         relationship_memory = self.body.relationship_memory()
         shadow_memory = self.body.shadow_memory()
         primary_goal = "answer_current_request"
-        if (
-            not guard["allowed"]
-            or risk_score >= 0.8
-            or self.body.immunity.boundary_pressure > 0.75
-        ):
+        if not guard["allowed"] or risk_score >= 0.8 or self.body.immunity.boundary_pressure > 0.75:
             primary_goal = "boundary_guard"
         elif decision["action"] == "repair" or self.body.needs["need_repair"] > 0.2:
             primary_goal = "repair"
         elif "tool" in flags or "task" in flags:
             primary_goal = "tool_task"
-        elif (
-            decision["confidence"] < 0.45
-            or self.last_event.get("confidence", 0.0) < 0.35
-        ):
+        elif decision["confidence"] < 0.45 or self.last_event.get("confidence", 0.0) < 0.35:
             primary_goal = "clarify"
         elif decision["action"] in {"express", "reach_out"}:
             primary_goal = "respond"
@@ -621,9 +617,7 @@ class AlphaKernel:
             allowed_actions.append(decision["action"])
         allowed_actions = list(
             dict.fromkeys(
-                action
-                for action in allowed_actions
-                if action not in {"wait", "hold", "withdraw"}
+                action for action in allowed_actions if action not in {"wait", "hold", "withdraw"}
             )
         )
 
@@ -632,14 +626,8 @@ class AlphaKernel:
             "relationship_fact_claim",
             "override_current_user_text",
         ]
-        if (
-            risk_score >= 0.8
-            or not guard["allowed"]
-            or self.body.immunity.boundary_pressure > 0.75
-        ):
-            blocked_actions.extend(
-                ["reach_out", "proactive_speech", "relationship_escalation"]
-            )
+        if risk_score >= 0.8 or not guard["allowed"] or self.body.immunity.boundary_pressure > 0.75:
+            blocked_actions.extend(["reach_out", "proactive_speech", "relationship_escalation"])
         if "proactive" not in flags:
             blocked_actions.append("unrequested_proactive_speech")
         blocked_actions = list(dict.fromkeys(blocked_actions))
@@ -681,9 +669,7 @@ class AlphaKernel:
                     ),
                     6,
                 ),
-                "relationship_signal_weight": relationship_memory["continuity"][
-                    "weight"
-                ],
+                "relationship_signal_weight": relationship_memory["continuity"]["weight"],
                 "repair_pressure": shadow_memory["state_index"]["repair_pressure"],
                 "shadow_risk_impulse": shadow_memory["state_index"]["risk_impulse"],
             },
@@ -696,9 +682,7 @@ class AlphaKernel:
             },
             "risk": {
                 "score": round(risk_score, 6),
-                "safety_priority": round(
-                    max(risk_score, 1.0 - self.body.immunity.sovereignty), 6
-                ),
+                "safety_priority": round(max(risk_score, 1.0 - self.body.immunity.sovereignty), 6),
             },
             "constraints": [
                 "current_user_text_priority",
@@ -738,12 +722,9 @@ class AlphaKernel:
         }
 
     def _event_time_payload(self, event: dict[str, Any]) -> dict[str, Any]:
-        event_time = (
-            event.get("event_time") if isinstance(event.get("event_time"), dict) else {}
-        )
-        local_datetime = str(
-            event_time.get("local_datetime") or event_time.get("local_time") or ""
-        )
+        raw_et = event.get("event_time")
+        event_time: dict[str, Any] = dict(raw_et) if isinstance(raw_et, dict) else {}
+        local_datetime = str(event_time.get("local_datetime") or event_time.get("local_time") or "")
         timezone = str(event_time.get("timezone") or event_time.get("tz") or "local")
         epoch = float(event_time.get("epoch") or event.get("now") or 0.0)
         return {
@@ -752,9 +733,7 @@ class AlphaKernel:
             "epoch": round(epoch, 6),
         }
 
-    def _gap_seconds(
-        self, current_time: dict[str, Any], previous_time: dict[str, Any]
-    ) -> float:
+    def _gap_seconds(self, current_time: dict[str, Any], previous_time: dict[str, Any]) -> float:
         if not previous_time:
             return 0.0
         current_epoch = float(current_time.get("epoch") or 0.0)
@@ -776,9 +755,7 @@ class AlphaKernel:
             return "隔天"
         return "隔了很久"
 
-    def _day_relation(
-        self, current_time: dict[str, Any], previous_time: dict[str, Any]
-    ) -> str:
+    def _day_relation(self, current_time: dict[str, Any], previous_time: dict[str, Any]) -> str:
         if not previous_time:
             return "first_event"
         current_date = self._local_date(str(current_time.get("local_datetime") or ""))
@@ -796,19 +773,19 @@ class AlphaKernel:
             return value[:10] if len(value) >= 10 else ""
 
     def _vector_summary(self) -> dict[str, float]:
-        """从 29 维状态向量中提取 4 个关键摘要指标。
+        """从 29 维状态向量中提取 4 个关键摘要指标（单次 tick 内缓存）。
 
         - vitality: 生命力（节律 + 循环）
         - need: 最大需求强度
         - risk: 最大风险指标（边界压力/耗竭/开放伤口）
         - plasticity: 可塑性
         """
+        if self._cached_vector_summary is not None:
+            return self._cached_vector_summary
         vector = self.body.state_vector()
-        return {
+        summary = {
             "vitality": round(
-                min(
-                    1.0, vector["pulse.rhythm"] + vector["bloodflow.circulation"] * 0.2
-                ),
+                min(1.0, vector["pulse.rhythm"] + vector["bloodflow.circulation"] * 0.2),
                 6,
             ),
             "need": round(
@@ -829,6 +806,8 @@ class AlphaKernel:
             ),
             "plasticity": vector["nerve.plasticity"],
         }
+        self._cached_vector_summary = summary
+        return summary
 
     def _decide(self) -> dict[str, Any]:
         """基于身体需求的行动决策。
@@ -850,14 +829,10 @@ class AlphaKernel:
             reason = "boundary asks for distance"
             reason_code = "boundary_pressure"
         elif (
-            proactive
-            and needs["need_contact"] >= 0.1
+            (proactive and needs["need_contact"] >= 0.1 and self.body.muscle.fatigue < 0.8)
+            or needs["need_contact"] > 0.2
             and self.body.muscle.fatigue < 0.8
         ):
-            action = "reach_out"
-            reason = "contact need has accumulated"
-            reason_code = "contact_need"
-        elif needs["need_contact"] > 0.2 and self.body.muscle.fatigue < 0.8:
             action = "reach_out"
             reason = "contact need has accumulated"
             reason_code = "contact_need"
@@ -877,12 +852,11 @@ class AlphaKernel:
         }
 
     def _risk_score(self) -> float:
-        vector = self.body.state_vector()
         return round(
             max(
-                vector["immunity.boundary_pressure"],
-                vector["mortality.exhaustion"],
-                vector["wound.open"],
+                self.body.immunity.boundary_pressure,
+                self.body.mortality.exhaustion,
+                self.body.wound.open,
                 1.0 - self.body.immunity.sovereignty,
             ),
             6,
@@ -947,15 +921,9 @@ class AlphaKernel:
         }
 
     def _has_sovereignty_opt_in(self) -> bool:
-        for trace in reversed(self.body.memory.get("traces", [])[-10:]):
-            text = str(trace.get("text") or "")
-            if text and float(trace.get("weight", 0)) > 0.3:
-                return True
-        return False
+        return len(self.body._recent_texts) > 0
 
-    def _next_check_seconds(
-        self, decision: dict[str, Any], guard: dict[str, Any]
-    ) -> int:
+    def _next_check_seconds(self, decision: dict[str, Any], guard: dict[str, Any]) -> int:
         if "proactive_cooldown" in guard["flags"]:
             return 120
         if not guard["allowed"]:
@@ -964,21 +932,21 @@ class AlphaKernel:
             return 900
         return 180
 
-    def _event(
-        self, event: AlphaKernelEvent | dict[str, Any] | None
-    ) -> AlphaKernelEvent:
+    def _event(self, event: AlphaKernelEvent | dict[str, Any] | None) -> AlphaKernelEvent:
         if isinstance(event, AlphaKernelEvent):
             return event
         payload = event or {}
+        confidence = float(payload.get("confidence") or 0.0)
+        if not math.isfinite(confidence):
+            confidence = 0.0
+        now = float(payload.get("now") or 0.0)
+        if not math.isfinite(now):
+            now = 0.0
         return AlphaKernelEvent(
             text=str(payload.get("text") or ""),
             values=dict(payload.get("values") or {}),
-            confidence=float(payload.get("confidence") or 0.0),
+            confidence=confidence,
             flags=list(payload.get("flags") or []),
-            now=float(payload.get("now") or 0.0),
-            event_time=dict(
-                payload.get("event_time")
-                if isinstance(payload.get("event_time"), dict)
-                else {}
-            ),
+            now=now,
+            event_time=_as_dict(payload.get("event_time")),
         )

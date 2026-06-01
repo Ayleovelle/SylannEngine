@@ -13,10 +13,14 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .body import SCHEMA_VERSION
 from .kernel import AlphaKernel
+from .utils import safe_filename
+
+if TYPE_CHECKING:
+    from ..config import DimensionProfile
 
 logger = logging.getLogger("sylanne_core")
 
@@ -28,17 +32,20 @@ class AlphaRuntime:
     提供 load/save/reset/export_all 等完整的生命周期管理方法。
     """
 
-    def __init__(self, root: str | Path):
+    _CONSISTENCY_CHECK_INTERVAL: int = 50
+
+    def __init__(self, root: str | Path, profile: DimensionProfile | None = None):
         """初始化运行时，指定持久化根目录。
 
         Args:
             root: 存储 .alpha.json 文件的根目录路径。
+            profile: 计算维度配置（lite/pro/max），传递给 kernel。
         """
         self.root = Path(root)
+        self._profile = profile
+        self._save_count: int = 0
 
-    def load(
-        self, session_key: str, legacy: dict[str, Any] | None = None
-    ) -> AlphaKernel:
+    def load(self, session_key: str, legacy: dict[str, Any] | None = None) -> AlphaKernel:
         """加载指定 session 的 kernel 状态。
 
         加载逻辑：
@@ -58,30 +65,32 @@ class AlphaRuntime:
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
-                # JSON 损坏：保留损坏文件用于事后诊断，然后重新启动
                 self.root.mkdir(parents=True, exist_ok=True)
                 path.replace(path.with_suffix(path.suffix + ".damaged"))
-                recovered = AlphaKernel.boot(session_key=session_key, legacy=legacy)
+                recovered = AlphaKernel.boot(
+                    session_key=session_key, legacy=legacy, profile=self._profile
+                )
                 self.save(recovered)
                 return recovered
             if data.get("schema_version") == SCHEMA_VERSION:
-                return AlphaKernel.restore(data)
-            # schema 版本不匹配：将旧数据作为 legacy 传入，由 kernel 负责迁移
-            return AlphaKernel.boot(session_key=session_key, legacy=data)
-        return AlphaKernel.boot(session_key=session_key, legacy=legacy)
+                return AlphaKernel.restore(data, profile=self._profile)
+            return AlphaKernel.boot(session_key=session_key, legacy=data, profile=self._profile)
+        return AlphaKernel.boot(session_key=session_key, legacy=legacy, profile=self._profile)
 
     def save(self, kernel: AlphaKernel) -> None:
-        """原子写入 kernel 快照到磁盘。写入前执行一致性自检。"""
-        self._consistency_check(kernel)
+        """原子写入 kernel 快照到磁盘。定期执行一致性自检。"""
+        self._save_count += 1
+        if self._save_count % self._CONSISTENCY_CHECK_INTERVAL == 0:
+            self._consistency_check(kernel)
+        self.save_snapshot(kernel.session_key, kernel.snapshot())
+
+    def save_snapshot(self, session_key: str, snapshot: dict[str, Any]) -> None:
+        """原子写入预计算的快照到磁盘（CoW 持久化入口）。"""
         self.root.mkdir(parents=True, exist_ok=True)
-        path = self._path(kernel.session_key)
+        path = self._path(session_key)
         tmp = path.with_suffix(path.suffix + ".tmp")
         with open(tmp, "w", encoding="utf-8") as f:
-            f.write(
-                json.dumps(
-                    kernel.snapshot(), ensure_ascii=False, sort_keys=True, indent=2
-                )
-            )
+            f.write(json.dumps(snapshot, ensure_ascii=False))
             f.flush()
             os.fsync(f.fileno())
         try:
@@ -99,7 +108,7 @@ class AlphaRuntime:
         Returns:
             全新启动的 AlphaKernel 实例。
         """
-        kernel = AlphaKernel.boot(session_key=session_key)
+        kernel = AlphaKernel.boot(session_key=session_key, profile=self._profile)
         self.save(kernel)
         return kernel
 
@@ -135,14 +144,7 @@ class AlphaRuntime:
 
     def _path(self, session_key: str) -> Path:
         """将 session_key 转换为文件系统安全的 .alpha.json 路径。"""
-        safe = (
-            "".join(
-                ch if ch.isalnum() or ch in {"-", "_", "."} else "_"
-                for ch in session_key
-            )
-            or "default"
-        )
-        return self.root / f"{safe}.alpha.json"
+        return self.root / f"{safe_filename(session_key)}.alpha.json"
 
     def save_buffer(self, session_key: str, buffer_data: dict[str, Any]) -> None:
         """原子写入对话缓冲区数据到独立的 .buffer.json 文件。
@@ -162,6 +164,7 @@ class AlphaRuntime:
             os.replace(tmp, path)
         except OSError:
             tmp.unlink(missing_ok=True)
+            raise
 
     def load_buffer(self, session_key: str) -> dict[str, Any] | None:
         """加载对话缓冲区数据。
@@ -175,21 +178,15 @@ class AlphaRuntime:
         path = self._buffer_path(session_key)
         if path.exists():
             try:
-                return json.loads(path.read_text(encoding="utf-8"))
+                result: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+                return result
             except (json.JSONDecodeError, OSError):
                 return None
         return None
 
     def _buffer_path(self, session_key: str) -> Path:
         """将 session_key 转换为文件系统安全的 .buffer.json 路径。"""
-        safe = (
-            "".join(
-                ch if ch.isalnum() or ch in {"-", "_", "."} else "_"
-                for ch in session_key
-            )
-            or "default"
-        )
-        return self.root / f"{safe}.buffer.json"
+        return self.root / f"{safe_filename(session_key)}.buffer.json"
 
     def _consistency_check(self, kernel: AlphaKernel) -> dict[str, Any]:
         """状态一致性自检守护：检查内部状态合法性并自动修正。
@@ -251,9 +248,7 @@ class AlphaRuntime:
                         f"Consistency check: scar modifier cache mismatch at dim {dim}: "
                         f"cached={old_val:.6f}, actual={new_val:.6f}. Cache rebuilt."
                     )
-                    corrections.append(
-                        f"scar_modifier[{dim}]: {old_val:.6f} -> {new_val:.6f}"
-                    )
+                    corrections.append(f"scar_modifier[{dim}]: {old_val:.6f} -> {new_val:.6f}")
         else:
             # 缓存本来就无效，重建即可
             scar_state._ensure_modifier_cache()
@@ -278,8 +273,7 @@ class AlphaRuntime:
 
         if corrections:
             logger.error(
-                f"Consistency check completed with {len(corrections)} correction(s): "
-                f"{corrections}"
+                f"Consistency check completed with {len(corrections)} correction(s): {corrections}"
             )
         return {"corrections": len(corrections), "details": corrections}
 
@@ -287,7 +281,7 @@ class AlphaRuntime:
 class HotUpgradeManager:
     """插件热升级管理器（接口定义，完整实现需要 AstrBot 框架支持）。"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._upgrade_in_progress: bool = False
         self._last_upgrade: float = 0
 
@@ -295,7 +289,7 @@ class HotUpgradeManager:
         """检查是否可以安全升级。"""
         return not self._upgrade_in_progress
 
-    def prepare_upgrade(self) -> dict:
+    def prepare_upgrade(self) -> dict[str, Any]:
         """准备升级：收集需要迁移的状态。"""
         self._upgrade_in_progress = True
         return {
@@ -304,13 +298,13 @@ class HotUpgradeManager:
             "Current implementation saves state before reload.",
         }
 
-    def complete_upgrade(self):
+    def complete_upgrade(self) -> None:
         """完成升级。"""
         import time
 
         self._upgrade_in_progress = False
         self._last_upgrade = time.time()
 
-    def abort_upgrade(self):
+    def abort_upgrade(self) -> None:
         """中止升级。"""
         self._upgrade_in_progress = False

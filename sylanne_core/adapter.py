@@ -5,9 +5,22 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .types import Surface
+from .compute.pad_interop import PADProjector
+from .types import Dynamics, PADOutput, Surface
 
 _SCHEMA_VERSION = "sylanne.core.v1"
+
+# Module-level projector cache keyed by n_dims to avoid re-creating per call
+_projector_cache: dict[int, PADProjector] = {}
+
+
+def _get_projector(n_dims: int, personality: dict[str, float] | None = None) -> PADProjector:
+    """Get or create a PADProjector for the given dimensionality."""
+    if n_dims not in _projector_cache:
+        _projector_cache[n_dims] = PADProjector(n_dims, personality)
+    elif personality:
+        _projector_cache[n_dims].update_personality(personality)
+    return _projector_cache[n_dims]
 
 
 def to_surface(
@@ -27,13 +40,13 @@ def to_surface(
         "session_id": session_id,
         "turns": kernel.turns,
         "timestamp": time.time(),
-        "state": _map_state(body),
-        "personality": _map_personality(kernel),
-        "decision": _map_decision(decision),
-        "guard": _map_guard(guard),
-        "memory": _map_memory(kernel),
+        "state": _map_state(body),  # type: ignore[typeddict-item]
+        "personality": _map_personality(kernel),  # type: ignore[typeddict-item]
+        "decision": _map_decision(decision),  # type: ignore[typeddict-item]
+        "guard": _map_guard(guard),  # type: ignore[typeddict-item]
         "pipeline": _map_pipeline(kernel) if diagnostics else {},
         "dynamics": _map_dynamics(kernel),
+        "pad": _map_pad(kernel),
         "debug": _map_debug(kernel, raw) if diagnostics else None,
     }
 
@@ -155,28 +168,64 @@ def _map_guard(g: dict[str, Any]) -> dict[str, Any]:
         "allowed": g.get("allowed", True),
         "reason": g.get("reason", ""),
         "risk_score": g.get("risk_score", 0.0),
-        "constraints": g.get("constraints", []),
+        "constraints": g.get("flags", g.get("constraints", [])),
     }
 
 
-def _map_memory(kernel: Any) -> dict[str, Any]:
-    traces = []
-    if hasattr(kernel.body, "traces"):
-        traces = kernel.body.traces or []
-    recalled = []
-    for t in traces[-5:]:
-        if isinstance(t, dict):
-            recalled.append(
-                {
-                    "text": t.get("text", ""),
-                    "relevance": t.get("relevance", 0.0),
-                    "created_at": t.get("created_at", 0.0),
-                    "layer": t.get("layer", "L1"),
-                }
-            )
+def _map_pad(kernel: Any) -> PADOutput:
+    """Extract 8-dim emotion vector from kernel and project to PAD space.
+
+    Bridge between the full computation engine's internal N-dim state
+    and the standard PAD 3D output. Uses PADProjector for the mapping
+    and classify() for the categorical label.
+
+    Preserves:
+    - Axiom A1 (boundedness): PADVector clamps to valid ranges
+    - Axiom A2 (determinism): same internal state -> same PAD output
+    - Axiom A5 (compositionality): composes with kernel pipeline
+    """
+    # Get the 8-dim emotion observation from the VoidScarEngine
+    obs = kernel.computation.engine.observe()
+
+    # Extract the 8 canonical dimensions as a vector
+    dim_names = (
+        "warmth",
+        "arousal",
+        "valence",
+        "tension",
+        "curiosity",
+        "repair_pressure",
+        "expression_drive",
+        "boundary_firmness",
+    )
+    emotion_vec = [obs.get(name, 0.0) for name in dim_names]
+
+    # Get personality for projector modulation
+    personality = kernel.personality or {}
+    traits = personality.get("traits", personality)
+
+    # Project to PAD space
+    n_dims = len(emotion_vec)
+    projector = _get_projector(n_dims, traits if traits else None)
+    pad = projector.project(emotion_vec)
+
+    # Classify to categorical label
+    label = projector.classify(pad)
+
+    # Confidence: derived from computation result if available
+    cr = kernel._last_computation_result or {}
+    confidence = cr.get("confidence", 0.5)
+    # Fallback: use decision confidence if computation result lacks it
+    if "confidence" not in cr:
+        decision = kernel.last_decision or {}
+        confidence = decision.get("confidence", 0.5)
+
     return {
-        "recalled": recalled,
-        "total_stored": len(traces),
+        "valence": pad.valence,
+        "arousal": pad.arousal,
+        "dominance": pad.dominance,
+        "label": label,
+        "confidence": max(0.0, min(1.0, float(confidence))),
     }
 
 
@@ -193,12 +242,13 @@ def _map_pipeline(kernel: Any) -> dict[str, Any]:
     }
 
 
-def _map_dynamics(kernel: Any) -> dict[str, Any]:
+def _map_dynamics(kernel: Any) -> Dynamics:
     body = kernel.body.to_dict()
     needs = body.get("needs", {})
     moral = kernel.moral_repair or {}
     fallibility = kernel.fallibility or {}
     rt = kernel.relational_time or {}
+    hp = kernel.hot_pool.diagnostics() if hasattr(kernel, "hot_pool") else {}
 
     return {
         "affect": {
@@ -219,22 +269,33 @@ def _map_dynamics(kernel: Any) -> dict[str, Any]:
             "total_duration": rt.get("total_duration", 0.0),
             "phase": rt.get("phase", "active"),
         },
+        "hot_pool": {
+            "temperature": hp.get("temperature", 0.0),
+            "volume": hp.get("volume", 0.0),
+            "pressure": hp.get("pressure", 0.0),
+            "material_count": hp.get("material_count", 0),
+            "cascade_active": hp.get("cascade_active", False),
+            "cascade_intensity": hp.get("cascade_intensity", 0.0),
+            "sensitivity_multiplier": hp.get("sensitivity_multiplier", 1.0),
+            "in_recovery": hp.get("in_recovery", False),
+            "collapse_count": hp.get("collapse_count", 0),
+        },
     }
 
 
 def _map_debug(kernel: Any, raw: dict[str, Any]) -> dict[str, Any]:
     spine = kernel.computation
     breakers = {}
-    if hasattr(spine, "_breakers"):
-        for name, cb in spine._breakers.items():
+    if hasattr(spine, "_circuit_breakers"):
+        for name, cb in spine._circuit_breakers.items():
             breakers[name] = {
                 "open": cb.is_open(),
                 "failures": cb._failures,
             }
 
     timing = {}
-    if hasattr(spine, "_timing"):
-        for name, deq in spine._timing.items():
+    if hasattr(spine, "_timings"):
+        for name, deq in spine._timings.items():
             if deq:
                 avg_ms = sum(deq) / len(deq) / 1_000_000
                 timing[name] = round(avg_ms, 2)

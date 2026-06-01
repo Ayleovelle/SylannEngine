@@ -10,7 +10,7 @@ import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
-
+from typing import Any
 
 # ======================================================================
 # 秘密状态层
@@ -39,7 +39,7 @@ class HiddenStateManager:
         ttl: float = 3600,
         leak_prob: float = 0.1,
         intensity: float = 0.5,
-    ):
+    ) -> None:
         if len(self._secrets) >= self._max:
             self._secrets.pop(0)
         self._secrets.append(
@@ -60,10 +60,7 @@ class HiddenStateManager:
     def get_bias_vector(self) -> dict[str, float]:
         if not self._secrets:
             return {}
-        return {
-            "hidden_tension": sum(s.intensity for s in self._secrets)
-            / len(self._secrets)
-        }
+        return {"hidden_tension": sum(s.intensity for s in self._secrets) / len(self._secrets)}
 
     def active_count(self) -> int:
         return len(self._secrets)
@@ -76,7 +73,7 @@ class HiddenStateManager:
                 return "有些想法已经在心里很久了，也许该找个机会表达"
         return None
 
-    def to_dict(self) -> list[dict]:
+    def to_dict(self) -> list[dict[str, Any]]:
         return [
             {
                 "name": s.name,
@@ -90,7 +87,7 @@ class HiddenStateManager:
         ]
 
     @classmethod
-    def from_dict(cls, data: list[dict]) -> "HiddenStateManager":
+    def from_dict(cls, data: list[dict[str, Any]]) -> HiddenStateManager:
         mgr = cls()
         for d in data:
             mgr._secrets.append(
@@ -125,10 +122,10 @@ class SelfNarrative:
         self._max = max_fragments
         self._identity_core: str = ""
 
-    def set_identity_core(self, core: str):
+    def set_identity_core(self, core: str) -> None:
         self._identity_core = core
 
-    def add_fragment(self, content: str, confidence: float = 0.5):
+    def add_fragment(self, content: str, confidence: float = 0.5) -> None:
         for f in self._fragments:
             if self._is_contradictory(f.content, content):
                 f.confidence *= 0.7
@@ -137,7 +134,7 @@ class SelfNarrative:
             self._fragments.pop(0)
         self._fragments.append(NarrativeFragment(content, confidence))
 
-    def reinforce(self, content_keyword: str):
+    def reinforce(self, content_keyword: str) -> None:
         for f in self._fragments:
             if content_keyword in f.content:
                 f.confidence = min(1.0, f.confidence + 0.1)
@@ -161,13 +158,11 @@ class SelfNarrative:
             ("信任", "不信任"),
         ]
         for pos, neg in opposites:
-            if (pos in a and neg not in a and neg in b) or (
-                neg in a and pos in b and neg not in b
-            ):
+            if (pos in a and neg not in a and neg in b) or (neg in a and pos in b and neg not in b):
                 return True
         return False
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "identity_core": self._identity_core,
             "fragments": [
@@ -182,7 +177,7 @@ class SelfNarrative:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "SelfNarrative":
+    def from_dict(cls, data: dict[str, Any]) -> SelfNarrative:
         sn = cls()
         sn._identity_core = data.get("identity_core", "")
         for fd in data.get("fragments", []):
@@ -230,12 +225,10 @@ class ContradictionDetector:
     def __init__(self, history_size: int = 50):
         self._stance_history: deque[Stance] = deque(maxlen=history_size)
 
-    def record_stance(self, topic: str, position: str, valence: float):
+    def record_stance(self, topic: str, position: str, valence: float) -> None:
         self._stance_history.append(Stance(time.time(), topic, position, valence))
 
-    def check(
-        self, current_text: str, current_valence: float
-    ) -> ContradictionCandidate | None:
+    def check(self, current_text: str, current_valence: float) -> ContradictionCandidate | None:
         for stance in reversed(list(self._stance_history)):
             if len(stance.topic) < self.MIN_TOPIC_LEN:
                 continue
@@ -244,9 +237,7 @@ class ContradictionDetector:
                 if valence_diff > 0.6:
                     severity = min(1.0, valence_diff)
                     c_type = "emotional" if abs(stance.valence) > 0.3 else "behavioral"
-                    return ContradictionCandidate(
-                        current_text[:50], stance, severity, c_type
-                    )
+                    return ContradictionCandidate(current_text[:50], stance, severity, c_type)
         return None
 
     def is_playful_inconsistency(self, text: str, mode: str) -> bool:
@@ -264,7 +255,7 @@ class ContradictionDetector:
             return True
         return any(m in text for m in playful_markers)
 
-    def to_dict(self) -> list[dict]:
+    def to_dict(self) -> list[dict[str, Any]]:
         return [
             {
                 "timestamp": s.timestamp,
@@ -276,7 +267,7 @@ class ContradictionDetector:
         ]
 
     @classmethod
-    def from_dict(cls, data: list[dict]) -> "ContradictionDetector":
+    def from_dict(cls, data: list[dict[str, Any]]) -> ContradictionDetector:
         det = cls()
         for d in data:
             det._stance_history.append(
@@ -285,9 +276,7 @@ class ContradictionDetector:
         return det
 
 
-def get_correction_strategy(
-    candidate: ContradictionCandidate, tolerance: float
-) -> str | None:
+def get_correction_strategy(candidate: ContradictionCandidate, tolerance: float) -> str | None:
     if candidate.severity < tolerance * 0.5:
         return None
     elif candidate.severity < tolerance:

@@ -13,8 +13,9 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 class SilenceTexture:
@@ -97,7 +98,7 @@ class Void:
             return 1.0
         return len(self.boundary) / (len(self.boundary) + self._estimated_boundary_size)
 
-    def tick(self, pressure_cap: float = 100.0):
+    def tick(self, pressure_cap: float = 100.0) -> None:
         """虚空老化：每 tick 增加年龄并按公式积累压力。
 
         压力公式：pressure += depth * log(age + 1) * (1 - beta)
@@ -200,9 +201,7 @@ class VoidSpace:
         self._cooldown_duration = 3
         self._pressure_cap = 5.0
 
-    def process(
-        self, event_vec: bytes, surprise: float, prev_similarity: float
-    ) -> dict[str, Any]:
+    def process(self, event_vec: bytes, surprise: float, prev_similarity: float) -> dict[str, Any]:
         """主入口：处理一个事件通过虚空空间。
 
         按顺序执行：老化 → 收缩 → 加深 → 创生 → 收割 → 合并 → 分裂。
@@ -282,21 +281,18 @@ class VoidSpace:
         contracted = 0
         for v in self.voids:
             before = len(v.boundary)
-            removed_vecs = [
-                b
-                for b in v.boundary
-                if self.similarity_fn(event_vec, b) >= self._contract_threshold
-            ]
+            kept = []
+            removed_vecs = []
+            for b in v.boundary:
+                if self.similarity_fn(event_vec, b) >= self._contract_threshold:
+                    removed_vecs.append(b)
+                else:
+                    kept.append(b)
             if removed_vecs:
                 v._last_boundary_hash = hash(bytes(removed_vecs[-1]))
-            v.boundary = [
-                b
-                for b in v.boundary
-                if self.similarity_fn(event_vec, b) < self._contract_threshold
-            ]
-            if len(v.boundary) < before:
+                v.boundary = kept
                 contracted += 1
-                removed = before - len(v.boundary)
+                removed = before - len(kept)
                 v.pressure *= 1.0 - removed / max(1, before)
         return contracted
 
@@ -315,9 +311,7 @@ class VoidSpace:
                     break
         return deepened
 
-    def _should_create_void(
-        self, event_vec: bytes, surprise: float, prev_sim: float
-    ) -> bool:
+    def _should_create_void(self, event_vec: bytes, surprise: float, prev_sim: float) -> bool:
         """虚空创生条件判断：检测话题的突然偏转。
 
         条件：高惊讶 + 与前一事件低相似度 = 话题突然转向（可能在回避什么）。
@@ -341,7 +335,7 @@ class VoidSpace:
             effective_threshold += len(self.voids) * 0.02
         return surprise > effective_threshold
 
-    def _create_void(self, deflected_from: bytes):
+    def _create_void(self, deflected_from: bytes) -> None:
         """创建新虚空：以"被偏转离开的话题"向量作为初始边界。"""
         v = Void(
             boundary=[deflected_from],
@@ -373,7 +367,7 @@ class VoidSpace:
             self.ghosts = self.ghosts[-50:]
         return len(dead)
 
-    def _merge_pass(self):
+    def _merge_pass(self) -> None:
         """合并操作：将边界重叠的虚空合并为一个（它们本质上是同一个"缺席"）。"""
         if len(self.voids) < 2:
             return
@@ -411,7 +405,7 @@ class VoidSpace:
             beta=0.0,
         )
 
-    def _split_pass(self):
+    def _split_pass(self) -> None:
         """分裂操作：将边界呈双峰分布的虚空分裂为两个独立虚空。"""
         new_voids: list[Void] = []
         for v in self.voids:
@@ -419,7 +413,7 @@ class VoidSpace:
                 new_voids.append(v)
                 continue
             cluster_a, cluster_b = self._try_split(v)
-            if cluster_a is not None:
+            if cluster_a is not None and cluster_b is not None:
                 new_voids.append(
                     Void(
                         boundary=cluster_a,
@@ -454,9 +448,9 @@ class VoidSpace:
         far = [b for b in v.boundary if self.similarity_fn(b, pivot) <= 0.5]
         if not near or not far:
             return None, None
-        avg_inter = sum(
-            self.similarity_fn(n, f) for n in near[:3] for f in far[:3]
-        ) / max(1, min(9, len(near) * len(far)))
+        avg_inter = sum(self.similarity_fn(n, f) for n in near[:3] for f in far[:3]) / max(
+            1, min(9, len(near) * len(far))
+        )
         if avg_inter < self._split_threshold:
             return near, far
         return None, None
@@ -515,7 +509,7 @@ class VoidSpace:
         split_threshold: float,
         merge_threshold: float,
         pressure_cap: float,
-    ):
+    ) -> None:
         self._contract_threshold = contract_threshold
         self._split_threshold = split_threshold
         self._merge_threshold = merge_threshold
