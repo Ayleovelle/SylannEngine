@@ -941,14 +941,14 @@ class AlphaKernel:
         # Check recency: last USER-initiated event must be within 5 minutes.
         # Note: self.last_event is already updated to the current tick's event,
         # so we use previous_event to check the last real user interaction time.
-        import time as _time
-
+        # Use logical timestamps (event "now") for consistency with tests/simulations.
         prev_now = float(self.previous_event.get("now") or 0.0)
         prev_text = str(self.previous_event.get("text") or "")
         if prev_now <= 0.0 or not prev_text:
             return False
 
-        elapsed = _time.time() - prev_now
+        current_now = float(self.last_event.get("now") or 0.0)
+        elapsed = current_now - prev_now
         if elapsed > 300.0:
             return False
 
