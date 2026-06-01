@@ -1,51 +1,51 @@
-﻿# Sylanne-Core SDK 鏍囧噯瑙勮寖
+# Sylanne-Core SDK 标准规范
 
-鐗堟湰锛歚2.0.0`
-鍗忚鐗堟湰锛歚sylanne.core.v1`
+版本：`2.0.0`
+协议版本：`sylanne.core.v1`
 
 ---
 
-## 1. Overview / 姒傝堪
+## 1. Overview / 概述
 
 Sylanne-Core is an affective computation engine SDK for AstrBot plugin developers.
-Sylanne-Core 鏄潰鍚?AstrBot 鎻掍欢寮€鍙戣€呯殑鎯呮劅璁＄畻寮曟搸 SDK銆?
+Sylanne-Core 是面向 AstrBot 插件开发者的情感计算引擎 SDK。
 
-**Positioning / 瀹氫綅**: Pure computation black-box. Text in, structured data out. No reply generation, no prompt injection, no message routing.
-绾绠楅粦鐩掋€傛枃鏈緭鍏ワ紝缁撴瀯鍖栨暟鎹緭鍑恒€備笉鐢熸垚鍥炲锛屼笉娉ㄥ叆 prompt锛屼笉绠℃秷鎭敹鍙戙€?
+**Positioning / 定位**: Pure computation black-box. Text in, structured data out. No reply generation, no prompt injection, no message routing.
+纯计算黑盒。文本输入，结构化数据输出。不生成回复，不注入 prompt，不管消息收发。
 
 ---
 
-## 2. Interface Protocol / 鎺ュ彛鍗忚
+## 2. Interface Protocol / 接口协议
 
-### 2.0 Installation / 瀹夎鏂瑰紡
+### 2.0 Installation / 安装方式
 
-Two distribution channels are available: / 鎻愪緵涓ょ鍒嗗彂鏂瑰紡锛?
+Two distribution channels are available: / 提供两种分发方式：
 
-#### Plugin Version (recommended) / 鎻掍欢鐗堬紙鎺ㄨ崘锛?
+#### Plugin Version (recommended) / 插件版（推荐）
 
 Install via AstrBot plugin system. Other plugins can then `from sylanne_core import SylanneEngine` directly.
-閫氳繃 AstrBot 鎻掍欢绯荤粺瀹夎鍓嶇疆鎻掍欢锛屽叾浠栨彃浠剁洿鎺?import 浣跨敤銆?
+通过 AstrBot 插件系统安装前置插件，其他插件直接 import 使用。
 
 ```
-瀹夎鍦板潃锛歨ttps://github.com/Ayleovelle/SylannEngine.git
+安装地址：https://github.com/Ayleovelle/SylannEngine.git
 ```
 
 ```python
-# 浣犵殑鎻掍欢浠ｇ爜涓?
+# 你的插件代码中
 from sylanne_core import SylanneEngine, SylanneConfig
 
 engine = SylanneEngine(
     data_dir="./data/sylannengine",
-    llm=your_llm_call,         # 閫氳繃 AstrBot provider_manager 璋冪敤
+    llm=your_llm_call,         # 通过 AstrBot provider_manager 调用
     config=SylanneConfig(),
 )
 await engine.start()
 ```
 
-#### SDK Version / SDK 鐗?
+#### SDK Version / SDK 版
 
 Use the `sdk` branch as a git submodule or copy `sylanne_core/` into your project.
-浣跨敤 `sdk` 鍒嗘敮浣滀负 submodule 鎴栫洿鎺ュ鍒?`sylanne_core/` 鐩綍銆?
+使用 `sdk` 分支作为 submodule 或直接复制 `sylanne_core/` 目录。
 
 ```bash
 git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
@@ -59,451 +59,451 @@ from sylanne_core import SylanneEngine, SylanneConfig
 
 engine = SylanneEngine(
     data_dir="./data/sylannengine",
-    llm=your_own_llm_callback,  # 鑷瀹炵幇 async (str, str) -> str
+    llm=your_own_llm_callback,  # 自行实现 async (str, str) -> str
     config=SylanneConfig(),
 )
 await engine.start()
 ```
 
-The SDK version does not depend on AstrBot. / SDK 鐗堜笉渚濊禆 AstrBot銆?
+The SDK version does not depend on AstrBot. / SDK 版不依赖 AstrBot。
 
-### 2.1 Engine Initialization / 寮曟搸鍒濆鍖?
+### 2.1 Engine Initialization / 引擎初始化
 
 ```python
 from sylanne_core import SylanneEngine
 
 engine = SylanneEngine(
-    data_dir: str | Path,                          # 鎸佷箙鍖栫洰褰曪紙蹇呭～锛?
-    llm: Callable[[str, str], Awaitable[str]],     # LLM 鍥炶皟鍑芥暟锛堝繀濉級
-    embedding: Callable[[str], Awaitable[list[float]]] | None = None,  # 鍚戦噺鍖栧洖璋冿紙鍙€夛級
-    config: SylanneConfig | None = None,           # 閰嶇疆瑕嗙洊锛堝彲閫夛級
+    data_dir: str | Path,                          # 持久化目录（必填）
+    llm: Callable[[str, str], Awaitable[str]],     # LLM 回调函数（必填）
+    embedding: Callable[[str], Awaitable[list[float]]] | None = None,  # 向量化回调（可选）
+    config: SylanneConfig | None = None,           # 配置覆盖（可选）
 )
 ```
 
-### 2.2 Core Methods / 鏍稿績鏂规硶
+### 2.2 Core Methods / 核心方法
 
-| Method / 鏂规硶 | Signature / 绛惧悕 | Description / 璇存槑 |
+| Method / 方法 | Signature / 签名 | Description / 说明 |
 |--------|-----------|-------------|
-| `process` | `async (session_id: str, text: str, **ctx) -> Surface` | 澶勭悊杈撳叆鏂囨湰锛岃繑鍥炲畬鏁磋绠楃粨鏋?|
-| `tick` | `async (session_id: str, flags: list[str]) -> Surface` | 鏃犳枃鏈殑鐘舵€佹帹杩涳紙鏃堕棿琛板噺銆佸喎鍗寸瓑锛?|
-| `state` | `async (session_id: str) -> Surface` | 鏌ヨ褰撳墠鐘舵€侊紙涓嶈Е鍙戣绠楋級 |
-| `reset` | `async (session_id: str) -> None` | 閲嶇疆浼氳瘽鐘舵€?|
-| `destroy` | `async (session_id: str) -> None` | 閿€姣佷細璇濆強鎸佷箙鍖栨暟鎹?|
-| `exists` | `(session_id: str) -> bool` | 妫€鏌ヤ細璇濇槸鍚﹀瓨鍦?|
+| `process` | `async (session_id: str, text: str, **ctx) -> Surface` | 处理输入文本，返回完整计算结果 |
+| `tick` | `async (session_id: str, flags: list[str]) -> Surface` | 无文本的状态推进（时间衰减、冷却等） |
+| `state` | `async (session_id: str) -> Surface` | 查询当前状态（不触发计算） |
+| `reset` | `async (session_id: str) -> None` | 重置会话状态 |
+| `destroy` | `async (session_id: str) -> None` | 销毁会话及持久化数据 |
+| `exists` | `(session_id: str) -> bool` | 检查会话是否存在 |
 
-### 2.3 Context Parameters / 涓婁笅鏂囧弬鏁?(`**ctx`)
+### 2.3 Context Parameters / 上下文参数 (`**ctx`)
 
-| Parameter / 鍙傛暟 | Type / 绫诲瀷 | Default / 榛樿鍊?| Description / 璇存槑 |
+| Parameter / 参数 | Type / 类型 | Default / 默认值 | Description / 说明 |
 |-----------|------|---------|-------------|
-| `confidence` | `float \| None` | `None` | 璇箟缃俊搴?[0, 1]锛孨one 琛ㄧず鐢卞唴閮?assessor 璁＄畻 |
-| `flags` | `list[str]` | `[]` | 浜嬩欢鏍囩锛堣 3.3 鑺傦級 |
-| `now` | `float` | `time.time()` | 浜嬩欢鏃堕棿鎴筹紙Unix epoch锛?|
-| `values` | `dict[str, float]` | `{}` | 闄勫姞鏁板€间俊鍙?|
+| `confidence` | `float \| None` | `None` | 语义置信度 [0, 1]，None 表示由内部 assessor 计算 |
+| `flags` | `list[str]` | `[]` | 事件标签（见 3.3 节） |
+| `now` | `float` | `time.time()` | 事件时间戳（Unix epoch） |
+| `values` | `dict[str, float]` | `{}` | 附加数值信号 |
 
 ---
 
-## 3. Event & Callback Protocol / 浜嬩欢涓庡洖璋冨崗璁?
+## 3. Event & Callback Protocol / 事件与回调协议
 
-### 3.1 LLM Callback Signature / LLM 鍥炶皟绛惧悕
+### 3.1 LLM Callback Signature / LLM 回调签名
 
 ```python
 async def llm_callback(system_prompt: str, user_prompt: str) -> str:
     """
     Args:
-        system_prompt: 绯荤粺鎸囦护锛堝 "璇勪及浠ヤ笅鏂囨湰鐨勬儏鎰熷€惧悜"锛?
-        user_prompt: 寰呰瘎浼扮殑鏂囨湰
+        system_prompt: 系统指令（如 "评估以下文本的情感倾向"）
+        user_prompt: 待评估的文本
     Returns:
-        LLM 鏂囨湰鍝嶅簲
+        LLM 文本响应
     Raises:
-        浠讳綍寮傚父浼氳寮曟搸鎹曡幏锛岃娆¤皟鐢ㄩ€€鍖栦负鏈湴璁＄畻
+        任何异常会被引擎捕获，该次调用退化为本地计算
     """
 ```
 
-Internal LLM call scenarios / 寮曟搸鍐呴儴璋冪敤 LLM 鐨勫満鏅細
-- **Assessor / 璇箟璇勪及鍣?*锛氬垎绫绘爣绛撅紙positive/negative/boundary/recovery锛?
+Internal LLM call scenarios / 引擎内部调用 LLM 的场景：
+- **Assessor / 语义评估器**：分类标签（positive/negative/boundary/recovery）
 
-### 3.2 Embedding Callback Signature / Embedding 鍥炶皟绛惧悕
+### 3.2 Embedding Callback Signature / Embedding 回调签名
 
 ```python
 async def embedding_callback(text: str) -> list[float]:
     """
     Args:
-        text: 寰呭悜閲忓寲鐨勬枃鏈?
+        text: 待向量化的文本
     Returns:
-        娴偣鍚戦噺锛堢淮搴︿笉闄愶紝寮曟搸鍐呴儴浣跨敤浣欏鸡鐩镐技搴︼級
+        浮点向量（维度不限，引擎内部使用余弦相似度）
     Raises:
-        澶辫触鏃堕€€鍖栦负鍏抽敭璇嶅尮閰嶅彫鍥?
+        失败时退化为关键词匹配召回
     """
 ```
 
-### 3.3 Event Tag Enum / 浜嬩欢鏍囩鏋氫妇 (flags)
+### 3.3 Event Tag Enum / 事件标签枚举 (flags)
 
-鍒嗕负 **semantic tags / 璇箟鏍囩**锛堟弿杩版枃鏈€ц川锛夊拰 **phase tags / 闃舵鏍囩**锛堟弿杩拌皟鐢ㄦ椂鏈猴級銆?
+分为 **semantic tags / 语义标签**（描述文本性质）和 **phase tags / 阶段标签**（描述调用时机）。
 
-#### Semantic Tags / 璇箟鏍囩
+#### Semantic Tags / 语义标签
 
-| Tag / 鏍囩 | Meaning / 鍚箟 |
+| Tag / 标签 | Meaning / 含义 |
 |-----|---------|
-| `positive` | 姝ｅ悜/瀹夊叏浜や簰 |
-| `negative` | 璐熷悜/浼ゅ鎬у唴瀹?|
-| `boundary` | 杈圭晫瑙︾ |
-| `recovery` | 淇/鎭㈠琛屼负 |
-| `idle` | 绌洪棽/鏃犲疄璐ㄥ唴瀹?|
-| `intimate` | 浜插瘑鍐呭 |
-| `conflict` | 鍐茬獊鍐呭 |
-| `farewell` | 鍛婂埆 |
-| `greeting` | 闂€?|
+| `positive` | 正向/安全交互 |
+| `negative` | 负向/伤害性内容 |
+| `boundary` | 边界触碰 |
+| `recovery` | 修复/恢复行为 |
+| `idle` | 空闲/无实质内容 |
+| `intimate` | 亲密内容 |
+| `conflict` | 冲突内容 |
+| `farewell` | 告别 |
+| `greeting` | 问候 |
 
-#### Phase Tags / 闃舵鏍囩
+#### Phase Tags / 阶段标签
 
-| Tag / 鏍囩 | Meaning / 鍚箟 |
+| Tag / 标签 | Meaning / 含义 |
 |-----|---------|
-| `request` | 鐢ㄦ埛鍙戞潵娑堟伅 |
-| `response` | AI 鍥炲瀹屾垚 |
-| `proactive` | 涓诲姩妫€鏌?|
+| `request` | 用户发来消息 |
+| `response` | AI 回复完成 |
+| `proactive` | 主动检查 |
 
-Unrecognized tags are silently ignored. / 鏈瘑鍒殑鏍囩浼氳闈欓粯蹇界暐銆?
+Unrecognized tags are silently ignored. / 未识别的标签会被静默忽略。
 
 ---
 
-## 4. Output Schema (Surface) / 杈撳嚭鏁版嵁鏍煎紡
+## 4. Output Schema (Surface) / 输出数据格式
 
-### 4.1 Top-Level Structure / 椤跺眰缁撴瀯
+### 4.1 Top-Level Structure / 顶层结构
 
 ```jsonc
 {
-    "schema_version": "sylanne.core.v1",   // 鍗忚鐗堟湰
-    "session_id": "string",                // 浼氳瘽鏍囪瘑
-    "turns": 0,                            // 绱浜や簰杞
-    "timestamp": 1716960000.0,             // 璁＄畻鏃堕棿鎴?
+    "schema_version": "sylanne.core.v1",   // 协议版本
+    "session_id": "string",                // 会话标识
+    "turns": 0,                            // 累计交互轮次
+    "timestamp": 1716960000.0,             // 计算时间戳
 
-    "state": { ... },          // 鎯呮劅鐘舵€侊紙8 瀛愮郴缁燂級
-    "personality": { ... },    // 浜烘牸鐘舵€侊紙鍙屽眰锛?
-    "decision": { ... },       // 鍐崇瓥杈撳嚭
-    "guard": { ... },          // 杈圭晫瀹堝崼
-    "pipeline": { ... },       // 7 灞傜绾夸腑闂存€侊紙diagnostics=True 鏃惰繑鍥烇級
-    "dynamics": { ... },       // 鍔ㄥ姏瀛︽寚鏍?
-    "debug": { ... }           // 璋冭瘯淇℃伅锛坉iagnostics=True 鏃惰繑鍥烇紝瑙?4.9锛?
+    "state": { ... },          // 情感状态（8 子系统）
+    "personality": { ... },    // 人格状态（双层）
+    "decision": { ... },       // 决策输出
+    "guard": { ... },          // 边界守卫
+    "pipeline": { ... },       // 7 层管线中间态（diagnostics=True 时返回）
+    "dynamics": { ... },       // 动力学指标
+    "debug": { ... }           // 调试信息（diagnostics=True 时返回，见 4.9）
 }
 ```
 
-### 4.2 state 鈥?Affective State / 鎯呮劅鐘舵€侊紙8 瀛愮郴缁燂級
+### 4.2 state — Affective State / 情感状态（8 子系统）
 
-All values in `[0.0, 1.0]` unless noted otherwise. / 鎵€鏈夋暟鍊艰寖鍥?[0.0, 1.0]锛岄櫎闈炵壒鍒爣娉ㄣ€?
+All values in `[0.0, 1.0]` unless noted otherwise. / 所有数值范围 [0.0, 1.0]，除非特别标注。
 
 ```jsonc
 {
-    "rhythm": {                            // 浜や簰鑺傚緥
-        "beat": 0.0,                       // 绱浜や簰璁℃暟锛堝崟璋冮€掑锛屾棤涓婇檺锛?
-        "stability": 0.5,                  // 鑺傚緥绋冲畾鎬?
-        "strain": 0.0                      // 搴旀縺璐熻嵎
+    "rhythm": {                            // 交互节律
+        "beat": 0.0,                       // 累计交互计数（单调递增，无上限）
+        "stability": 0.5,                  // 节律稳定性
+        "strain": 0.0                      // 应激负荷
     },
-    "connection": {                        // 杩炴帴鐘舵€?
-        "warmth": 0.4,                     // 鍏崇郴娓╂殩搴?
-        "circulation": 0.0,                // 浜掑姩娲昏穬搴?
-        "memory_flow": 0.0                 // 璁板繂婵€娲诲己搴?
+    "connection": {                        // 连接状态
+        "warmth": 0.4,                     // 关系温暖度
+        "circulation": 0.0,                // 互动活跃度
+        "memory_flow": 0.0                 // 记忆激活强度
     },
-    "adaptation": {                        // 閫傚簲鎬?
-        "plasticity": 0.0,                 // 瀛︿範鑳藉姏
-        "sensitivity": 0.0,                // 杈撳叆鏁忔劅搴?
-        "repetition": 0,                   // 閲嶅娆℃暟锛堟暣鏁帮級
-        "threshold_drift": 0.0             // 鑴辨晱婕傜Щ
+    "adaptation": {                        // 适应性
+        "plasticity": 0.0,                 // 学习能力
+        "sensitivity": 0.0,                // 输入敏感度
+        "repetition": 0,                   // 重复次数（整数）
+        "threshold_drift": 0.0             // 脱敏漂移
     },
-    "responsiveness": {                    // 鍝嶅簲鎬?
-        "readiness": 0.2,                  // 琛屽姩鍑嗗搴?
-        "fatigue": 0.0,                    // 鐤插姵搴?
-        "trained_reach": 0.0               // 璁粌瀹归噺
+    "responsiveness": {                    // 响应性
+        "readiness": 0.2,                  // 行动准备度
+        "fatigue": 0.0,                    // 疲劳度
+        "trained_reach": 0.0               // 训练容量
     },
-    "valence": {                           // 鎯呮劅鏁堜环
-        "warmth": 0.45,                    // 鎯呮劅娓╂殩搴?
-        "volatility": 0.0,                 // 娉㈠姩鎬?
-        "recovery_heat": 0.0               // 鎭㈠鑳介噺
+    "valence": {                           // 情感效价
+        "warmth": 0.45,                    // 情感温暖度
+        "volatility": 0.0,                 // 波动性
+        "recovery_heat": 0.0               // 恢复能量
     },
-    "damage": {                            // 鎹熶激鐘舵€?
-        "open": 0.0,                       // 褰撳墠娲昏穬鎹熶激
-        "accumulated": 0.0,                // 绱Н褰卞搷
-        "sensitivity": 0.0,                // 鎹熶激鏁忔劅搴?
-        "recovery": 0.0                    // 鎭㈠杩涘害
+    "damage": {                            // 损伤状态
+        "open": 0.0,                       // 当前活跃损伤
+        "accumulated": 0.0,                // 累积影响
+        "sensitivity": 0.0,                // 损伤敏感度
+        "recovery": 0.0                    // 恢复进度
     },
-    "boundary": {                          // 杈圭晫闃叉姢
-        "pressure": 0.0,                   // 杈圭晫鍘嬪姏
-        "autonomy": 1.0,                   // 鑷富鏉冩按骞?
-        "interruption_budget": 1.0,        // 涓诲姩涓柇棰勭畻
-        "cooldown": 0.0,                   // 鍐峰嵈璁℃椂鍣?
-        "paused": false                    // 鏆傚仠鏍囧織锛堝竷灏旓級
+    "boundary": {                          // 边界防护
+        "pressure": 0.0,                   // 边界压力
+        "autonomy": 1.0,                   // 自主权水平
+        "interruption_budget": 1.0,        // 主动中断预算
+        "cooldown": 0.0,                   // 冷却计时器
+        "paused": false                    // 暂停标志（布尔）
     },
-    "capacity": {                          // 绯荤粺瀹归噺
-        "load": 0.0,                       // 绯荤粺璐熻嵎
-        "exhaustion": 0.0,                 // 鑰楃绋嬪害
-        "recovery_debt": 0.0              // 鎭㈠娆犲€?
+    "capacity": {                          // 系统容量
+        "load": 0.0,                       // 系统负荷
+        "exhaustion": 0.0,                 // 耗竭程度
+        "recovery_debt": 0.0              // 恢复欠债
     },
-    "needs": {                             // 闇€姹傛寚鏍?
-        "expression": 0.0,                 // 琛ㄨ揪闇€姹?
-        "quiet": 0.0,                      // 瀹夐潤闇€姹?
-        "recovery": 0.0,                   // 鎭㈠闇€姹?
-        "contact": 0.0                     // 鎺ヨЕ闇€姹?
+    "needs": {                             // 需求指标
+        "expression": 0.0,                 // 表达需求
+        "quiet": 0.0,                      // 安静需求
+        "recovery": 0.0,                   // 恢复需求
+        "contact": 0.0                     // 接触需求
     }
 }
 ```
 
-### 4.3 personality 鈥?Personality State / 浜烘牸鐘舵€?
+### 4.3 personality — Personality State / 人格状态
 
 ```jsonc
 {
     "schema_version": "sylanne.core.personality.v1",
 
-    // Deep structure / 娣卞眰缁撴瀯 鈥?缂撴參婕傜Щ锛岃绠楅┍鍔?
+    // Deep structure / 深层结构 — 缓慢漂移，计算驱动
     "deep": {
-        "expression_drive": 0.5,           // 琛ㄨ揪椹卞姏
-        "perception_acuity": 0.5,          // 鎰熺煡鏁忛攼搴?
-        "boundary_permeability": 0.5,      // 杈圭晫娓楅€忔€э紙瀵规柊浜嬬墿鐨勫紑鏀惧害锛?
-        "inner_coherence": 0.5,            // 鍐呭湪涓€鑷存€?
-        "relational_gravity": 0.5          // 鍏崇郴寮曞姏锛堝悜浠栦汉闈犺繎鐨勫€惧悜锛?
+        "expression_drive": 0.5,           // 表达驱力
+        "perception_acuity": 0.5,          // 感知敏锐度
+        "boundary_permeability": 0.5,      // 边界渗透性（对新事物的开放度）
+        "inner_coherence": 0.5,            // 内在一致性
+        "relational_gravity": 0.5          // 关系引力（向他人靠近的倾向）
     },
 
-    // Surface expression / 琛ㄥ眰琛ㄨ揪 鈥?蹇€熸紓绉伙紝鏂囨湰浜嬩欢椹卞姩
+    // Surface expression / 表层表达 — 快速漂移，文本事件驱动
     "surface": {
-        "warmth_bias": 0.5,                // 娓╂殩鍋忓悜
-        "directness": 0.5,                 // 鐩存帴搴?
-        "curiosity": 0.5,                  // 濂藉蹇?
-        "patience": 0.5,                   // 鑰愬績
-        "intimacy_pull": 0.5,              // 浜插瘑鍊惧悜
-        "autonomy_guard": 0.5             // 鑷富鏉冧繚鎶ゅ己搴?
+        "warmth_bias": 0.5,                // 温暖偏向
+        "directness": 0.5,                 // 直接度
+        "curiosity": 0.5,                  // 好奇心
+        "patience": 0.5,                   // 耐心
+        "intimacy_pull": 0.5,              // 亲密倾向
+        "autonomy_guard": 0.5             // 自主权保护强度
     }
 }
 ```
 
-### 4.4 decision 鈥?Decision Output / 鍐崇瓥杈撳嚭
+### 4.4 decision — Decision Output / 决策输出
 
 ```jsonc
 {
-    "action": "express",                   // 琛屽姩绫诲瀷锛堟灇涓撅級
-    "reason": "string",                    // 浜虹被鍙鐨勫喅绛栧師鍥?
-    "reason_code": "string",               // 鏈哄櫒鍙鐨勫師鍥犲垎绫?
-    "confidence": 0.75,                    // 鍐崇瓥缃俊搴?[0, 1]
-    "urgency": 0.3                         // 绱ц揩搴?[0, 1]
+    "action": "express",                   // 行动类型（枚举）
+    "reason": "string",                    // 人类可读的决策原因
+    "reason_code": "string",               // 机器可读的原因分类
+    "confidence": 0.75,                    // 决策置信度 [0, 1]
+    "urgency": 0.3                         // 紧迫度 [0, 1]
 }
 ```
 
-**action enum / 琛屽姩鏋氫妇锛?*
+**action enum / 行动枚举：**
 
-| Value / 鍊?| Meaning / 鍚箟 | Typical Scenario / 鍏稿瀷鍦烘櫙 |
+| Value / 值 | Meaning / 含义 | Typical Scenario / 典型场景 |
 |-------|---------|------------------|
-| `express` | 涓诲姩琛ㄨ揪 | 琛ㄨ揪椹卞姏楂?|
-| `withdraw` | 閫€缂?娌夐粯 | 璐熷悜淇″彿锛岃竟鐣屽帇鍔涢珮 |
-| `recover` | 灏濊瘯鎭㈠ | 妫€娴嬪埌浼ゅ鍚?|
-| `reach_out` | 涓诲姩鎺ヨЕ | 鍏崇郴寮曞姏楂?|
-| `explore` | 鎺㈢储/璇曟帰 | 濂藉蹇冮┍鍔?|
-| `hold` | 淇濇寔/绛夊緟 | 鏃犳槑纭┍鍔?|
-| `guard` | 闃插尽 | 鑷富鏉冨彈濞佽儊 |
+| `express` | 主动表达 | 表达驱力高 |
+| `withdraw` | 退缩/沉默 | 负向信号，边界压力高 |
+| `recover` | 尝试恢复 | 检测到伤害后 |
+| `reach_out` | 主动接触 | 关系引力高 |
+| `explore` | 探索/试探 | 好奇心驱动 |
+| `hold` | 保持/等待 | 无明确驱力 |
+| `guard` | 防御 | 自主权受威胁 |
 
-### 4.5 guard 鈥?Boundary Guard / 杈圭晫瀹堝崼
+### 4.5 guard — Boundary Guard / 边界守卫
 
 ```jsonc
 {
-    "allowed": true,                       // 鏄惁鍏佽褰撳墠琛屽姩
-    "reason": "string",                    // 闃绘鍘熷洜锛坅llowed=false 鏃舵湁鍊硷級
-    "risk_score": 0.1,                     // 椋庨櫓璇勫垎 [0, 1]
-    "constraints": []                      // 褰撳墠鐢熸晥鐨勭害鏉熷垪琛?
+    "allowed": true,                       // 是否允许当前行动
+    "reason": "string",                    // 阻止原因（allowed=false 时有值）
+    "risk_score": 0.1,                     // 风险评分 [0, 1]
+    "constraints": []                      // 当前生效的约束列表
 }
 ```
 
-### 4.6 pipeline 鈥?7-Layer Pipeline State / 7 灞傜绾夸腑闂存€侊紙鍙€夛級
+### 4.6 pipeline — 7-Layer Pipeline State / 7 层管线中间态（可选）
 
 Disabled by default. Enable via `config.diagnostics = True`.
-榛樿鍏抽棴锛岄€氳繃 `config.diagnostics = True` 寮€鍚€?
+默认关闭，通过 `config.diagnostics = True` 开启。
 
 ```jsonc
 {
-    "L1_encoding": {                       // 绗?1 灞傦細瓒呯淮缂栫爜
-        "hamming_distance": 0.42,          // 涓庝笂娆¤緭鍏ョ殑姹夋槑璺濈
-        "novelty": 0.6                     // 鏂伴搴?
+    "L1_encoding": {                       // 第 1 层：超维编码
+        "hamming_distance": 0.42,          // 与上次输入的汉明距离
+        "novelty": 0.6                     // 新颖度
     },
-    "L2_gate": {                           // 绗?2 灞傦細棰勬祴缂栫爜闂ㄦ帶
-        "path": "normal",                  // 璺緞锛歠ast / normal / full
-        "surprise": 0.35                   // 棰勬祴璇樊
+    "L2_gate": {                           // 第 2 层：预测编码门控
+        "path": "normal",                  // 路径：fast / normal / full
+        "surprise": 0.35                   // 预测误差
     },
-    "L3_absence_impact": {                 // 绗?3 灞傦細缂哄け-褰卞搷寮曟搸
-        "absence_pressure": 0.2,           // 缂哄け鍘嬪姏
-        "impact_count": 3,                 // 娲昏穬褰卞搷鏁?
-        "coupling_strength": 0.4           // 鑰﹀悎寮哄害
+    "L3_absence_impact": {                 // 第 3 层：缺失-影响引擎
+        "absence_pressure": 0.2,           // 缺失压力
+        "impact_count": 3,                 // 活跃影响数
+        "coupling_strength": 0.4           // 耦合强度
     },
-    "L4_relational": {                     // 绗?4 灞傦細鍏崇郴鍔ㄥ姏瀛?
-        "coherence": 0.7,                  // 鍏崇郴涓€鑷存€?
-        "active_relations": 2              // 娲昏穬鍏崇郴鏁?
+    "L4_relational": {                     // 第 4 层：关系动力学
+        "coherence": 0.7,                  // 关系一致性
+        "active_relations": 2              // 活跃关系数
     },
-    "L5_fusion": {                         // 绗?5 灞傦細澶氫笓瀹跺喅绛栬瀺鍚?
-        "expert_weights": {},              // 鍚勪笓瀹舵潈閲?
-        "consensus": 0.6                   // 鍏辫瘑搴?
+    "L5_fusion": {                         // 第 5 层：多专家决策融合
+        "expert_weights": {},              // 各专家权重
+        "consensus": 0.6                   // 共识度
     },
-    "L6_boundary": {                       // 绗?6 灞傦細鑷淮鎸佽竟鐣?
-        "integrity": 0.9,                  // 杈圭晫瀹屾暣鎬?
-        "phase": "stable"                  // 鐘舵€侊細stable / transitioning / breached
+    "L6_boundary": {                       // 第 6 层：自维持边界
+        "integrity": 0.9,                  // 边界完整性
+        "phase": "stable"                  // 状态：stable / transitioning / breached
     },
-    "L7_expression": {                     // 绗?7 灞傦細琛ㄨ揪瑙﹀彂
-        "pressure": 0.4,                   // 琛ㄨ揪鍘嬪姏
-        "threshold": 0.6,                  // 瑙﹀彂闃堝€?
-        "fired": false                     // 鏈鏄惁瑙﹀彂
+    "L7_expression": {                     // 第 7 层：表达触发
+        "pressure": 0.4,                   // 表达压力
+        "threshold": 0.6,                  // 触发阈值
+        "fired": false                     // 本次是否触发
     }
 }
 ```
 
-### 4.7 dynamics 鈥?Dynamic Indicators / 鍔ㄥ姏瀛︽寚鏍?
+### 4.7 dynamics — Dynamic Indicators / 动力学指标
 
 ```jsonc
 {
-    "affect": {                            // 鎯呮劅椹卞姏
-        "recovery_drive": 0.0,             // 鎭㈠椹卞姏
-        "expression_drive": 0.0,           // 琛ㄨ揪椹卞姏
-        "quiet_drive": 0.0                 // 瀹夐潤椹卞姏
+    "affect": {                            // 情感驱力
+        "recovery_drive": 0.0,             // 恢复驱力
+        "expression_drive": 0.0,           // 表达驱力
+        "quiet_drive": 0.0                 // 安静驱力
     },
-    "moral_state": {                       // 閬撳痉鐘舵€?
-        "state": "stable",                 // 鐘舵€侊細stable / recovering
-        "events": 0                        // 绱浜嬩欢鏁?
+    "moral_state": {                       // 道德状态
+        "state": "stable",                 // 状态：stable / recovering
+        "events": 0                        // 累计事件数
     },
-    "uncertainty": {                       // 涓嶇‘瀹氭€?
-        "claim_caution": 0.0,              // 鏂█璋ㄦ厧搴?[0, 1]
-        "events": 0                        // 绱浜嬩欢鏁?
+    "uncertainty": {                       // 不确定性
+        "claim_caution": 0.0,              // 断言谨慎度 [0, 1]
+        "events": 0                        // 累计事件数
     },
-    "relational_time": {                   // 鍏崇郴鏃堕棿
-        "interval_seconds": 0.0,           // 璺濅笂娆′氦浜掔殑绉掓暟
-        "total_duration": 0.0,             // 鍏崇郴鎬绘椂闀匡紙绉掞級
-        "phase": "active"                  // 闃舵锛歛ctive / cooling / dormant
+    "relational_time": {                   // 关系时间
+        "interval_seconds": 0.0,           // 距上次交互的秒数
+        "total_duration": 0.0,             // 关系总时长（秒）
+        "phase": "active"                  // 阶段：active / cooling / dormant
     }
 }
 ```
 
-### 4.8 debug 鈥?Debug Info / 璋冭瘯淇℃伅锛坉iagnostics=True 鏃惰繑鍥烇級
+### 4.8 debug — Debug Info / 调试信息（diagnostics=True 时返回）
 
-寮€鍙戣€呯敤浜庡垽鏂绠楁ā鍧楁槸鍚︽甯稿伐浣溿€?
+开发者用于判断计算模块是否正常工作。
 
 ```jsonc
 {
-    "healthy": true,                       // 璁＄畻寮曟搸鏄惁鍋ュ悍锛堟墍鏈夋柇璺櫒鍏抽棴锛?
-    "circuit_breakers": {                  // 鍚勫眰鏂矾鍣ㄧ姸鎬?
+    "healthy": true,                       // 计算引擎是否健康（所有断路器关闭）
+    "circuit_breakers": {                  // 各层断路器状态
         "L3_absence_impact": {
-            "open": false,                 // 鏄惁鏂紑锛坱rue=璇ュ眰宸茬啍鏂紝浣跨敤缂撳瓨缁撴灉锛?
-            "failures": 0                  // 杩炵画澶辫触娆℃暟
+            "open": false,                 // 是否断开（true=该层已熔断，使用缓存结果）
+            "failures": 0                  // 连续失败次数
         }
     },
-    "layer_avg_ms": {                      // 鍚勫眰骞冲潎鑰楁椂锛堟绉掞級
+    "layer_avg_ms": {                      // 各层平均耗时（毫秒）
         "L1_encoding": 0.12,
         "L3_absence_impact": 1.45
     },
-    "computation_cache_size": 5,           // 璁＄畻缁撴灉缂撳瓨鏉℃暟
-    "kernel_schema_version": "sylanne.alpha.body.v1"  // 鍐呮牳 schema 鐗堟湰
+    "computation_cache_size": 5,           // 计算结果缓存条数
+    "kernel_schema_version": "sylanne.alpha.body.v1"  // 内核 schema 版本
 }
 ```
 
-**寮曟搸绾у仴搴锋鏌?*锛堜笉闇€瑕?session锛夛細
+**引擎级健康检查**（不需要 session）：
 
 ```python
 engine.health()
-# 杩斿洖锛?
+# 返回：
 {
-    "status": "running",               // 寮曟搸鐘舵€侊細running / degraded / closed
-    "active_sessions": 3,              // 褰撳墠娲昏穬浼氳瘽鏁?
-    "data_dir_exists": true,           // 鎸佷箙鍖栫洰褰曟槸鍚﹀瓨鍦?
-    "llm_configured": true,            // LLM 鍥炶皟鏄惁宸查厤缃?
-    "embedding_configured": false      // Embedding 鍥炶皟鏄惁宸查厤缃?
+    "status": "running",               // 引擎状态：running / degraded / closed
+    "active_sessions": 3,              // 当前活跃会话数
+    "data_dir_exists": true,           // 持久化目录是否存在
+    "llm_configured": true,            // LLM 回调是否已配置
+    "embedding_configured": false      // Embedding 回调是否已配置
 }
 ```
 
 ---
 
-## 5. Error Handling / 閿欒澶勭悊
+## 5. Error Handling / 错误处理
 
-### 5.1 Error Codes / 閿欒鐮?
+### 5.1 Error Codes / 错误码
 
-| Code / 閿欒鐮?| Meaning / 鍚箟 | Recoverable / 鍙仮澶?|
+| Code / 错误码 | Meaning / 含义 | Recoverable / 可恢复 |
 |------|---------|-------------|
-| `E_SESSION_NOT_FOUND` | 浼氳瘽涓嶅瓨鍦?| 鏄紙鑷姩鍒涘缓锛?|
-| `E_LLM_UNAVAILABLE` | LLM 鍥炶皟澶辫触 | 鏄紙閫€鍖栦负鏈湴璁＄畻锛?|
-| `E_EMBEDDING_UNAVAILABLE` | Embedding 鍥炶皟澶辫触 | 鏄紙閫€鍖栦负鍏抽敭璇嶅尮閰嶏級 |
-| `E_PERSISTENCE_FAILED` | 鎸佷箙鍖栧啓鍏ュけ璐?| 鍚︼紙鐘舵€佸彲鑳戒涪澶憋級 |
-| `E_INVALID_INPUT` | 杈撳叆鍙傛暟涓嶅悎娉?| 鏄紙淇鍚庨噸璇曪級 |
-| `E_ENGINE_NOT_INITIALIZED` | 寮曟搸鏈垵濮嬪寲 | 鏄紙璋冪敤 start()锛?|
+| `E_SESSION_NOT_FOUND` | 会话不存在 | 是（自动创建） |
+| `E_LLM_UNAVAILABLE` | LLM 回调失败 | 是（退化为本地计算） |
+| `E_EMBEDDING_UNAVAILABLE` | Embedding 回调失败 | 是（退化为关键词匹配） |
+| `E_PERSISTENCE_FAILED` | 持久化写入失败 | 否（状态可能丢失） |
+| `E_INVALID_INPUT` | 输入参数不合法 | 是（修正后重试） |
+| `E_ENGINE_NOT_INITIALIZED` | 引擎未初始化 | 是（调用 start()） |
 
-### 5.2 Error Response Format / 閿欒鍝嶅簲鏍煎紡
+### 5.2 Error Response Format / 错误响应格式
 
 ```jsonc
 {
     "ok": false,
     "error": {
-        "code": "E_LLM_UNAVAILABLE",      // 閿欒鐮?
-        "message": "LLM callback raised TimeoutError",  // 閿欒鎻忚堪
-        "degraded": true                   // true 琛ㄧず宸查€€鍖栬繍琛岋紝缁撴灉浠嶅彲鐢?
+        "code": "E_LLM_UNAVAILABLE",      // 错误码
+        "message": "LLM callback raised TimeoutError",  // 错误描述
+        "degraded": true                   // true 表示已退化运行，结果仍可用
     },
-    // degraded=true 鏃朵粛杩斿洖璁＄畻缁撴灉锛堝熀浜庢湰鍦拌绠楋級
+    // degraded=true 时仍返回计算结果（基于本地计算）
     "state": { ... },
     "decision": { ... }
 }
 ```
 
-### 5.3 Degradation Strategy / 閫€鍖栫瓥鐣?
+### 5.3 Degradation Strategy / 退化策略
 
-The engine is designed to **degrade gracefully** under failure conditions. / 寮曟搸鍦ㄦ晠闅滄潯浠朵笅浼橀泤闄嶇骇銆?
+The engine is designed to **degrade gracefully** under failure conditions. / 引擎在故障条件下优雅降级。
 
-| Failure / 澶辫触鐐?| Degradation / 閫€鍖栬涓?|
+| Failure / 失败点 | Degradation / 退化行为 |
 |---------|-------------|
-| LLM assessor unavailable / LLM 璇勪及鍣ㄤ笉鍙敤 | 浣跨敤鏈湴瑙勫垯寮曟搸璇勪及鏍囩 |
-| Persistence failed / 鎸佷箙鍖栧け璐?| 鍐呭瓨涓户缁繍琛岋紝涓嬫鎴愬姛鏃惰ˉ鍐?|
+| LLM assessor unavailable / LLM 评估器不可用 | 使用本地规则引擎评估标签 |
+| Persistence failed / 持久化失败 | 内存中继续运行，下次成功时补写 |
 
 ---
 
-## 6. Versioning / 鐗堟湰绠＄悊
+## 6. Versioning / 版本管理
 
-### 6.1 Semantic Versioning / 璇箟鍖栫増鏈?
+### 6.1 Semantic Versioning / 语义化版本
 
-SDK follows SemVer: `MAJOR.MINOR.PATCH` / SDK 閬靛惊璇箟鍖栫増鏈鑼冦€?
+SDK follows SemVer: `MAJOR.MINOR.PATCH` / SDK 遵循语义化版本规范。
 
-- **MAJOR**锛歋urface schema 涓嶅吋瀹瑰彉鏇达紙瀛楁鍒犻櫎/閲嶅懡鍚?绫诲瀷鍙樻洿锛?
-- **MINOR**锛氭柊澧炲瓧娈点€佹柊澧炴柟娉曪紙鍚戝悗鍏煎锛?
-- **PATCH**锛欱ug 淇銆佹€ц兘浼樺寲锛堣涓轰笉鍙橈級
+- **MAJOR**：Surface schema 不兼容变更（字段删除/重命名/类型变更）
+- **MINOR**：新增字段、新增方法（向后兼容）
+- **PATCH**：Bug 修复、性能优化（行为不变）
 
-### 6.2 Schema Version / Schema 鐗堟湰
+### 6.2 Schema Version / Schema 版本
 
-Each output block carries `schema_version`. / 姣忎釜杈撳嚭鍧楁惡甯?schema_version 瀛楁銆?
+Each output block carries `schema_version`. / 每个输出块携带 schema_version 字段。
 
-Format / 鏍煎紡锛歚sylanne.<domain>.<version>`
+Format / 格式：`sylanne.<domain>.<version>`
 
 ```python
 if surface["schema_version"].startswith("sylanne.core.v1"):
-    # compatible / 鍏煎
+    # compatible / 兼容
     pass
 ```
 
-### 6.3 Deprecation Policy / 搴熷純绛栫暐
+### 6.3 Deprecation Policy / 废弃策略
 
-- 搴熷純瀛楁鑷冲皯淇濈暀 2 涓?MINOR 鐗堟湰
-- 搴熷純瀛楁鏍囪涓?`"_deprecated": true`
-- CHANGELOG 涓垪鍑鸿縼绉昏矾寰?
+- 废弃字段至少保留 2 个 MINOR 版本
+- 废弃字段标记为 `"_deprecated": true`
+- CHANGELOG 中列出迁移路径
 
 ---
 
-## 7. Configuration / 閰嶇疆 (SylanneConfig)
+## 7. Configuration / 配置 (SylanneConfig)
 
 ```python
 @dataclass
 class SylanneConfig:
-    diagnostics: bool = False          # 鏄惁杩斿洖绠＄嚎涓棿鎬?
-    assessor_enabled: bool = True      # 鏄惁鍚敤 LLM 璇勪及鍣?
-    persistence_fsync: bool = True     # 鎸佷箙鍖栨槸鍚?fsync
-    tick_drift_cap: float = 0.05       # 鍗曟浜烘牸婕傜Щ涓婇檺
-    locale: str = "zh"                 # 璇█锛堝奖鍝嶈瘎浼板櫒 prompt锛?
+    diagnostics: bool = False          # 是否返回管线中间态
+    assessor_enabled: bool = True      # 是否启用 LLM 评估器
+    persistence_fsync: bool = True     # 持久化是否 fsync
+    tick_drift_cap: float = 0.05       # 单次人格漂移上限
+    locale: str = "zh"                 # 语言（影响评估器 prompt）
 ```
 
 ---
 
-## 8. Lifecycle / 鐢熷懡鍛ㄦ湡
+## 8. Lifecycle / 生命周期
 
 ```mermaid
 stateDiagram-v2
-    init: init / 鍒濆鍖?
-    ready: ready / 灏辩华
-    running: running / 杩愯涓?
-    degraded: degraded / 閫€鍖栬繍琛?
-    closed: closed / 宸插叧闂?
+    init: init / 初始化
+    ready: ready / 就绪
+    running: running / 运行中
+    degraded: degraded / 退化运行
+    closed: closed / 已关闭
 
     init --> ready
     ready --> running
@@ -512,23 +512,23 @@ stateDiagram-v2
     degraded --> running
 ```
 
-- **init / 鍒濆鍖?*锛氭瀯閫?SylanneEngine锛岄獙璇佸弬鏁?
-- **ready / 灏辩华**锛氬紩鎿庡氨缁紝鍙帴鍙楄姹?
-- **running / 杩愯涓?*锛氭甯歌繍琛岋紝LLM/Embedding 鍙敤
-- **degraded / 閫€鍖栬繍琛?*锛歀LM 鎴?Embedding 涓嶅彲鐢紝鏈湴鍥為€€杩愯
-- **closed / 宸插叧闂?*锛氬紩鎿庡叧闂紝鎵€鏈夌姸鎬佸凡鍐欏叆纾佺洏
+- **init / 初始化**：构造 SylanneEngine，验证参数
+- **ready / 就绪**：引擎就绪，可接受请求
+- **running / 运行中**：正常运行，LLM/Embedding 可用
+- **degraded / 退化运行**：LLM 或 Embedding 不可用，本地回退运行
+- **closed / 已关闭**：引擎关闭，所有状态已写入磁盘
 
 ```python
-await engine.start()       # init 鈫?ready 鈫?running / 鍚姩寮曟搸
-await engine.shutdown()    # 鈫?closed / 鍏抽棴寮曟搸锛堝埛鍐欐墍鏈夌姸鎬侊級
+await engine.start()       # init → ready → running / 启动引擎
+await engine.shutdown()    # → closed / 关闭引擎（刷写所有状态）
 engine.status              # "ready" | "running" | "degraded" | "closed"
 ```
 
 ---
 
-## 9. Concurrency & Thread Safety / 骞跺彂涓庣嚎绋嬪畨鍏?
+## 9. Concurrency & Thread Safety / 并发与线程安全
 
-- 鍚屼竴 `session_id` 鐨勮皟鐢ㄨ嚜鍔ㄤ覆琛屽寲锛堝唴閮ㄩ攣锛?
-- 涓嶅悓 `session_id` 鍙苟鍙戝鐞?
-- `state()` 杩斿洖鍙蹇収锛屼笉鍔犻攣
-- 寮曟搸瀹炰緥绾跨▼瀹夊叏锛屽彲鍦ㄥ涓?asyncio task 涓叡浜?
+- 同一 `session_id` 的调用自动串行化（内部锁）
+- 不同 `session_id` 可并发处理
+- `state()` 返回只读快照，不加锁
+- 引擎实例线程安全，可在多个 asyncio task 中共享
