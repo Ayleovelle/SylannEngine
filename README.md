@@ -30,7 +30,13 @@ https://github.com/Ayleovelle/SylannEngine.git
 
 安装后，你的插件里直接 `from sylanne_core import SylanneEngine` 即可。本插件是前置依赖，不处理消息、不监听事件，只确保 SDK 在路径中可用。
 
-**纯 SDK 使用**（不通过 AstrBot 插件系统）：用 [`sdk` 分支](https://github.com/Ayleovelle/SylannEngine/tree/sdk)：
+**纯 SDK 使用**（不通过 AstrBot 插件系统）：用 [`sdk` 分支](https://github.com/Ayleovelle/SylannEngine/tree/sdk)（自动从 main 同步，不含插件入口文件）：
+
+```bash
+git clone -b sdk https://github.com/Ayleovelle/SylannEngine.git sylanne_sdk
+```
+
+或作为 submodule：
 
 ```bash
 git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
@@ -66,7 +72,7 @@ git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/syl
 - **三档性能**：lite (5ms, 42通道) / pro (40ms, 287通道) / max (50ms/CPU, 441通道)
 - **退化运行**：LLM 不可用时自动退化为本地规则引擎
 - **零外部依赖**（lite 档）：纯 Python 标准库
-- **使用案例**：[astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne)
+- **使用案例（v1 顺序管线）**：[astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne)
 
 ---
 

@@ -5,55 +5,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [v1.0.0rc1] - 2026-06-01
 
-### 🏗️ Architecture: Resonance Field
+### 🏗️ 架构：共振场
 
-Complete architectural redesign — sequential 7-layer pipeline replaced by fully-connected simplicial resonance field:
+完全架构重设计——顺序 7 层管线替换为全连接单纯形共振场：
 
-- **441 directed coupling channels** (complete 6-simplex Δ⁶) with three-tier allocation: lite=42, pro=287, max=441
-- **Hebbian plasticity**: channels strengthen with use, atrophy without (LTP + LTD + homeostatic scaling + neural Darwinism pruning)
-- **Higher-order Kuramoto synchronization**: pairwise + 3-body (Millán 2020) + 4-body phase coupling with explosive sync transitions
-- **Hopfield attractor landscape**: emotional memory as energy minima, expression fires as bifurcation (escaping attractor)
-- **Harmonic identity ("soul")**: Hodge Laplacian null-space extraction, exponential moving average, restoring force preserves personality across perturbations
-- **Echo state reservoir**: leaky-integrator temporal memory, fading history of past inputs
-- **Free energy minimization** (Friston 2010): precision-weighted prediction error drives belief updates
-- **Global Workspace broadcast** (Baars 1988): winner-take-all competition + ignition
-- **Criticality feedback loop**: emergence metrics amplify coupling near phase transitions (self-organized criticality)
-- **Expression as OR-gate bifurcation**: max(surprise, novelty, ignition, raw_drive) × Φ — any single strong signal triggers expression
-- **Lossless tier hot-switching**: linear interpolation upgrade, average pooling downgrade, plasticity patterns inherited
+- **441 条有向耦合通道**（完全 6-单纯形 Δ⁶）三档分配：lite=42, pro=287, max=441
+- **Hebbian 可塑性**：通道用进废退（LTP + LTD + 稳态缩放 + 神经达尔文主义剪枝）
+- **高阶 Kuramoto 同步**：两体 + 3 体（Millán 2020）+ 4 体相位耦合，爆炸性同步转变
+- **Hopfield 吸引子景观**：情感记忆作为能量极小值，表达作为分岔（逃离吸引子）
+- **谐波身份（"灵魂"）**：Hodge Laplacian 零空间提取，指数移动平均，恢复力跨扰动保持人格
+- **回声状态储备池**：泄漏积分器时间记忆，过去输入的衰减历史
+- **自由能最小化**（Friston 2010）：精度加权预测误差驱动信念更新
+- **全局工作空间广播**（Baars 1988）：赢者通吃竞争 + 点火
+- **临界性反馈环**：涌现指标在相变附近放大耦合（自组织临界性）
+- **表达作为 OR 门分岔**：max(惊讶, 新颖性, 点火, 原始驱动) × Φ——任一强信号触发表达
+- **无损档位热切换**：升级线性插值，降级平均池化，可塑性模式继承
 
-### ✨ New Features
+### ✨ 新功能
 
-- `ResonanceSpine`: drop-in replacement for `ComputationSpine` with identical API (process/feedback/express/to_dict/from_dict)
-- `switch_tier("pro")`: hot-switch between lite/pro/max without losing state
-- Full personality → parameter mapping: 7 personality dimensions control all coupling/plasticity/field/expression parameters
-- Emergence tracking: Φ (integrated information), χ (criticality), attractor count, temporal narrative, memory depth
-- Improved Φ calculation: spatial correlation × temporal coherence (replaces naive variance ratio)
+- `ResonanceSpine`：`ComputationSpine` 的直接替代，API 完全兼容（process/feedback/express/to_dict/from_dict）
+- `switch_tier("pro")`：lite/pro/max 间热切换不丢失状态
+- 完整人格→参数映射：7 个人格维度控制所有耦合/可塑性/场/表达参数
+- 涌现追踪：Φ（整合信息）、χ（临界性）、吸引子计数、时间叙事、记忆深度
+- 改进的 Φ 计算：空间相关 × 时间连贯（替代朴素方差比）
 
-### 📝 Documentation
+### 📝 文档
 
-- `docs/resonance_field_spec.md`: formal mathematical specification (21 literature citations)
-- `docs/resonance_field_architecture.md`: full architecture spec + developer integration guide (EN)
-- `docs/resonance_field_architecture_zh.md`: same in Chinese
-- `docs/max_tier_workflow.md`: MAX tier Mermaid computation flow diagram
-- `docs/SPEC.md`: updated with resonance model, platform requirements, personality mapping table
-- README: rewritten with resonance field explanation, mermaid diagrams, tier comparison
+- `docs/resonance_field_spec.md`：形式化数学规范（21 篇文献引用）
+- `docs/resonance_field_architecture.md`：完整架构规范 + 开发者集成指南（英文）
+- `docs/resonance_field_architecture_zh.md`：同上（中文）
+- `docs/max_tier_workflow.md`：MAX 档 Mermaid 计算流程图
+- `docs/SPEC.md`：更新共振模型、平台要求、人格映射表
+- `docs/resonance_field_paper_en.tex`：学术论文（英文）
+- `docs/resonance_field_paper_zh.tex`：学术论文（中文）
+- README：重写，含共振场说明、Mermaid 图、档位对比
 
-### 🧪 Testing
+### 🧪 测试
 
-- 66 dedicated resonance field tests (topology, plasticity, Kuramoto, Hopfield, reservoir, identity, bifurcation, tier switching)
-- 434 total tests passing, zero regressions
+- 66 个专用共振场测试（拓扑、可塑性、Kuramoto、Hopfield、储备池、身份、分岔、档位切换）
+- 434 个测试全部通过，零回归
 
-### ⚡ Performance
+### 🔧 实验验证
 
-- lite tier: ~5ms/tick, 50+ concurrent sessions per core
-- pro tier: ~40ms/tick (numpy accelerated)
-- max tier: ~50ms/tick CPU, <5ms GPU (torch path structured but not yet implemented)
+- 11 项实验协议验证核心声明（收敛性、可塑性、同步、吸引子、表达、稳定性等）
+- 每实验 1000+ tick × 10 次重复，统计检验
+- 实验代码：`experiments/`
 
-### 🔧 Configuration
+### ⚡ 性能
 
-- `concurrency_target` for lite raised from 5 to 50
-- Plugin version locks to lite tier (pro/max for SDK only)
-- Single codebase strategy: plugin vs SDK differ only in main.py presence + dependency declarations
+- lite 档：~5ms/tick，50+ 并发会话/核
+- pro 档：~40ms/tick（numpy 加速）
+- max 档：~50ms/tick CPU，<5ms GPU（torch 路径已结构化但未实现）
+
+### 🔧 配置
+
+- lite 的 `concurrency_target` 从 5 提升到 50
+- 插件版锁定 lite 档（pro/max 仅 SDK）
+- 单代码库策略：插件版与 SDK 版仅 main.py 存在与否 + 依赖声明不同
 
 ---
 
