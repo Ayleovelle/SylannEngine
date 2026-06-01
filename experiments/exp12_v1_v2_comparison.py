@@ -9,8 +9,6 @@ Output: Side-by-side comparison figures.
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
 from utils import (
     N_REPEATS,
@@ -75,7 +73,9 @@ def run_comparison(tier: str, n_ticks: int, seed: int) -> dict:
 
         # v1 process
         r1 = v1.process(text, now)
-        v1_energy = sum(abs(v) for v in r1.get("emotion", {}).values()) if r1.get("emotion") else 0.0
+        v1_energy = (
+            sum(abs(v) for v in r1.get("emotion", {}).values()) if r1.get("emotion") else 0.0
+        )
         v1_energies.append(v1_energy)
         if r1.get("should_express", False):
             v1_express_count += 1
@@ -84,7 +84,9 @@ def run_comparison(tier: str, n_ticks: int, seed: int) -> dict:
 
         # v2 process
         r2 = v2.process(text, now)
-        v2_energy = sum(abs(v) for v in r2.get("emotion", {}).values()) if r2.get("emotion") else 0.0
+        v2_energy = (
+            sum(abs(v) for v in r2.get("emotion", {}).values()) if r2.get("emotion") else 0.0
+        )
         v2_energies.append(v2_energy)
         if r2.get("should_express", False):
             v2_express_count += 1
@@ -96,12 +98,22 @@ def run_comparison(tier: str, n_ticks: int, seed: int) -> dict:
     v2_fresh = make_spine(tier)
     v1_fresh.apply_personality(personality)
     v2_fresh.apply_personality(personality)
-    v1_diversity = len(set(tuple(round(v, 2) for v in r.get("emotion", {}).values())
-                         for r in [v1_fresh.process(t, base_time + 999 * 60 + j)
-                                   for j, t in enumerate(SAMPLE_TEXTS)]))
-    v2_diversity = len(set(tuple(round(v, 2) for v in r.get("emotion", {}).values())
-                         for r in [v2_fresh.process(t, base_time + 999 * 60 + j)
-                                   for j, t in enumerate(SAMPLE_TEXTS)]))
+    v1_diversity = len(
+        set(
+            tuple(round(v, 2) for v in r.get("emotion", {}).values())
+            for r in [
+                v1_fresh.process(t, base_time + 999 * 60 + j) for j, t in enumerate(SAMPLE_TEXTS)
+            ]
+        )
+    )
+    v2_diversity = len(
+        set(
+            tuple(round(v, 2) for v in r.get("emotion", {}).values())
+            for r in [
+                v2_fresh.process(t, base_time + 999 * 60 + j) for j, t in enumerate(SAMPLE_TEXTS)
+            ]
+        )
+    )
 
     return {
         "v1_energies": v1_energies,
