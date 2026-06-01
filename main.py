@@ -1,11 +1,11 @@
-"""SylannEngine — AstrBot 前置插件。
+﻿"""SylannEngine 鈥?AstrBot 鍓嶇疆鎻掍欢銆?
 
-本插件的作用：
-1. 把 sylanne_core 包注册到 Python 路径中
-2. 创建并管理共享引擎实例，LLM 由本插件通过 AstrBot provider_manager 配置
-3. 下游插件通过 `from sylanne_core import get_engine` 获取已配置好的引擎
+鏈彃浠剁殑浣滅敤锛?
+1. 鎶?sylanne_core 鍖呮敞鍐屽埌 Python 璺緞涓?
+2. 鍒涘缓骞剁鐞嗗叡浜紩鎿庡疄渚嬶紝LLM 鐢辨湰鎻掍欢閫氳繃 AstrBot provider_manager 閰嶇疆
+3. 涓嬫父鎻掍欢閫氳繃 `from sylanne_core import get_engine` 鑾峰彇宸查厤缃ソ鐨勫紩鎿?
 
-不处理消息、不注入 prompt、不注册命令、不监听事件。纯前置依赖。
+涓嶅鐞嗘秷鎭€佷笉娉ㄥ叆 prompt銆佷笉娉ㄥ唽鍛戒护銆佷笉鐩戝惉浜嬩欢銆傜函鍓嶇疆渚濊禆銆?
 """
 
 from __future__ import annotations
@@ -42,11 +42,11 @@ except ImportError:
 @register(
     "astrbot_plugin_sylannengine",
     "Ayleovelle",
-    "SylannEngine 前置插件 — 提供情感计算引擎供其他插件 import 使用",
-    "1.0.0rc3",
+    "SylannEngine 鍓嶇疆鎻掍欢 鈥?鎻愪緵鎯呮劅璁＄畻寮曟搸渚涘叾浠栨彃浠?import 浣跨敤",
+    "2.0.0",
 )
 class SylannEnginePlugin(Star):
-    """前置依赖插件。创建共享引擎实例，LLM 由本插件配置。"""
+    """鍓嶇疆渚濊禆鎻掍欢銆傚垱寤哄叡浜紩鎿庡疄渚嬶紝LLM 鐢辨湰鎻掍欢閰嶇疆銆?""
 
     def __init__(self, context: Context):
         super().__init__(context)
@@ -70,7 +70,7 @@ class SylannEnginePlugin(Star):
         sylanne_core._shared_engine = engine
         self._engine = engine
         logger.info(
-            "SylannEngine SDK v%s ready — get_engine() now available",
+            "SylannEngine SDK v%s ready 鈥?get_engine() now available",
             sylanne_core.__version__,
         )
 

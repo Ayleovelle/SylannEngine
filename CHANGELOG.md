@@ -3,9 +3,9 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [v1.0.0rc3] - 2026-06-01
+## [v2.0.0] - 2026-06-01
 
-(Supersedes rc1 and rc2. Version relabeling history: a2 was originally rc1, a3 was rc2, a4 was rc3; the current rc1 is a fresh release on the resonance field architecture.)
+SylannEngine V2 — 共振场架构正式版。完全重写计算核心，从顺序 7 层管线升级为单纯形共振场。
 
 ### 🏗️ 架构：共振场
 
