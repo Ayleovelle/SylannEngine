@@ -310,6 +310,15 @@ class ResonanceSpine:
             self._boundary.self_repair()
             return self._build_result("", timestamp, False)
 
+        # Apply per-relationship personality overlay if session changed or dirty
+        if session_key != self._last_effective_session or self._personality_dirty:
+            effective = self.effective_personality(session_key)
+            if effective != self._last_effective_params:
+                self.apply_personality(effective)
+                self._last_effective_params = dict(effective)
+            self._last_effective_session = session_key
+            self._personality_dirty = False
+
         self._tick_count += 1
         self._route_counts["resonance"] = self._route_counts.get("resonance", 0) + 1
         t0 = time.perf_counter_ns()
@@ -580,7 +589,26 @@ class ResonanceSpine:
             self._field._coupling.plasticity.update([0.0] * n_weights)
         elif outcome == "ignored":
             self._field._coupling.plasticity.update([0.05] * n_weights)
+        # Update per-relationship personality deltas
+        if session_key:
+            self._update_relationship_delta(session_key, outcome)
         return self._engine.observe()
+
+    def _update_relationship_delta(self, session_key: str, outcome: str) -> None:
+        """Update per-relationship personality deltas based on feedback."""
+        if session_key not in self._relationship_deltas:
+            self._relationship_deltas[session_key] = {}
+        delta = self._relationship_deltas[session_key]
+        rate = 0.005
+        if outcome == "accepted":
+            delta["extraversion"] = min(0.1, delta.get("extraversion", 0.0) + rate)
+            delta["agreeableness"] = min(0.1, delta.get("agreeableness", 0.0) + rate)
+        elif outcome == "rejected":
+            delta["extraversion"] = max(-0.1, delta.get("extraversion", 0.0) - rate * 2)
+            delta["neuroticism"] = min(0.1, delta.get("neuroticism", 0.0) + rate)
+        elif outcome == "ignored":
+            delta["extraversion"] = max(-0.1, delta.get("extraversion", 0.0) - rate)
+        self._personality_dirty = True
 
     def _build_result(
         self,
@@ -713,7 +741,7 @@ class ResonanceSpine:
         # Restore embodiment traits
         if "embodiment_traits" in data:
             for name, tm_data in data["embodiment_traits"].items():
-                if name in self._embodiment_traits:
+                if name in self._embodiment_traits and isinstance(tm_data, dict):
                     self._embodiment_traits[name] = TraitMemory.from_dict(tm_data)
         # Restore relationship deltas
         if "relationship_deltas" in data:
