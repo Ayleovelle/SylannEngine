@@ -44,6 +44,14 @@ from .prompt_surface import (
 )
 from .workset import build_fragment_workset
 
+try:
+    from .resonance_integration import ResonanceSpine
+
+    _DEFAULT_SPINE: type = ResonanceSpine
+except ImportError:
+    ResonanceSpine = ComputationSpine  # type: ignore[assignment, misc]
+    _DEFAULT_SPINE = ComputationSpine
+
 if TYPE_CHECKING:
     from ..config import DimensionProfile
 
@@ -112,7 +120,7 @@ class AlphaKernel:
     personality: dict[str, Any] = field(default_factory=dict)
     moral_repair: dict[str, Any] = field(default_factory=dict)
     fallibility: dict[str, Any] = field(default_factory=dict)
-    computation: ComputationSpine = field(default_factory=ComputationSpine)
+    computation: ComputationSpine | ResonanceSpine = field(default_factory=_DEFAULT_SPINE)
     hot_pool: HotPool = field(default_factory=HotPool)
     _last_computation_result: dict[str, Any] = field(default_factory=dict)
     _cached_vector_summary: dict[str, float] | None = field(default=None, repr=False)
@@ -131,7 +139,7 @@ class AlphaKernel:
             body, audit, turns = import_legacy_body(legacy)
             kernel = cls(session_key=session_key, body=body, audit=audit, turns=turns)
         if profile is not None:
-            kernel.computation = ComputationSpine(profile=profile)
+            kernel.computation = _DEFAULT_SPINE(profile=profile)
             kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
         return kernel
 
@@ -157,7 +165,7 @@ class AlphaKernel:
             fallibility=_as_dict(snapshot.get("fallibility")),
         )
         if profile is not None:
-            kernel.computation = ComputationSpine(profile=profile)
+            kernel.computation = _DEFAULT_SPINE(profile=profile)
             kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
         if "computation" in snapshot and isinstance(snapshot["computation"], dict):
             kernel.computation.from_dict(snapshot["computation"])
@@ -829,10 +837,8 @@ class AlphaKernel:
             reason = "boundary asks for distance"
             reason_code = "boundary_pressure"
         elif (
-            (proactive and needs["need_contact"] >= 0.1 and self.body.muscle.fatigue < 0.8)
-            or needs["need_contact"] > 0.2
-            and self.body.muscle.fatigue < 0.8
-        ):
+            (proactive and needs["need_contact"] >= 0.1) or needs["need_contact"] > 0.2
+        ) and self.body.muscle.fatigue < 0.8:
             action = "reach_out"
             reason = "contact need has accumulated"
             reason_code = "contact_need"
@@ -921,7 +927,35 @@ class AlphaKernel:
         }
 
     def _has_sovereignty_opt_in(self) -> bool:
-        return len(self.body._recent_texts) > 0
+        """Check whether the user has actively opted in to proactive contact.
+
+        Requirements for opt-in:
+        1. At least 2 recent texts (showing ongoing engagement, not just one message)
+        2. The most recent event must be within the last 5 minutes (not stale)
+        3. The user's last message must not contain rejection signals
+        """
+        # Require at least 2 recent texts (ongoing engagement)
+        if len(self.body._recent_texts) < 2:
+            return False
+
+        # Check recency: last event must be within 5 minutes (300 seconds)
+        last_now = float(self.last_event.get("now") or 0.0)
+        previous_now = float(self.previous_event.get("now") or 0.0)
+        if last_now > 0 and previous_now > 0:
+            gap = last_now - previous_now
+            # If the gap between last two events exceeds 5 minutes, engagement is stale
+            if gap > 300.0:
+                return False
+
+        # Check rejection signals in the most recent text
+        rejection_signals = ("别烦我", "不想聊", "安静", "别说了", "闭嘴")
+        if self.body._recent_texts:
+            last_text = self.body._recent_texts[-1]
+            for signal in rejection_signals:
+                if signal in last_text:
+                    return False
+
+        return True
 
     def _next_check_seconds(self, decision: dict[str, Any], guard: dict[str, Any]) -> int:
         if "proactive_cooldown" in guard["flags"]:

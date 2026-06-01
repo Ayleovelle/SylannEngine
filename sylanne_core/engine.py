@@ -22,7 +22,10 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .compute import SylanneHost
 
 from .compute.utils import safe_filename
 from .config import SylanneConfig
@@ -67,7 +70,7 @@ class SylanneEngine:
         self._embedding = embedding
         self._config = config or SylanneConfig()
         self._status: EngineStatus = "init"
-        self._hosts: dict[str, Any] = {}
+        self._hosts: dict[str, SylanneHost] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         self._listeners: list[Callable[[str, Surface], Any]] = []
 
@@ -228,7 +231,17 @@ class SylanneEngine:
             intensity: Influence strength [0, 1].
             target_dimension: Target dimension or material type in the hot pool.
             payload: Optional metadata dict passed through to the influence.
+
+        Raises:
+            ValueError: If influence_type is not a recognized type.
         """
+        from .compute.hot_pool import _VALID_INFLUENCE_TYPES
+
+        if influence_type not in _VALID_INFLUENCE_TYPES:
+            raise ValueError(
+                f"Invalid influence_type {influence_type!r}. "
+                f"Must be one of: {', '.join(sorted(_VALID_INFLUENCE_TYPES))}"
+            )
         if self._status == "closed":
             await self.start()
         async with self._session_lock(session_id):
@@ -264,7 +277,7 @@ class SylanneEngine:
             self._locks[session_id] = asyncio.Lock()
         return self._locks[session_id]
 
-    def _get_or_create_host(self, session_id: str) -> Any:
+    def _get_or_create_host(self, session_id: str) -> SylanneHost:
         if session_id not in self._hosts:
             from .compute import SylanneHost
 
@@ -291,7 +304,7 @@ class SylanneEngine:
                 self._status = "degraded"
             return None
 
-    def _to_surface(self, session_id: str, host: Any, raw: dict[str, Any]) -> Surface:
+    def _to_surface(self, session_id: str, host: SylanneHost, raw: dict[str, Any]) -> Surface:
         from .adapter import to_surface
 
         return to_surface(session_id, host, raw, diagnostics=self._config.diagnostics)

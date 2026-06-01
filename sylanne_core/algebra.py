@@ -43,7 +43,7 @@ from __future__ import annotations
 import math
 from typing import Any, Callable
 
-from sylanne_core.standard import EmotionVector
+from .standard import EmotionVector
 
 # ---------------------------------------------------------------------------
 # Constants

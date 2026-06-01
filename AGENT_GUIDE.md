@@ -605,7 +605,7 @@ if dynamics["uncertainty"]["claim_caution"] > 0.6:
 surface = await engine.process(
     session_id="user_123",
     text="你好啊",
-    confidence=0.8,          # 你对语义理解的置信度，0 = 让引擎自己评估
+    confidence=0.8,          # 你对语义理解的置信度，None = 让引擎自己评估
     flags=["greeting"],      # 事件标签（见下表）
     now=time.time(),         # 事件时间戳（默认当前时间）
     values={"tone": 0.7},   # 附加数值信号
@@ -639,7 +639,7 @@ surface = await engine.process(
 
 ### confidence 参数
 
-- `0.0`（默认）：让引擎内部的 LLM 评估器自己判断
+- `None`（默认）：让引擎内部的 LLM 评估器自己判断
 - `0.1 ~ 1.0`：你自己对语义理解的置信度，引擎会参考这个值
 
 如果你的上游已经做了情感分类，可以传入 confidence 和对应的 flags，引擎会跳过自己的 LLM 评估，直接使用你的结果。

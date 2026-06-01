@@ -28,8 +28,18 @@ from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from .autopoiesis import AutopoieticBoundary
+from .bounded_dict import BoundedDict
 from .emergence import EmergenceTracker
 from .hgt import HeterogeneousGraphTransformer
+from .pad_interop import PADProjector, PADVector
+from .personality import (
+    EMBODIMENT_TRAITS,
+    DriftAttribution,
+    DriftSignalExtractor,
+    OscillationDetector,
+    TraitMemory,
+    normalize_personality,
+)
 from .phase_transition import PhaseTransitionExpression
 from .predictive_coding import PredictiveCodingGate
 from .relational_sheaf import ScarSheaf
@@ -83,6 +93,22 @@ class ResonanceSpine:
         "_expression",
         "_last_hdc_vec",
         "_last_surprise",
+        # Embodiment drift system (ported from ComputationSpine)
+        "_drift_min_interval",
+        "_embodiment_traits",
+        "_signal_extractor",
+        "_oscillation_detector",
+        "_drift_attribution",
+        "_drift_tick",
+        "_last_embodiment_apply",
+        "_last_drift_time",
+        # Per-relationship personality
+        "_relationship_deltas",
+        "_last_effective_session",
+        "_last_effective_params",
+        "_personality_dirty",
+        # PAD projector cache
+        "_pad_projector_cache",
     )
 
     def __init__(self, profile: DimensionProfile | None = None):
@@ -150,6 +176,27 @@ class ResonanceSpine:
         self._last_hdc_vec: bytearray | None = None
         self._last_surprise = 0.0
 
+        # Embodiment personality drift system (ported from ComputationSpine)
+        self._signal_extractor = DriftSignalExtractor()
+        self._embodiment_traits: dict[str, TraitMemory] = {
+            name: TraitMemory(0.5) for name in EMBODIMENT_TRAITS
+        }
+        self._oscillation_detector = OscillationDetector()
+        self._drift_attribution = DriftAttribution(maxlen=100)
+        self._drift_tick = 0
+        self._last_embodiment_apply: dict[str, float] = {name: 0.5 for name in EMBODIMENT_TRAITS}
+        self._last_drift_time: float = 0.0
+        self._drift_min_interval: float = 30.0  # seconds
+
+        # Per-relationship personality deltas
+        self._relationship_deltas: BoundedDict = BoundedDict(maxsize=200)
+        self._last_effective_session: str = ""
+        self._last_effective_params: dict[str, float] = {}
+        self._personality_dirty: bool = False
+
+        # PAD projector cache
+        self._pad_projector_cache: tuple[int, dict[str, float], PADProjector] | None = None
+
     def _hdc_similarity(self, a: bytes, b: bytes) -> float:
         return self._encoder.similarity(a, b)
 
@@ -159,6 +206,7 @@ class ResonanceSpine:
         Every tunable parameter in the system derives from personality traits.
         This is the "personality-computation coupling" axiom (A7 in SPEC.md).
         """
+        personality = normalize_personality(personality)
         self._personality = dict(personality)
         extraversion = float(personality.get("extraversion", 0.5))
         neuroticism = float(personality.get("neuroticism", 0.5))
@@ -656,3 +704,70 @@ class ResonanceSpine:
             self._feedback_counts = dict(data["feedback_counts"])
         self._expression_drive = data.get("expression_drive", 0.0)
         self._expression_threshold = data.get("expression_threshold", 0.6)
+
+    # ------------------------------------------------------------------
+    # Public properties for kernel/adapter/prompt_surface compatibility
+    # ------------------------------------------------------------------
+
+    @property
+    def engine(self) -> VoidScarEngine:
+        """Public accessor for the VoidScarEngine (used by kernel and adapter)."""
+        return self._engine
+
+    @property
+    def expression(self) -> PhaseTransitionExpression:
+        """Public accessor for the expression module (used by prompt_surface)."""
+        return self._expression
+
+    # ------------------------------------------------------------------
+    # Methods ported from ComputationSpine for full compatibility
+    # ------------------------------------------------------------------
+
+    def embodiment_bounds(self) -> dict[str, float] | None:
+        """Public accessor for embodiment trait bounds (used by kernel personality drift)."""
+        return (
+            {n: t.value for n, t in self._embodiment_traits.items()}
+            if self._embodiment_traits
+            else None
+        )
+
+    def effective_personality(self, session_key: str = "") -> dict[str, float]:
+        """Get personality with per-relationship overlays applied."""
+        base = dict(self._personality)
+        if not session_key or session_key not in self._relationship_deltas:
+            return base
+        delta = self._relationship_deltas[session_key]
+        for trait, d in delta.items():
+            if trait in base:
+                base[trait] = max(0.05, min(0.95, base[trait] + d))
+        return base
+
+    def apply_social_signals(self, signals: Any) -> None:
+        """Apply social field signals (stub for API compatibility)."""
+        # ResonanceSpine handles social modulation through coupling dynamics
+        pass
+
+    def pad_project(self) -> PADVector:
+        """Project current VoidScar state to PAD 3D space."""
+        n_dims = self._engine.scar_state.n_dims
+        cache = self._pad_projector_cache
+        if cache is None or cache[0] != n_dims or cache[1] != self._personality:
+            projector = PADProjector(n_dims, self._personality)
+            self._pad_projector_cache = (n_dims, dict(self._personality), projector)
+        else:
+            projector = cache[2]
+        internal_state = list(self._engine.scar_state.base)
+        return projector.project(internal_state)
+
+    def set_layer_enabled(self, layer: str, enabled: bool) -> None:
+        """No-op for ResonanceSpine (all modules always active in resonance)."""
+        pass
+
+    def replace_encoder(self, encoder: Any) -> None:
+        """Replace the HDC encoder."""
+        self._encoder = encoder
+
+    @property
+    def last_hdc_sample(self) -> bytearray | None:
+        """Last HDC encoded vector."""
+        return self._last_hdc_vec
