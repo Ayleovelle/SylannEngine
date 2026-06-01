@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/License-AGPL_3.0-blue.svg" alt="License: AGPL-3.0">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/AstrBot-v4.11.2+-orange.svg" alt="AstrBot v4.11.2+">
-  <img src="https://img.shields.io/badge/Status-1.0.0rc3-green.svg" alt="Status: 1.0.0rc3">
+  <img src="https://img.shields.io/badge/Status-2.0.0-green.svg" alt="Status: 2.0.0">
 </p>
 
 <p align="center">
