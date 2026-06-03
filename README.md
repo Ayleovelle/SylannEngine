@@ -258,6 +258,53 @@ GNU Affero General Public License v3.0
 
 ---
 
+## 演化路线
+
+### V2.0 — 共振场（当前稳定版）
+
+基于物理启发的规则系统。7 模块 × 441 通道耦合，Hebbian 可塑性 + Kuramoto 同步。无需训练，结构即计算。适用于 AstrBot 插件的实时情感推理。
+
+### V2.1 — EmotiCore Teacher（训练中）
+
+79.2M 参数 CNN-Transformer 混合模型。8 维情感输出，在 124K 中文标注语料上进行监督训练。
+
+用途：作为 V3 的感知基准和数据质量验证工具，以及替代 assessor LLM 降低用户的额外 token 消耗和推理延迟。
+
+### V3.0 — SYLANN（实验阶段）🔬
+
+**Scar-based Yearning Latent Affective Neural Network**
+
+探索一种不依赖 backpropagation 的情感计算架构。核心思路来自发育神经科学：所有表征通过局部学习规则自组织涌现，而非全局梯度优化。
+
+**架构要点：**
+- 14 个域（7 情感 + 7 认知），每域 128 个自组织 agent
+- 三因子 Hebbian 学习：`dW = eta × pre × post × reward`
+- 不可逆发育操作：连接修剪只能删除，scar 只能累积，consolidation 只能冻结
+- Cross-Frequency Coupling：域间通信由相位差门控
+- Benvo：不可变人格参数，影响所有动力学方程
+
+**训练方式：**
+
+Sequential Predictive Coding — 逐字符输入，cells 预测下一个字符。预测误差驱动权重更新，标注数据的 emotion label 作为 reward 信号调制学习方向。语言理解和情感关联在同一训练过程中同时形成。
+
+**当前状态：**
+- 向量化 GPU 实现完成，A100 上验证通过
+- 混合训练模式（backprop output head + organic Hebbian）已跑通，emotion MAE=0.02
+- 纯 local learning 模式（零 backprop）正在实验中，尚未得到满意结果
+- 数据准备中：8.3GB 中英文语料（目标 16GB）
+
+**未解决的问题：**
+- 纯 Hebbian 学习在大维度下的数值稳定性
+- 无 backprop 条件下 output 与 representation 的对齐
+- 长期训练中 consolidation 速率的调参
+- sequential mode 的实际收敛速度
+
+核心假设：local learning + 足够数据 + 足够规模 = 可用的情感感知/表达系统。尚未验证。
+
+技术规范：[`training/SYLANN_V3_SPEC.md`](training/SYLANN_V3_SPEC.md)
+
+---
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Ayleovelle/SylannEngine&type=Date)](https://star-history.com/#Ayleovelle/SylannEngine&Date)
