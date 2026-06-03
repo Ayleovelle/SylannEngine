@@ -266,7 +266,7 @@ GNU Affero General Public License v3.0
 
 ### V2.1 — EmotiCore Teacher（训练中）
 
-79.2M 参数 CNN-Transformer 混合模型。8 维情感输出，在 124K 中文标注语料上进行监督训练。
+102.7M 参数混合架构（Mamba SSM + MoE + Multi-scale ConvStem + VAE + 对比学习）。8 维情感输出，在 124K 中文标注语料上进行监督训练。
 
 用途：作为 V3 的感知基准和数据质量验证工具，以及替代 assessor LLM 降低用户的额外 token 消耗和推理延迟。
 
