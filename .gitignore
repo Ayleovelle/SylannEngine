@@ -206,3 +206,8 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 pr5_*.json
+
+training/data/
+training/models/
+training/training/
+_topology_test*.py
