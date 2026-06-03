@@ -272,7 +272,8 @@ GNU Affero General Public License v3.0
 
 ### V3.0 — SYLANN（实验阶段）🔬
 
-**Scar-based Yearning Latent Affective Neural Network**
+**"Scars You Leave Are Never Nothing"**
+*A Self-Organizing Developmental Architecture for Adaptive Intelligence*
 
 探索一种不依赖 backpropagation 的情感计算架构。核心思路来自发育神经科学：所有表征通过局部学习规则自组织涌现，而非全局梯度优化。
 
