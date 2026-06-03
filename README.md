@@ -264,11 +264,16 @@ GNU Affero General Public License v3.0
 
 基于物理启发的规则系统。7 模块 × 441 通道耦合，Hebbian 可塑性 + Kuramoto 同步。无需训练，结构即计算。适用于 AstrBot 插件的实时情感推理。
 
-### V2.1 — EmotiCore Teacher（训练中）
+### V2.1 — EmotiCore（训练中）
 
-102.7M 参数混合架构（Mamba SSM + MoE + Multi-scale ConvStem + VAE + 对比学习）。8 维情感输出，在 124K 中文标注语料上进行监督训练。
+Teacher 模型 102.7M 参数（Mamba SSM + MoE + Multi-scale ConvStem + VAE + 对比学习），在 124K 中文标注语料上训练。最终部署版本将通过蒸馏压缩为轻量 Student 模型。
 
-用途：作为 V3 的感知基准和数据质量验证工具，以及替代 assessor LLM 降低用户的额外 token 消耗和推理延迟。
+用途：处理日常情感感知以降低 assessor LLM 的 token 消耗和延迟，LLM 仍保留用于后学习与复杂场景。同时作为 V3 的感知基准和数据源。
+
+**后学习机制：**
+- **链路学习**（共振场层）：Hebbian 可塑性持续调整通道耦合权重，高频共激活的情感路径被强化，低频路径衰减——系统适应用户的情感模式
+- **模型校准**（EmotiCore 层）：高不确定度或复杂场景时回退 LLM assessor，LLM 返回的标注作为在线信号校准 EmotiCore 参数
+- 随使用时间增长，链路越来越贴合用户，EmotiCore 越来越准，LLM 调用频率逐步降低
 
 ### V3.0 — SYLANN（实验阶段）🔬
 
