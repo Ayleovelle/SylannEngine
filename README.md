@@ -277,7 +277,7 @@ GNU Affero General Public License v3.0
 探索一种不依赖 backpropagation 的情感计算架构。核心思路来自发育神经科学：所有表征通过局部学习规则自组织涌现，而非全局梯度优化。
 
 **架构要点：**
-- 14 个域（7 情感 + 7 认知），每域 128 个自组织 agent
+- 14 个域（7 情感 + 7 认知），每域 128 个同构 cell，通过竞争自发分化
 - 三因子 Hebbian 学习：`dW = eta × pre × post × reward`
 - 不可逆发育操作：连接修剪只能删除，scar 只能累积，consolidation 只能冻结
 - Cross-Frequency Coupling：域间通信由相位差门控
