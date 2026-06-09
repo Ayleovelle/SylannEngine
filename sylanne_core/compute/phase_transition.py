@@ -130,9 +130,6 @@ class PhaseTransitionExpression:
         if channel < 0 or channel >= self._order_params:
             return
         self._pressures[channel] += drive * dt
-        # Per-channel decay
-        decay = self._channel_decay_rates[channel]
-        self._pressures[channel] = max(0.0, self._pressures[channel] * (1.0 - decay))
 
     def accumulate(self, drive: float, dt: float = 1.0) -> None:
         """积累表达压力。
