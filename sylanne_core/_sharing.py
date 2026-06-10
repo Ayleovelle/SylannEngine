@@ -88,9 +88,9 @@ async def get_shared_engine(
     loop = asyncio.get_running_loop()
 
     while True:
-        tombstone: asyncio.Future[None] | None = None
+        pending: asyncio.Future[None] | None = None  # tombstone or init future to await
+        init_future: asyncio.Future[None] | None = None  # we own this; must resolve it
         engine: SylanneEngine | None = None
-        created = False
 
         with _LOCK:
             slot = _REGISTRY.get(key)
@@ -100,17 +100,16 @@ async def get_shared_engine(
                     raise ValueError(
                         f"llm is required to create a new shared engine for {key!r}"
                     )
-                # Construct and register before start(); __init__ does no I/O so
-                # it is safe under the lock. start() runs outside the lock below.
-                new_engine = SylanneEngine(
-                    resolved_dir, llm, embedding=embedding, config=cfg, _shared=True
-                )
-                _REGISTRY[key] = _Entry(new_engine, cfg, llm, embedding, weakref.ref(loop))
-                engine = new_engine
-                created = True
+                # Publish an init Future as a placeholder, then build+start OUTSIDE
+                # the lock. Concurrent acquirers see the Future and await it rather
+                # than racing into a second start(). Only on success do we swap in
+                # the real _Entry. This closes the init race and avoids leaking a
+                # half-started engine on cancellation.
+                init_future = loop.create_future()
+                _REGISTRY[key] = init_future
             elif isinstance(slot, asyncio.Future):
-                # Shutdown in flight: capture the tombstone, await it outside the lock.
-                tombstone = slot
+                # Init or shutdown in flight: await the Future, then retry.
+                pending = slot
             else:
                 # Existing live entry: check loop affinity, then conflicts.
                 bound = slot.loop_ref()
@@ -122,7 +121,12 @@ async def get_shared_engine(
                     )
                 if bound is None or bound.is_closed():
                     # Original loop was GC'd or closed; rebind to the current one.
+                    # Per-session asyncio.Lock objects are bound to the old loop and
+                    # would raise "attached to a different loop" if reused, so drop
+                    # them — they are recreated lazily. Session state (_hosts) is not
+                    # loop-bound and is preserved.
                     slot.loop_ref = weakref.ref(loop)
+                    slot.engine._locks.clear()
                 if slot.config != cfg:
                     raise SharedEngineConflictError(
                         f"Shared engine {key!r} already exists with a different SylanneConfig."
@@ -138,24 +142,42 @@ async def get_shared_engine(
                     )
                 engine = slot.engine
 
-        if tombstone is not None:
-            # Wait for the in-flight shutdown to finish, then retry the lookup.
-            await tombstone
+        if pending is not None:
+            # Wait for the in-flight init/shutdown to finish, then retry the lookup.
+            # Suppress errors: the owning task reports its own failure; we just retry.
+            try:
+                await pending
+            except (Exception, asyncio.CancelledError):
+                pass
             continue
+
+        if init_future is not None:
+            # We own the placeholder: build + start, then publish the real entry.
+            # llm was verified non-None under the lock before init_future was set.
+            assert llm is not None
+            try:
+                new_engine = SylanneEngine(
+                    resolved_dir, llm, embedding=embedding, config=cfg, _shared=True
+                )
+                await new_engine.start()
+            except BaseException:
+                # Roll back the placeholder so the slot is free for a fresh attempt,
+                # and wake any waiters (they will retry and rebuild). BaseException
+                # covers CancelledError so a cancelled start() does not leak the slot.
+                with _LOCK:
+                    if _REGISTRY.get(key) is init_future:
+                        del _REGISTRY[key]
+                if not init_future.done():
+                    init_future.set_result(None)
+                raise
+            with _LOCK:
+                _REGISTRY[key] = _Entry(new_engine, cfg, llm, embedding, weakref.ref(loop))
+            init_future.set_result(None)
+            return new_engine
 
         assert engine is not None
         if engine.status in ("init", "closed"):
-            try:
-                await engine.start()
-            except Exception:
-                # start() failed; if we just created this entry, remove it so the
-                # slot does not stay occupied by a broken engine.
-                if created:
-                    with _LOCK:
-                        existing = _REGISTRY.get(key)
-                        if isinstance(existing, _Entry) and existing.engine is engine:
-                            del _REGISTRY[key]
-                raise
+            await engine.start()
         return engine
 
 
@@ -165,15 +187,30 @@ async def release_shared_engine(data_dir: str | Path) -> None:
     Replaces the slot with a tombstone Future under the lock, awaits shutdown
     outside the lock, then frees the slot and resolves the tombstone so any
     waiters retry and build a fresh engine.
+
+    Idempotent: if the engine is already gone, or another release is in flight,
+    this returns immediately rather than awaiting that release. "Release the
+    thing I asked to release" is satisfied either way, and not awaiting a
+    foreign tombstone avoids reintroducing cross-loop coupling.
     """
     key = _make_key(data_dir)
+    loop = asyncio.get_running_loop()
 
     with _LOCK:
         slot = _REGISTRY.get(key)
         if slot is None or isinstance(slot, asyncio.Future):
             # Nothing live to release (already gone, or a release is in flight).
             return
-        tombstone: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        # Loop affinity: shutdown() touches loop-bound primitives, so it must run
+        # on the loop the engine was acquired on. Mirror the check in acquire.
+        bound = slot.loop_ref()
+        if bound is not None and not bound.is_closed() and bound is not loop:
+            raise RuntimeError(
+                f"Shared engine {key!r} is bound to a different event loop and cannot "
+                f"be released from this one. Call release_shared() on the loop that "
+                f"acquired it."
+            )
+        tombstone: asyncio.Future[None] = loop.create_future()
         _REGISTRY[key] = tombstone
         engine_to_close = slot.engine
 

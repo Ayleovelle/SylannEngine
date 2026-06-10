@@ -226,3 +226,87 @@ class TestLoopAffinity:
         t.join()
         assert isinstance(result.get("error"), RuntimeError)
         assert "different event loop" in str(result["error"])
+
+    @pytest.mark.asyncio
+    async def test_release_from_foreign_loop_raises(self, tmp_path: Path):
+        m = _llm()
+        await SylanneEngine.shared(tmp_path, llm=m)
+
+        result: dict[str, object] = {}
+
+        def worker() -> None:
+            async def release() -> None:
+                try:
+                    await SylanneEngine.release_shared(tmp_path)
+                except RuntimeError as exc:  # expected: cross-loop release
+                    result["error"] = exc
+
+            asyncio.run(release())
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+        assert isinstance(result.get("error"), RuntimeError)
+        assert "different event loop" in str(result["error"])
+
+    @pytest.mark.asyncio
+    async def test_closed_loop_rebind_preserves_state(self, tmp_path: Path):
+        m = _llm()
+
+        # Acquire and put a session on the engine in loop L1, then let L1 close.
+        def first_loop() -> None:
+            async def run() -> None:
+                engine = await SylanneEngine.shared(tmp_path, llm=m)
+                await engine.process("s1", "hello")
+
+            asyncio.run(run())
+
+        t = threading.Thread(target=first_loop)
+        t.start()
+        t.join()
+
+        # Now on the current loop (L1 is closed): re-acquire must rebind without
+        # raising, drop the stale per-session locks, and preserve session state.
+        engine = await SylanneEngine.shared(tmp_path, llm=m)
+        assert engine.status == "running"
+        assert engine.exists("s1")  # session state survived the rebind
+        assert engine._locks == {}  # stale loop-bound locks were cleared
+        surface = await engine.process("s1", "again")  # usable on the new loop
+        assert surface["turns"] >= 2
+
+
+class TestConcurrentInit:
+    @pytest.mark.asyncio
+    async def test_concurrent_first_acquire_builds_one_engine(self, tmp_path: Path):
+        m = _llm()
+        # Many tasks race on the very first acquire; exactly one engine must be
+        # built and all callers must receive that same instance.
+        results = await asyncio.gather(
+            *(SylanneEngine.shared(tmp_path, llm=m) for _ in range(20))
+        )
+        assert all(e is results[0] for e in results)
+        assert results[0].status == "running"
+        assert len(SylanneEngine.list_shared()) == 1
+
+    @pytest.mark.asyncio
+    async def test_cancelled_init_does_not_leak_slot(self, tmp_path: Path, monkeypatch):
+        m = _llm()
+        started = asyncio.Event()
+
+        async def slow_start(self) -> None:
+            started.set()
+            await asyncio.sleep(10)  # long enough to be cancelled mid-flight
+
+        monkeypatch.setattr(SylanneEngine, "start", slow_start)
+        task = asyncio.create_task(SylanneEngine.shared(tmp_path, llm=m))
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        # The cancelled init must have rolled back its placeholder, leaving the
+        # slot free for a fresh, successful acquire.
+        monkeypatch.undo()
+        engine = await SylanneEngine.shared(tmp_path, llm=m)
+        assert engine.status == "running"
+        assert len(SylanneEngine.list_shared()) == 1
