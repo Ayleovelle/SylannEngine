@@ -45,6 +45,24 @@ await engine.start()
 
 你需要自己提供 LLM 回调函数（async `(system_prompt, user_prompt) -> str`），引擎不绑定任何特定 LLM 提供商或框架。
 
+#### 多个插件共享同一引擎（避免重复计算）
+
+如果同一进程里有多个插件都用到 SylannEngine，**不要各建一个引擎**——那会对同一用户重复计算、重复调 LLM。约定统一的 `data_dir`，所有插件都用 `SylanneEngine.shared()`，就能复用同一个已启动的实例：
+
+```python
+# 任意插件，约定同一 data_dir，拿到的是同一个实例
+engine = await SylanneEngine.shared(
+    data_dir="./data/sylannengine",
+    llm=your_llm_callback,
+)
+# 一份状态、一份计算、一次 LLM 调用，无论多少插件共用
+
+# 排查当前进程里有哪些共享引擎
+SylanneEngine.list_shared()   # [{"data_dir": "...", "status": "running"}, ...]
+```
+
+应用关闭时调 `await SylanneEngine.release_shared(data_dir)` 落盘释放（没有 atexit 自动刷写）。共享实例只在首次获取它的事件循环里使用，不要对它用 `async with`。单插件、单实例场景直接 `SylanneEngine(...)` 即可。
+
 ---
 
 ### 1.1 拉模式与推模式

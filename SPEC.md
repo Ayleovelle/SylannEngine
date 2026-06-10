@@ -55,10 +55,38 @@ engine = SylanneEngine(
 )
 ```
 
+#### Shared Instance / 共享实例
+
+Use `SylanneEngine.shared()` to deduplicate engines by resolved data_dir within
+a process — one persistence directory is owned by exactly one engine, avoiding
+state splits and lost updates on flush.
+用 `SylanneEngine.shared()` 按解析后的 data_dir 在进程内去重——一个持久化目录只由一个引擎拥有，避免状态分裂与 flush 丢更新。
+
+```python
+# 同一 data_dir 总是返回同一已启动实例
+engine = await SylanneEngine.shared("./data", llm=my_llm)
+
+# 应用关闭时显式释放（flush 落盘；无 atexit 自动刷写）
+await SylanneEngine.release_shared("./data")
+
+# 内省：当前进程有哪些共享引擎
+SylanneEngine.list_shared()      # [{"data_dir", "status"}, ...]
+SylanneEngine.is_shared("./data")  # bool
+```
+
+- 多个下游约定同一 data_dir 并统一走 `shared()`，即可复用单一引擎，避免重复计算与重复 LLM 调用（取代前置插件的共享单例职责）。
+- 同一 data_dir 第二次传入不同 `config` → 抛 `SharedEngineConflictError`；不同 `llm`/`embedding` → 仅警告并复用原实例。
+- 共享实例 **event-loop 亲和**：仅在首次获取的事件循环内使用，跨 loop 使用抛 `RuntimeError`；不要对共享实例用 `async with`。
+- 直接 `SylanneEngine(...)` 构造不受影响，且不进入共享注册表；但若目标 data_dir 已有活跃共享实例，会记一条 warning 提示重复创建（软提醒，不阻断）。
+
 ### 2.2 Core Methods / 核心方法
 
 | Method / 方法 | Signature / 签名 | Description / 说明 |
 |--------|-----------|-------------|
+| `shared` | `classmethod async (data_dir, llm, embedding=None, config=None) -> SylanneEngine` | 取进程内共享实例（按 data_dir 去重，返回已 start 的引擎） |
+| `release_shared` | `classmethod async (data_dir) -> None` | 关闭并从注册表移除共享实例 |
+| `is_shared` | `classmethod (data_dir) -> bool` | 该 data_dir 是否已有活跃共享实例 |
+| `list_shared` | `classmethod () -> list[dict]` | 列出当前进程所有共享实例及状态 |
 | `process` | `async (session_id: str, text: str, **ctx) -> Surface` | 处理输入文本，返回完整计算结果 |
 | `tick` | `async (session_id: str, flags: list[str]) -> Surface` | 无文本的状态推进（时间衰减、冷却等） |
 | `state` | `async (session_id: str) -> Surface` | 查询当前状态（不触发计算） |

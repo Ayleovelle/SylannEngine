@@ -168,6 +168,8 @@ flowchart LR
 
 | 方法 | 说明 |
 |------|------|
+| `await SylanneEngine.shared(data_dir, llm, ...)` | 按 data_dir 取进程内共享实例（已 start） |
+| `await SylanneEngine.release_shared(data_dir)` | 关闭并释放共享实例 |
 | `await process(session_id, text, **ctx)` | 处理文本，返回 Surface |
 | `await tick(session_id)` | 空闲心跳 |
 | `feedback(session_id, "accepted"/"rejected")` | 反馈调制可塑性 |
@@ -177,6 +179,32 @@ flowchart LR
 | `exists(session_id)` | 会话是否存在 |
 
 完整接口见 [SPEC.md](SPEC.md)。
+
+### 共享实例：避免同进程冗余
+
+多个下游各自引入 SDK 时，如果每个都 `SylanneEngine(...)` 各建一个指向**同一 data_dir** 的引擎，就会对同一用户重复计算、重复调 LLM，且各自 flush 互相覆盖（丢更新）。`SylanneEngine.shared()` 按 data_dir 去重——这正是过去前置插件「建一个、大家共享」所提供的能力，现在内建在 SDK 里：
+
+```python
+# 任意下游，约定同一 data_dir，总是拿到同一个已启动实例
+engine = await SylanneEngine.shared(data_dir="./data/sylannengine", llm=your_llm_fn)
+same = await SylanneEngine.shared(data_dir="./data/sylannengine", llm=your_llm_fn)
+assert same is engine   # 一份计算、一次 LLM 调用
+
+# 应用关闭时显式释放（会 flush 落盘；没有 atexit 自动刷写）
+await SylanneEngine.release_shared("./data/sylannengine")
+```
+
+**让多个插件共享同一引擎**：约定统一的 `data_dir`，所有下游都走 `SylanneEngine.shared(同一 data_dir, ...)`，即可复用同一实例，避免「10 个插件 10 个引擎」的浪费。
+
+```python
+# 排查：当前进程里有哪些共享引擎在跑
+SylanneEngine.list_shared()        # [{"data_dir": "...", "status": "running"}, ...]
+SylanneEngine.is_shared("./data/sylannengine")  # True / False
+```
+
+- 同一 data_dir 第二次传入**不同 config** 会抛 `SharedEngineConflictError`；传入不同 `llm`/`embedding` 只警告并复用原实例。
+- 直接 `SylanneEngine(...)` 构造仍然可用（且不进入共享注册表）；但若目标 data_dir 已有共享实例，会记一条 warning 提示你正在重复创建——这是软提醒，不阻断（串行重启等合法用法不受影响）。
+- 共享实例是 **event-loop 亲和**的：只在首次获取它的事件循环里使用，不要跨 loop/线程共享，也不要对它用 `async with`（首次退出会替所有持有者关闭引擎）。
 
 ---
 

@@ -15,6 +15,7 @@ Quick start::
 
 from __future__ import annotations
 
+from ._sharing import SharedEngineConflictError
 from .algebra import blend, compose, decay, distance, drift, normalize, project, threshold
 from .bridge import layer0_to_interchange, state_to_pad, surface_to_layer0
 from .compute.hot_pool import HotPool, Influence, InfluenceType
@@ -40,6 +41,7 @@ from .types import EngineStatus, HealthStatus, PADOutput, Surface
 __all__ = [
     # Engine & config
     "SylanneEngine",
+    "SharedEngineConflictError",
     "SylanneConfig",
     "SylanneCore",
     "SylanneStimulus",
