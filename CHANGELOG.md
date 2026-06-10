@@ -3,6 +3,21 @@
 All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### 💥 Breaking Changes
+
+- 移除 AstrBot 前置插件形态。SylannEngine 现在是纯 SDK，直接 `SylanneEngine(...)` 实例化并传入自己的 LLM 回调
+- 删除 `main.py`、`metadata.yaml`（AstrBot 插件入口与元数据）
+- 移除 `sylanne_core.get_engine()` 与共享实例 `_shared_engine`——插件版专用的共享引擎获取方式不再提供
+- 删除 `sdk` 镜像分支与 `sync-sdk.yml` 工作流：`main` 分支本身即 SDK
+
+### 🔧 Changed
+
+- 文档（README / SPEC / AGENT_GUIDE / 架构文档）改为单一 SDK 安装与接入方式
+- `release.yml` 不再打包 AstrBot 插件 zip，仅创建 GitHub Release
+- Issue / PR 模板移除 AstrBot 插件专属字段
+
 ## [v2.0.0] - 2026-06-01
 
 SylannEngine V2 — 共振场架构正式版。完全重写计算核心，从顺序 7 层管线升级为单纯形共振场。

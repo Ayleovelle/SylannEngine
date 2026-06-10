@@ -1,8 +1,7 @@
 """SylanneEngine — the public entry point for Sylanne-Core SDK.
 
 Provides the async API for integrating affective computation into chatbots.
-Designed as an AstrBot plugin dependency: downstream plugins call get_engine()
-to obtain a pre-configured instance.
+Instantiate it directly with your own LLM callback.
 
 Typical usage::
 

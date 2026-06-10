@@ -6,7 +6,6 @@
 <p align="center">
   <img src="https://img.shields.io/badge/License-AGPL_3.0-blue.svg" alt="License: AGPL-3.0">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/AstrBot-v4.11.2+-orange.svg" alt="AstrBot v4.11.2+">
   <img src="https://img.shields.io/badge/Version-2.0.0-green.svg" alt="Version: 2.0.0">
 </p>
 
@@ -22,7 +21,7 @@
 
 ## 这是什么
 
-情感计算引擎 SDK。文本输入，结构化情感状态输出。为 AstrBot 插件提供"AI 现在是什么情绪、接下来想做什么"的计算服务。
+情感计算引擎 SDK。文本输入，结构化情感状态输出。回答"AI 现在是什么情绪、接下来想做什么"。
 
 不是情绪分类，不是情感标签。是一个**持续演化的动力系统**——上一次对话的影响会留到下一次，伤害会结疤，沉默会产生压力，人格会缓慢漂移。
 
@@ -30,16 +29,15 @@
 
 ## 安装
 
-**AstrBot 插件开发者**（推荐）：WebUI → 插件 → 从 Git 仓库安装：
-
-```
-https://github.com/Ayleovelle/SylannEngine.git
-```
-
-**SDK 独立使用**：
+把 `sylanne_core/` 目录复制进你的项目，或作为 git submodule 引入：
 
 ```bash
-git clone -b sdk https://github.com/Ayleovelle/SylannEngine.git sylanne_sdk
+git submodule add https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
+```
+
+```python
+import sys
+sys.path.insert(0, "./deps/sylannengine")
 ```
 
 ---
@@ -47,9 +45,15 @@ git clone -b sdk https://github.com/Ayleovelle/SylannEngine.git sylanne_sdk
 ## 30 秒上手
 
 ```python
-from sylanne_core import get_engine
+from sylanne_core import SylanneEngine, SylanneConfig
 
-engine = get_engine()  # 插件版：前置插件已配置好 LLM
+engine = SylanneEngine(
+    data_dir="./data/sylannengine",
+    llm=your_llm_callback,   # 自己实现 async (system_prompt, user_prompt) -> str
+    config=SylanneConfig(),
+)
+await engine.start()
+
 surface = await engine.process(session_id="user_123", text="你好")
 
 action = surface["decision"]["action"]   # "express" / "withdraw" / "hold" / ...
@@ -117,11 +121,11 @@ flowchart LR
 
 | 档位 | 通道数 | 延迟 | 依赖 | 适用场景 |
 |------|--------|------|------|----------|
-| **lite** | 42（两体） | ~5ms | 零依赖 | AstrBot 默认，树莓派，手机 |
+| **lite** | 42（两体） | ~5ms | 零依赖 | 嵌入式，树莓派，手机 |
 | **pro** | 287（含四体） | ~40ms | numpy | 桌面，云 VM |
 | **max** | 441（完整 Δ⁶） | ~50ms | numpy | 研究，多智能体 |
 
-插件版锁定 lite 档。SDK 版可自由切换：`engine.switch_tier("pro")`。
+档位可自由切换：`engine.switch_tier("pro")`。
 
 ---
 
@@ -164,7 +168,6 @@ flowchart LR
 
 | 方法 | 说明 |
 |------|------|
-| `get_engine()` | 获取插件版共享实例 |
 | `await process(session_id, text, **ctx)` | 处理文本，返回 Surface |
 | `await tick(session_id)` | 空闲心跳 |
 | `feedback(session_id, "accepted"/"rejected")` | 反馈调制可塑性 |
@@ -236,10 +239,7 @@ SylannEngine/
 **Q: 不同用户状态会互相影响吗？**
 不会。每个 session_id 完全隔离。
 
-**Q: 插件版需要自己配 LLM 吗？**
-不需要。LLM 由 SylannEngine 前置插件通过 AstrBot 提供商统一配置。
-
-**Q: SDK 版怎么用？**
+**Q: 怎么接入？**
 ```python
 from sylanne_core import SylanneEngine, SylanneConfig
 
@@ -247,6 +247,8 @@ engine = SylanneEngine(data_dir="./data", llm=your_llm_fn, config=SylanneConfig(
 await engine.start()
 surface = await engine.process("user_123", "你好")
 ```
+
+`llm` 是你自己实现的 async `(system_prompt, user_prompt) -> str` 回调，引擎不绑定任何特定 LLM 提供商。
 
 ---
 
@@ -262,7 +264,7 @@ GNU Affero General Public License v3.0
 
 ### V2.0 — 共振场（当前稳定版）
 
-基于物理启发的规则系统。7 模块 × 441 通道耦合，Hebbian 可塑性 + Kuramoto 同步。无需训练，结构即计算。适用于 AstrBot 插件的实时情感推理。
+基于物理启发的规则系统。7 模块 × 441 通道耦合，Hebbian 可塑性 + Kuramoto 同步。无需训练，结构即计算。适用于实时情感推理。
 
 ### V2.1 — EmotiCore（迭代中）
 

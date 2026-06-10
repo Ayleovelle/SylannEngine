@@ -485,9 +485,9 @@ diag["field"]["plasticity_ratio"]     # Fraction of non-atrophied channels
 
 | Tier | Channels | Backend | Latency (p50) | Use Case |
 |------|----------|---------|---------------|----------|
-| lite | 42 (pairwise) | Pure Python | ~5ms | Embedded, mobile, testing, ≥5 plugins |
-| pro | 287 (≤4-body) | numpy | ~40ms | Desktop, server, ≥15 plugins |
-| max | 441 (full Δ⁶) | torch/GPU | ~50ms (CPU) / <5ms (GPU) | Research, multi-agent, ≥30 plugins |
+| lite | 42 (pairwise) | Pure Python | ~5ms | Embedded, mobile, testing, ≥5 sessions |
+| pro | 287 (≤4-body) | numpy | ~40ms | Desktop, server, ≥15 sessions |
+| max | 441 (full Δ⁶) | torch/GPU | ~50ms (CPU) / <5ms (GPU) | Research, multi-agent, ≥30 sessions |
 
 Higher tiers add **qualitatively different** behavior (multi-body AND-gate interactions), not just more precision.
 
@@ -518,7 +518,7 @@ Higher tiers add **qualitatively different** behavior (multi-body AND-gate inter
 
 ### 4.6 Deployment Recommendations
 
-**AstrBot plugin (typical):** Use `lite` for most deployments. A single AstrBot instance handling 50+ concurrent users on a 2-core VPS will stay under 10% CPU with lite tier.
+**High-concurrency (typical):** Use `lite` for most deployments. A single instance handling 50+ concurrent users on a 2-core VPS will stay under 10% CPU with lite tier.
 
 **Rich emotional companion:** Use `pro` for applications where emotional depth matters more than throughput. The 3-body and 4-body interactions create qualitatively richer dynamics (synergistic effects, emergent moods).
 
