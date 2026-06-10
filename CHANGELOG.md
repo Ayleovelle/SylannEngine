@@ -12,6 +12,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - 移除 `sylanne_core.get_engine()` 与共享实例 `_shared_engine`——插件版专用的共享引擎获取方式不再提供
 - 删除 `sdk` 镜像分支与 `sync-sdk.yml` 工作流：`main` 分支本身即 SDK
 
+### ✨ Added
+
+- `SylanneEngine.shared(data_dir, llm, ...)`：进程内按解析后的 data_dir 去重的共享实例机制，替代已删除的插件版 `get_engine()`。同一目录只由一个引擎拥有，避免状态分裂与 flush 丢更新；返回已 start 的引擎
+- `SylanneEngine.release_shared(data_dir)`：关闭并释放共享实例（应用关闭时调用，会 flush 落盘）
+- `SylanneEngine.is_shared(data_dir)` / `SylanneEngine.list_shared()`：内省接口，查当前进程里有哪些共享引擎在跑
+- 冗余软护栏：直接 `SylanneEngine(...)` 构造时若目标 data_dir 已有活跃共享实例，记 warning 提示重复创建（不阻断）
+- `SharedEngineConflictError`：同一 data_dir 以不同 config 获取共享实例时抛出
+
 ### 🔧 Changed
 
 - 文档（README / SPEC / AGENT_GUIDE / 架构文档）改为单一 SDK 安装与接入方式
