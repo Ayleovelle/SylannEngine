@@ -322,16 +322,16 @@ Key properties of the resonance model:
 | Best for | Embedded, real-time, testing | Rich dialogue, long-term interaction |
 
 Performance tiers map to both models:
-- `lite` mode: 42 channels, pure Python, ≥5 concurrent plugins
-- `pro` mode: 287 channels, numpy, ≥15 concurrent plugins
-- `max` mode: 441 channels, GPU/torch, ≥30 concurrent plugins
+- `lite` mode: 42 channels, pure Python, ≥5 concurrent sessions
+- `pro` mode: 287 channels, numpy, ≥15 concurrent sessions
+- `max` mode: 441 channels, GPU/torch, ≥30 concurrent sessions
 
 ### 11.3 Platform Requirements and Performance
 
 | Tier | Latency (p50) | Min Platform | Typical Deployment |
 |------|---------------|--------------|-------------------|
-| lite | ~5ms | Any CPU, 64MB RAM | Raspberry Pi, mobile, serverless, AstrBot default |
-| pro | ~40ms | 2 cores, 256MB, numpy | Desktop, cloud VM, AstrBot pro |
+| lite | ~5ms | Any CPU, 64MB RAM | Raspberry Pi, mobile, serverless |
+| pro | ~40ms | 2 cores, 256MB, numpy | Desktop, cloud VM |
 | max | ~50ms CPU / <5ms GPU | 4 cores or GPU, 1GB+ | Research, multi-agent simulation |
 
 **Throughput:** lite ~200 msg/s, pro ~25 msg/s, max(GPU) ~200+ msg/s batched.

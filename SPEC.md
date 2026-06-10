@@ -7,8 +7,8 @@
 
 ## 1. Overview / 概述
 
-SylannEngine is an affective computation engine SDK for AstrBot plugin developers.
-SylannEngine 是面向 AstrBot 插件开发者的情感计算引擎 SDK。
+SylannEngine is an affective computation engine SDK.
+SylannEngine 是一个情感计算引擎 SDK。
 
 **Positioning / 定位**: Pure computation black-box. Text in, structured data out. No reply generation, no prompt injection, no message routing.
 纯计算黑盒。文本输入，结构化数据输出。不生成回复，不注入 prompt，不管消息收发。
@@ -19,36 +19,11 @@ SylannEngine 是面向 AstrBot 插件开发者的情感计算引擎 SDK。
 
 ### 2.0 Installation / 安装方式
 
-Two distribution channels are available: / 提供两种分发方式：
-
-#### Plugin Version (recommended) / 插件版（推荐）
-
-Install via AstrBot plugin system. Other plugins can then `from sylanne_core import SylanneEngine` directly.
-通过 AstrBot 插件系统安装前置插件，其他插件直接 import 使用。
-
-```
-安装地址：https://github.com/Ayleovelle/SylannEngine.git
-```
-
-```python
-# 你的插件代码中
-from sylanne_core import SylanneEngine, SylanneConfig
-
-engine = SylanneEngine(
-    data_dir="./data/sylannengine",
-    llm=your_llm_call,         # 通过 AstrBot provider_manager 调用
-    config=SylanneConfig(),
-)
-await engine.start()
-```
-
-#### SDK Version / SDK 版
-
-Use the `sdk` branch as a git submodule or copy `sylanne_core/` into your project.
-使用 `sdk` 分支作为 submodule 或直接复制 `sylanne_core/` 目录。
+Copy `sylanne_core/` into your project, or add it as a git submodule.
+直接复制 `sylanne_core/` 目录，或作为 git submodule 引入。
 
 ```bash
-git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
+git submodule add https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
 ```
 
 ```python
@@ -65,7 +40,7 @@ engine = SylanneEngine(
 await engine.start()
 ```
 
-The SDK version does not depend on AstrBot. / SDK 版不依赖 AstrBot。
+The SDK has no framework dependency. / SDK 不依赖任何特定框架。
 
 ### 2.1 Engine Initialization / 引擎初始化
 
