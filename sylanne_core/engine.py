@@ -317,10 +317,11 @@ class SylanneEngine:
 
     @classmethod
     def clear_shared_registry(cls) -> None:
-        """Drop all shared registry entries without shutdown. Test isolation only.
+        """Drop all shared registry entries without shutdown. TEST ISOLATION ONLY.
 
-        Does NOT flush sessions. Safe to call from sync fixtures (no event loop
-        needed). For production teardown use release_shared() instead.
+        DANGER: does NOT flush sessions — unpersisted state is lost and live
+        engines are orphaned. Never call this in production; use release_shared()
+        for real teardown. Safe to call from sync fixtures (no event loop needed).
         """
         from ._sharing import clear_shared_registry
 

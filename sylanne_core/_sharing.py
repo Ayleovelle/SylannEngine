@@ -225,10 +225,17 @@ async def release_shared_engine(data_dir: str | Path) -> None:
 
 
 def clear_shared_registry() -> None:
-    """Drop all registry entries WITHOUT shutdown. For test isolation only.
+    """Drop all registry entries WITHOUT shutdown. TEST ISOLATION ONLY.
 
-    Does not flush sessions. Safe to call from sync code with no event loop.
-    For production teardown use release_shared_engine() instead.
+    DANGER: this does NOT call shutdown() and does NOT flush sessions — any
+    in-memory state not yet persisted is lost, and live engines are orphaned
+    (still running, just no longer findable via shared()). It exists so tests
+    can reset process-global state cheaply between cases.
+
+    Never call this in production. For real teardown use release_shared_engine()
+    (or SylanneEngine.release_shared), which flushes and shuts down cleanly.
+
+    Safe to call from sync code with no event loop.
     """
     with _LOCK:
         _REGISTRY.clear()
