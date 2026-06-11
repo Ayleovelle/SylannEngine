@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 from .autopoiesis import AutopoieticBoundary
 from .bounded_dict import BoundedDict
 from .emergence import EmergenceTracker
-from .expression_policy import ExpressionPolicy, N_FEATURES as _POLICY_N_FEATURES
+from .expression_policy import ExpressionPolicy
 from .hgt import HeterogeneousGraphTransformer
 from .meta_learner import MetaLearner
 from .pad_interop import PADProjector, PADVector
