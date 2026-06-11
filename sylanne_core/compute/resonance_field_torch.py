@@ -30,7 +30,7 @@ except ImportError:
     F = None  # type: ignore[assignment]
     TORCH_AVAILABLE = False
 
-    def _inference_mode():  # type: ignore[no-redef]
+    def _inference_mode():  # type: ignore[no-redef,no-untyped-def]
         """No-op decorator when torch is not available."""
 
         def decorator(fn):  # type: ignore[no-untyped-def]
@@ -38,7 +38,7 @@ except ImportError:
 
         return decorator
 
-    _no_grad = _inference_mode  # type: ignore[assignment]
+    _no_grad = _inference_mode  # type: ignore[assignment,misc]
 
 from .coupling_dynamics import _TIER_MAX_ORDER, SimplicialComplex
 
