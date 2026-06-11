@@ -55,3 +55,16 @@ packages = ["sylanne_core"]
 [[tool.mypy.overrides]]
 module = "jieba"
 ignore_missing_imports = true
+
+# 可选加速依赖(numpy / torch)的 import-fallback shim：
+# `try: import X / except: X = None  # type: ignore[assignment]`
+# 该 ignore 在装了库时(运行时)必需，未装库时(CI 仅装 .[dev])则被判多余。
+# strict=true 隐含 warn_unused_ignores，二者无法同时满足，故仅对这几个
+# shim 模块关闭该子检查，其余文件保持完整 strict。
+[[tool.mypy.overrides]]
+module = [
+    "sylanne_core.compute.topology_gate",
+    "sylanne_core.compute.expression_policy",
+    "sylanne_core.compute.resonance_field_torch",
+]
+warn_unused_ignores = false
