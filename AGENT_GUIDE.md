@@ -23,55 +23,10 @@
 
 ### 1.0 安装与初始化
 
-SylannEngine 有两种使用方式，选择适合你的：
-
-#### 插件版（推荐）— 通过 AstrBot 插件系统安装
-
-在 AstrBot WebUI 安装 SylannEngine 前置插件后，LLM 由前置插件通过 AstrBot 的 LLM 提供商统一配置，你的插件无需关心 LLM 接入。
-
-由于 AstrBot 不支持插件依赖声明，建议在你的插件启动时加一段检测：
-
-```python
-try:
-    from sylanne_core import get_engine
-except ImportError:
-    raise RuntimeError(
-        "缺少前置插件 SylannEngine，请先安装：\n"
-        "AstrBot WebUI → 插件 → 从 Git 仓库安装 → "
-        "https://github.com/Ayleovelle/SylannEngine.git"
-    )
-```
-
-完整示例：
-
-```python
-from astrbot.api.star import Context, Star, register
-from sylanne_core import get_engine
-
-
-@register("my_plugin", "Author", "desc", "1.0.0")
-class MyPlugin(Star):
-    def __init__(self, context: Context):
-        super().__init__(context)
-
-    async def on_message(self, event):
-        engine = get_engine()
-        surface = await engine.process(
-            session_id=event.user_id,
-            text=event.message_str,
-        )
-        action = surface["decision"]["action"]
-        # 根据 action 调整回复策略...
-```
-
-前置插件安装地址：`https://github.com/Ayleovelle/SylannEngine.git`
-
-#### SDK 版 — 直接嵌入你的项目
-
-用 `sdk` 分支作为 submodule 或直接复制 `sylanne_core/` 目录：
+把 `sylanne_core/` 目录复制进你的项目，或作为 git submodule 引入：
 
 ```bash
-git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
+git submodule add https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
 ```
 
 ```python
@@ -88,7 +43,25 @@ engine = SylanneEngine(
 await engine.start()
 ```
 
-SDK 版需要你自己提供 LLM 回调函数，不依赖 AstrBot。
+你需要自己提供 LLM 回调函数（async `(system_prompt, user_prompt) -> str`），引擎不绑定任何特定 LLM 提供商或框架。
+
+#### 多个插件共享同一引擎（避免重复计算）
+
+如果同一进程里有多个插件都用到 SylannEngine，**不要各建一个引擎**——那会对同一用户重复计算、重复调 LLM。约定统一的 `data_dir`，所有插件都用 `SylanneEngine.shared()`，就能复用同一个已启动的实例：
+
+```python
+# 任意插件，约定同一 data_dir，拿到的是同一个实例
+engine = await SylanneEngine.shared(
+    data_dir="./data/sylannengine",
+    llm=your_llm_callback,
+)
+# 一份状态、一份计算、一次 LLM 调用，无论多少插件共用
+
+# 排查当前进程里有哪些共享引擎
+SylanneEngine.list_shared()   # [{"data_dir": "...", "status": "running"}, ...]
+```
+
+应用关闭时调 `await SylanneEngine.release_shared(data_dir)` 落盘释放（没有 atexit 自动刷写）。共享实例只在首次获取它的事件循环里使用，不要对它用 `async with`。单插件、单实例场景直接 `SylanneEngine(...)` 即可。
 
 ---
 
@@ -122,7 +95,6 @@ listener 支持同步和异步函数。异常不会影响引擎运行。
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
-| `get_engine` | `() -> SylanneEngine` | 获取插件版共享实例（插件版专用） |
 | `process` | `await (session_id, text, **ctx) -> dict` | 主入口，处理文本并返回完整计算结果 |
 | `on` | `(listener) -> None` | 注册推送监听器 |
 | `off` | `(listener) -> None` | 移除推送监听器 |
@@ -732,12 +704,9 @@ class MyAgent:
 ### 推模式示例：多模块协作
 
 ```python
-from sylanne_core import get_engine
-
-
 class EmotionAwareSystem:
-    def __init__(self):
-        self.engine = get_engine()
+    def __init__(self, engine: SylanneEngine):
+        self.engine = engine
         self.tone_module = ToneModule()
 
         # 注册 listener，各模块独立处理
@@ -758,28 +727,9 @@ class EmotionAwareSystem:
 
 ### 一句话告诉 AI 你要干什么
 
-> "帮我接入 SylannEngine 情感计算引擎。如果我用 AstrBot，先安装前置插件 `https://github.com/Ayleovelle/SylannEngine.git`，然后 `from sylanne_core import get_engine` 获取已配置好的引擎实例。如果不用 AstrBot，用 sdk 分支做 submodule。每条用户消息调一次 `process(session_id, text)`，返回一个 dict。"
+> "帮我接入 SylannEngine 情感计算引擎。把 sylanne_core/ 复制进项目或做成 submodule，然后 `from sylanne_core import SylanneEngine` 实例化，传入我自己的 LLM 回调。每条用户消息调一次 `process(session_id, text)`，返回一个 dict。"
 
 ### 最小可用代码
-
-**插件版**（已通过 AstrBot 安装前置插件）：
-
-```python
-from sylanne_core import get_engine
-
-engine = get_engine()  # LLM 已由前置插件配置好
-
-# 每条消息调一次
-surface = await engine.process(session_id="user_123", text="你好")
-
-# 读结果
-action = surface["decision"]["action"]          # express/withdraw/recover/explore/hold/guard
-allowed = surface["guard"]["allowed"]           # True/False
-warmth = surface["state"]["valence"]["warmth"]  # 0.0 ~ 1.0
-personality = surface["personality"]["surface"]  # 当前人格表现
-```
-
-**SDK 版**（submodule 或复制 sylanne_core/）：
 
 ```python
 import sys
@@ -794,8 +744,14 @@ engine = SylanneEngine(
 )
 await engine.start()
 
+# 每条消息调一次
 surface = await engine.process(session_id="user_123", text="你好")
-```
+
+# 读结果
+action = surface["decision"]["action"]          # express/withdraw/recover/explore/hold/guard
+allowed = surface["guard"]["allowed"]           # True/False
+warmth = surface["state"]["valence"]["warmth"]  # 0.0 ~ 1.0
+personality = surface["personality"]["surface"]  # 当前人格表现
 ```
 
 ### 给 AI 的 prompt 模板
