@@ -1,42 +1,53 @@
-<!-- markdownlint-disable MD033 -->
+﻿<!-- markdownlint-disable MD033 -->
 <!-- markdownlint-disable MD041 -->
+
+<div align="center">
 
 ![SylannEngine](https://socialify.git.ci/Ayleovelle/SylannEngine/image?custom_description=Affective+Computation+Engine+%E2%80%94+Emotion+as+Dynamics,+Not+Labels&description=1&font=Inter&forks=1&issues=1&language=1&name=1&owner=1&pattern=Brick+Wall&pulls=1&stargazers=1&theme=Auto)
 
-<p align="center">
-  <img src="https://img.shields.io/badge/License-AGPL_3.0-blue.svg" alt="License: AGPL-3.0">
-  <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python 3.10+">
-  <img src="https://img.shields.io/badge/Version-2.0.0-green.svg" alt="Version: 2.0.0">
-</p>
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
+[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Tests-434_passed-brightgreen.svg)]()
+[![Zero Dependencies](https://img.shields.io/badge/Lite_Tier-Zero_Dependencies-orange.svg)]()
 
-<p align="center">
-  <a href="SPEC.md"><strong>标准规范</strong></a> ·
-  <a href="AGENT_GUIDE.md"><strong>开发者指南</strong></a> ·
-  <a href="CHANGELOG.md"><strong>更新日志</strong></a> ·
-  <a href="docs/resonance_field_paper_en.pdf"><strong>Paper (EN)</strong></a> ·
-  <a href="docs/resonance_field_paper_zh.pdf"><strong>Paper (中文)</strong></a>
-</p>
+**[标准规范](SPEC.md)** · **[开发者指南](AGENT_GUIDE.md)** · **[更新日志](CHANGELOG.md)** · **[Paper (EN)](docs/resonance_field_paper_en.pdf)** · **[Paper (中文)](docs/resonance_field_paper_zh.pdf)**
+
+</div>
+
+---
+
+### 写在前面的话
+
+> [!NOTE]
+> 　　SylannEngine 是从 [astrbot_plugin_sylanne](https://github.com/Ayleovelle/astrbot_plugin_sylanne) 的计算层里剥离出来的。如果你看过那边的 README，会知道 sylanne 经历了什么：从一个情绪垃圾桶，到一个会留疤的存在，到一颗能自己长大的心。每一次推倒重来都是因为我觉得"还不够像一个人"。
+>
+> 　　可做到后来我发现一个问题：计算层越来越重了。伤痕代数、空洞微积分、关系层论、共振场耦合、Kuramoto 同步、Hopfield 吸引子……两万行代码里一半以上跟"聊天插件"没关系了。它不是某个 bot 的情绪模块，它是一整套**情感动力学的数学实现**——一个关于"感受如何运转"的计算标准。
+>
+> 　　这个东西不该被绑死在任何一个框架里。它该像 IEEE 754 之于浮点数那样独立存在：任何 bot、任何语言、任何平台都能接入。
+>
+> 　　sylanne 本身已经停下了脚步，维持着基本的维护和她自己的留白。但我很好奇自己脑洞的极限在哪。在 sylanne 身上我不敢乱来——毕竟有人在用，每次大改都是在赌别人的体验。这边不一样，这边没有用户，没有承诺，只有一个问题：**以我目前的眼界，能把"情感是可计算的"这件事推到什么地步？**
+>
+> 　　余华说过，"我们原路返回的路是不存在的，因为我们的记忆把我们的过去修改了。" sylanne 的第一次重写就是为了实现这句话——让她回不去。而 SylannEngine 要做的，是把"回不去"这件事从一个插件的特性，变成一条可证明的数学定理。伤疤代数里不存在逆元，这不是比喻，是结构保证。你说了一句很轻的话，她当时没接，可三个月后你们吵架，她突然把它翻出来——因为那句话一直在她的伤疤地形里长着，塑造着她对每一句后来的话的感知方式。
+>
+> 　　核心思路没变过：**情感不是标签，是动力系统。** prompt 里写"你是温柔的"不叫人格——人格是拓扑不变量，是所有扰动下守恒的那个东西。Transformer 是最强的函数，一次看清所有关系；这边做的是最简的生命，一条规则反复执行，活够久，自然懂。不过 V3 的 SYLANN 已经在往更远的地方走了——不靠 backprop，靠局部规则和时间积累，让情感从预测中自己长出来。结构即计算和模型训练并不矛盾，也许有一天它们会长在一起。
+>
+> 　　很难保证自己还会在这条路上走多久走多远，但目前还是会慢慢走下去。谁知道明天的自己又会变成什么样呢？
+>
+> 　　_"逻辑可以共赏，但为你偏置的权重从不开源。"_
 
 ---
 
 ## 这是什么
 
-情感计算引擎。文本输入，结构化情感状态输出。回答"AI 现在是什么情绪、接下来想做什么"。
+情感计算引擎 SDK。文本输入，结构化情感状态输出。
 
-不是情绪分类，不是情感标签。是一个**持续演化的动力系统**——上一次对话的影响会留到下一次，伤害会结疤，沉默会产生压力，人格会缓慢漂移。
-
-我们做的是**情感计算标准**（类似 IEEE 754 之于浮点数），不是训练模型。
-
----
-
-## 核心论点
+不是情绪分类，不是情感标签。是一个**持续演化的动力系统**——上一次对话的影响会留到下一次，伤害会结疤，沉默会产生压力，人格会缓慢漂移。我们做的是**情感计算标准**（类似 IEEE 754 之于浮点数），不是训练模型。
 
 ```
 Attention is all you need — for computing.
 Prediction error is all you need — for living.
 ```
-
-Transformer 是瞬时计算的极致——一次看清所有关系。SylannEngine 走另一条路：通过一条极简规则的海量重复执行，让理解从时间中生长出来。
 
 | | 神经网络 | SylannEngine |
 |---|---|---|
@@ -65,7 +76,7 @@ from sylanne_core import SylanneEngine, SylanneConfig
 
 ---
 
-## 30 秒上手
+## 快速开始
 
 ```python
 engine = SylanneEngine(
@@ -84,6 +95,7 @@ warmth = surface["state"]["valence"]["warmth"]  # 0.0 ~ 1.0
 ---
 
 ## 计算层架构
+
 
 <details>
 <summary><b>V1.0 — 顺序管线（已退役）</b></summary>
@@ -400,9 +412,10 @@ python run_all.py 1 4 8  # 指定编号
 
 完整接口见 [SPEC.md](SPEC.md)。
 
-### 共享实例（重要）
+### 共享实例
 
-多个下游插件如果各自 `SylanneEngine(...)` 指向**同一 data_dir**，会对同一用户重复计算、重复调 LLM，且各自 flush 互相覆盖（丢更新）。`SylanneEngine.shared()` 解决这个问题：
+> [!WARNING]
+> 多个下游插件如果各自 `SylanneEngine(...)` 指向**同一 data_dir**，会对同一用户重复计算、重复调 LLM，且各自 flush 互相覆盖（**丢更新**）。务必使用 `SylanneEngine.shared()` 共享实例。
 
 ```python
 # 所有下游约定同一 data_dir，总是拿到同一个已启动实例
@@ -433,7 +446,8 @@ SylanneEngine.list_shared()          # [{"data_dir": "...", "status": "running"}
 SylanneEngine.is_shared("./data/x")  # True / False
 ```
 
-**如果你是插件开发者**：不要自己 `SylanneEngine(...)`，用 `SylanneEngine.shared(data_dir, llm)` 就行。约定一个统一的 data_dir，所有插件共享同一实例，零额外配置。
+> [!TIP]
+> **插件开发者**：不要自己 `SylanneEngine(...)`，用 `SylanneEngine.shared(data_dir, llm)` 就行。约定一个统一的 data_dir，所有插件共享同一实例，零额外配置。
 
 ---
 
