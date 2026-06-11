@@ -55,7 +55,7 @@ body:
       label: 使用场景
       description: 请描述该设计建议最常出现在哪类使用场景中。
       placeholder: >
-        如: 初次安装插件时、调整配置时、查看运行状态时、排查异常时等。
+        如: 初次集成时、调整配置时、查看运行状态时、排查异常时等。
     validations:
       required: true
 

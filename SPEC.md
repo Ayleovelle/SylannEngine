@@ -7,8 +7,8 @@
 
 ## 1. Overview / 概述
 
-SylannEngine is an affective computation engine SDK for AstrBot plugin developers.
-SylannEngine 是面向 AstrBot 插件开发者的情感计算引擎 SDK。
+SylannEngine is an affective computation engine SDK.
+SylannEngine 是一个情感计算引擎 SDK。
 
 **Positioning / 定位**: Pure computation black-box. Text in, structured data out. No reply generation, no prompt injection, no message routing.
 纯计算黑盒。文本输入，结构化数据输出。不生成回复，不注入 prompt，不管消息收发。
@@ -19,36 +19,11 @@ SylannEngine 是面向 AstrBot 插件开发者的情感计算引擎 SDK。
 
 ### 2.0 Installation / 安装方式
 
-Two distribution channels are available: / 提供两种分发方式：
-
-#### Plugin Version (recommended) / 插件版（推荐）
-
-Install via AstrBot plugin system. Other plugins can then `from sylanne_core import SylanneEngine` directly.
-通过 AstrBot 插件系统安装前置插件，其他插件直接 import 使用。
-
-```
-安装地址：https://github.com/Ayleovelle/SylannEngine.git
-```
-
-```python
-# 你的插件代码中
-from sylanne_core import SylanneEngine, SylanneConfig
-
-engine = SylanneEngine(
-    data_dir="./data/sylannengine",
-    llm=your_llm_call,         # 通过 AstrBot provider_manager 调用
-    config=SylanneConfig(),
-)
-await engine.start()
-```
-
-#### SDK Version / SDK 版
-
-Use the `sdk` branch as a git submodule or copy `sylanne_core/` into your project.
-使用 `sdk` 分支作为 submodule 或直接复制 `sylanne_core/` 目录。
+Copy `sylanne_core/` into your project, or add it as a git submodule.
+直接复制 `sylanne_core/` 目录，或作为 git submodule 引入。
 
 ```bash
-git submodule add -b sdk https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
+git submodule add https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
 ```
 
 ```python
@@ -65,7 +40,7 @@ engine = SylanneEngine(
 await engine.start()
 ```
 
-The SDK version does not depend on AstrBot. / SDK 版不依赖 AstrBot。
+The SDK has no framework dependency. / SDK 不依赖任何特定框架。
 
 ### 2.1 Engine Initialization / 引擎初始化
 
@@ -80,10 +55,38 @@ engine = SylanneEngine(
 )
 ```
 
+#### Shared Instance / 共享实例
+
+Use `SylanneEngine.shared()` to deduplicate engines by resolved data_dir within
+a process — one persistence directory is owned by exactly one engine, avoiding
+state splits and lost updates on flush.
+用 `SylanneEngine.shared()` 按解析后的 data_dir 在进程内去重——一个持久化目录只由一个引擎拥有，避免状态分裂与 flush 丢更新。
+
+```python
+# 同一 data_dir 总是返回同一已启动实例
+engine = await SylanneEngine.shared("./data", llm=my_llm)
+
+# 应用关闭时显式释放（flush 落盘；无 atexit 自动刷写）
+await SylanneEngine.release_shared("./data")
+
+# 内省：当前进程有哪些共享引擎
+SylanneEngine.list_shared()      # [{"data_dir", "status"}, ...]
+SylanneEngine.is_shared("./data")  # bool
+```
+
+- 多个下游约定同一 data_dir 并统一走 `shared()`，即可复用单一引擎，避免重复计算与重复 LLM 调用（取代前置插件的共享单例职责）。
+- 同一 data_dir 第二次传入不同 `config` → 抛 `SharedEngineConflictError`；不同 `llm`/`embedding` → 仅警告并复用原实例。
+- 共享实例 **event-loop 亲和**：仅在首次获取的事件循环内使用，跨 loop 使用抛 `RuntimeError`；不要对共享实例用 `async with`。
+- 直接 `SylanneEngine(...)` 构造不受影响，且不进入共享注册表；但若目标 data_dir 已有活跃共享实例，会记一条 warning 提示重复创建（软提醒，不阻断）。
+
 ### 2.2 Core Methods / 核心方法
 
 | Method / 方法 | Signature / 签名 | Description / 说明 |
 |--------|-----------|-------------|
+| `shared` | `classmethod async (data_dir, llm, embedding=None, config=None) -> SylanneEngine` | 取进程内共享实例（按 data_dir 去重，返回已 start 的引擎） |
+| `release_shared` | `classmethod async (data_dir) -> None` | 关闭并从注册表移除共享实例 |
+| `is_shared` | `classmethod (data_dir) -> bool` | 该 data_dir 是否已有活跃共享实例 |
+| `list_shared` | `classmethod () -> list[dict]` | 列出当前进程所有共享实例及状态 |
 | `process` | `async (session_id: str, text: str, **ctx) -> Surface` | 处理输入文本，返回完整计算结果 |
 | `tick` | `async (session_id: str, flags: list[str]) -> Surface` | 无文本的状态推进（时间衰减、冷却等） |
 | `state` | `async (session_id: str) -> Surface` | 查询当前状态（不触发计算） |
