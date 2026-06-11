@@ -230,11 +230,6 @@ class ResonanceField:
         else:
             skipped_channels = 0
 
-        # Apply residual decay from previous cycle
-        for i in range(self._n_modules):
-            for d in range(self._state_dim):
-                self._module_states[i][d] *= self._residual_decay
-
         # Update echo state reservoir with current input
         self._update_reservoir()
 
@@ -293,6 +288,13 @@ class ResonanceField:
         self._harmonics_cache = None
         self._update_harmonic_identity()
         self._maybe_store_attractor()
+
+        # Apply residual decay AFTER resonance — new injected signals participate
+        # fully in this cycle's convergence; only the converged residue decays for next cycle.
+        for i in range(self._n_modules):
+            for d in range(self._state_dim):
+                self._module_states[i][d] *= self._residual_decay
+        self._had_injection = False
 
         return {
             "iterations": len(self._convergence_history),
