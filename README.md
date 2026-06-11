@@ -119,38 +119,43 @@ Text → L1(HDC) → L2(Gate) → L3(Scar) → L4(Sheaf) → L5(HGT) → L6(Boun
 基于物理启发的规则系统。7 模块同时注入信号到共振场，场通过耦合动力学迭代收敛，表达作为相变自发涌现。
 
 ```mermaid
-flowchart LR
-    subgraph INPUT["输入"]
-        T["文本 + 时间戳"]
+flowchart TB
+    %% 输入层
+    INPUT["📥 文本 + 时间戳 + 上下文"]
+
+    %% 7 模块并行感知
+    INPUT --> M0 & M1 & M2 & M3 & M4 & M5 & M6
+
+    M0["HDC 感知<br/><small>超维编码</small>"]
+    M1["预测门控<br/><small>surprise 路由</small>"]
+    M2["虚空-伤痕<br/><small>创伤与缺失</small>"]
+    M3["关系层析<br/><small>sheaf 扩散</small>"]
+    M4["HGT 决策<br/><small>异构图融合</small>"]
+    M5["自创生边界<br/><small>身份维护</small>"]
+    M6["相变表达<br/><small>压力积累</small>"]
+
+    %% 全部注入共振场
+    M0 & M1 & M2 & M3 & M4 & M5 & M6 --> FIELD
+
+    subgraph FIELD["⚡ 共振场 — 迭代收敛"]
+        direction LR
+        F1["441 通道<br/>耦合矩阵"]
+        F2["Hebbian<br/>可塑性"]
+        F3["Kuramoto<br/>相位同步"]
+        F4["Hopfield<br/>吸引子"]
+        F5["谐波<br/>身份核"]
+        F1 <--> F2 <--> F3 <--> F4 <--> F5
     end
 
-    subgraph MODULES["7 模块并行注入"]
-        M0["HDC 感知"]
-        M1["预测门控"]
-        M2["虚空-伤痕"]
-        M3["关系层析"]
-        M4["HGT 决策"]
-        M5["自创生边界"]
-        M6["相变表达"]
-    end
+    %% 输出
+    FIELD --> O1 & O2 & O3
+    O1["🎭 情感状态<br/><small>8 维连续向量</small>"]
+    O2["⚡ 表达决策<br/><small>express / hold / withdraw</small>"]
+    O3["🌀 涌现指标 Φ<br/><small>整合信息度</small>"]
 
-    subgraph FIELD["共振场 (迭代收敛)"]
-        direction TB
-        F1["441 通道耦合"]
-        F2["Hebbian 可塑性"]
-        F3["Kuramoto 同步"]
-        F4["Hopfield 吸引子"]
-        F5["谐波身份"]
-    end
-
-    subgraph OUTPUT["输出"]
-        O1["情感状态"]
-        O2["表达决策"]
-        O3["涌现指标 Φ"]
-    end
-
-    T --> MODULES --> FIELD --> OUTPUT
-    OUTPUT -.->|"feedback"| F2
+    %% 反馈回路
+    O1 -.->|"Hebbian 反馈"| F2
+    O2 -.->|"伤疤积累"| M2
 ```
 
 #### 核心机制
