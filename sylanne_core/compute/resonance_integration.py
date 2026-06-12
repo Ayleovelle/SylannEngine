@@ -296,8 +296,17 @@ class ResonanceSpine:
             topo_gate._conscientiousness_decay_mod = 1.0 - conscientiousness * 0.7
             topo_gate._enforce_min_connectivity()
 
-        # === Expression policy: update personality modulation ===
-        self._expression_policy.set_personality(openness)
+        # === Expression policy: update personality modulation + A7 saddle ===
+        # Hard-gate bounds become personality explicit functions. Anchor the
+        # trait defaults at 0.5 (NOT derive_params' historical 0.68 for
+        # sovereignty): 0.5 is the value that reproduces the legacy 0.95/0.1
+        # constants, so deployments whose personality omits these keys keep
+        # tick-for-tick identical behaviour.
+        self._expression_policy.set_personality(
+            openness,
+            expression_drive_trait=float(personality.get("expression_drive_trait", 0.5)),
+            sovereignty_guard=float(personality.get("sovereignty_guard", 0.5)),
+        )
 
         # === Meta-learner: seed from personality, then override with adapted values ===
         self._meta_learner.init_from_personality(personality)
@@ -614,10 +623,13 @@ class ResonanceSpine:
         # Ask policy for decision
         should_express, _confidence = self._expression_policy.decide(policy_context)
 
-        # Hard constraints override policy (safety)
-        if self._expression_drive > 0.95:
+        # Hard constraints override policy. These bounds are the policy's own
+        # personality-derived saddle (A7), read from the single source of truth
+        # rather than re-hardcoded here — keeps this override in lockstep with
+        # ``decide``'s internal gate. At neutral traits they are 0.95 / 0.1.
+        if self._expression_drive > self._expression_policy.force_express_threshold:
             should_express = True
-        elif self._expression_drive < 0.1:
+        elif self._expression_drive < self._expression_policy.force_hold_threshold:
             should_express = False
 
         self._should_express = should_express
@@ -660,8 +672,28 @@ class ResonanceSpine:
         """Return diagnostics snapshot of the meta-learner state."""
         return self._meta_learner.diagnostics()
 
-    def feedback(self, outcome: str, dt: float = 1.0, session_key: str = "") -> dict[str, float]:
-        """Feedback modulates coupling plasticity + real engine state + topology."""
+    def feedback(
+        self,
+        outcome: str,
+        dt: float = 1.0,
+        session_key: str = "",
+        actual_expressed: bool | None = None,
+    ) -> dict[str, float]:
+        """Feedback modulates coupling plasticity + real engine state + topology.
+
+        Args:
+            outcome: "accepted" | "ignored" | "rejected".
+            dt: time step.
+            session_key: optional relationship identifier for per-relationship delta.
+            actual_expressed: optional ground truth of whether expression actually
+                fired downstream (True/False). When the final express/hold decision
+                is owned by a layer above this spine (e.g. an external arbiter),
+                pass it so the expression policy assigns credit to the action that
+                was really executed rather than the one it internally planned.
+                ``None`` (default) preserves the original behaviour. This is a pure
+                passthrough to the expression policy — the other five feedback-bus
+                consumers are untouched.
+        """
         if outcome in self._feedback_counts:
             self._feedback_counts[outcome] += 1
         # Real engine feedback (scar healing/deepening)
@@ -681,8 +713,10 @@ class ResonanceSpine:
         if topo_gate is not None:
             active_channels = topo_gate.get_active_channels()
             self._field._coupling.feedback_topology(outcome, active_channels)
-        # Expression policy learning (REINFORCE update from feedback)
-        self._expression_policy.update_from_feedback(outcome)
+        # Expression policy learning (REINFORCE update from feedback). Pass the
+        # true executed action through when supplied (None -> legacy behaviour).
+        actual_action = None if actual_expressed is None else int(bool(actual_expressed))
+        self._expression_policy.update_from_feedback(outcome, actual_action=actual_action)
         # Meta-learner adaptation (online hyperparameter tuning)
         self._meta_learner.update(outcome)
         meta = self._meta_learner.current_values
