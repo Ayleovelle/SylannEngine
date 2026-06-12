@@ -26,6 +26,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `release.yml` 不再打包 AstrBot 插件 zip，仅创建 GitHub Release
 - Issue / PR 模板移除 AstrBot 插件专属字段
 
+### 🔧 表达策略：硬闸人格显函数化（axiom A7）+ credit assignment 修正
+
+`ExpressionPolicy` 的表达硬闸从死常数升级为人格显函数，并修正 contextual bandit 的
+off-policy 信用分配。**默认行为逐 tick 不变、存档无损**——所有新参数均可选，缺省即旧行为。
+
+- **T1 硬闸人格显函数化**：`_DRIVE_FORCE_EXPRESS=0.95`/`_DRIVE_FORCE_HOLD=0.1` 两处死常数
+  （`expression_policy.decide()` 与 `resonance_integration` spine 覆盖点）改为实例字段
+  `_force_express`/`_force_hold`，由 `set_personality(openness, expression_drive_trait,
+  sovereignty_guard)` 派生：
+  - `force_express = 1.05 − 0.20·expression_drive_trait`（中性 0.5 → 0.95）
+  - `force_hold = 0.02 + 0.16·sovereignty_guard`（中性 0.5 → 0.10）
+  - 单调性：表达欲越强越早强制开口；主权越强"懒得说"区越大。`force_express>1.0` 合法
+    （该人格永不被强制开口）。spine 覆盖点改读 `force_express_threshold`/
+    `force_hold_threshold` 属性，消灭第二份重复常数。
+- **T2 credit assignment 接真实 action**：`update_from_feedback(..., actual_action=None)`
+  与 `ResonanceSpine.feedback(..., actual_expressed=None)`——当表达决策由上层仲裁器拥有时，
+  可告知真实执行的行动，让 bandit 为真正做过的选择领赏受罚（`None` 缺省=旧行为）。
+  反馈总线其余五家消费者一律不动（纯透传）。
+- **T3 强制决策不训练（可选）**：`update_from_feedback(..., skip_forced=False)`——置 True 时
+  硬闸强制的样本只记 diagnostics、跳过梯度步，避免 policy 被自己没选的行动污染。缺省
+  False 保留旧行为。新增 `last_decision_forced` 属性暴露上次决策是否走硬闸。
+- **持久化**：`to_dict`/`from_dict` 新增 `force_express`/`force_hold` 可选键；旧档缺键回退
+  legacy 常数（0.95/0.1），新档被旧版读取时多余键被忽略——三向往返不炸。
+- **诊断**：`diagnostics()` 新增 `force_express`/`force_hold` 可观测。
+- 测试：`tests/test_expression_policy_saddle.py`（23 例，覆盖中性锚定/单调性/真实 action
+  梯度/强制不训练/存档往返/spine 接线）；存量全绿。
+
 ## [v2.0.0] - 2026-06-01
 
 SylannEngine V2 — 共振场架构正式版。完全重写计算核心，从顺序 7 层管线升级为单纯形共振场。
