@@ -120,11 +120,32 @@ class TestDriftSignalExtractor:
                 "relational_gravity",
             )
         }
-        compute_embodiment_drift(
-            traits, {"dialogue_quality_high": 1.0}, tick_count=0, dt=30.0
-        )
+        compute_embodiment_drift(traits, {"dialogue_quality_high": 1.0}, tick_count=0, dt=30.0)
         assert traits["expression_drive_trait"].value > 0.5
         assert traits["relational_gravity"].value > 0.5
+
+    def test_dialogue_quality_low_maps_to_traits(self):
+        # low-quality 信号应降低表达欲，且不应影响无关特质（relational_gravity 无映射 → 不变）
+        traits = {
+            name: TraitMemory(0.5)
+            for name in (
+                "expression_drive_trait",
+                "perception_acuity",
+                "boundary_permeability",
+                "inner_order",
+                "relational_gravity",
+            )
+        }
+        compute_embodiment_drift(traits, {"dialogue_quality_low": 1.0}, tick_count=0, dt=30.0)
+        assert traits["expression_drive_trait"].value < 0.5
+        assert traits["relational_gravity"].value == 0.5
+
+    def test_dialogue_quality_bad_input_ignored(self):
+        # 坏类型 / NaN / Inf 不应抛异常，也不产质量信号（不可信输入兜底）
+        for bad in ("high", [0.9], {"q": 1}, float("nan"), float("inf"), float("-inf")):
+            ext = DriftSignalExtractor()
+            signals = ext.extract({"dialogue_quality": bad})
+            assert not any(k.startswith("dialogue_quality") for k in signals)
 
 
 class TestComputeEmbodimentDrift:

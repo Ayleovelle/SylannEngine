@@ -247,17 +247,23 @@ class DriftSignalExtractor:
         # 对话质量自评信号（CP8-P4 自我进化）：agent 层把上一轮回复的归一化质量分
         # 经 process(dialogue_quality=...) 注入 → 落到 result["dialogue_quality"]。
         # 高质量强化表达欲+拉近关系，低质量收敛表达欲；信号强度按偏离阈值的程度归一化。
+        # 直接调 spine.process 的路径不经 kernel 的类型守卫，故此处兜底过滤坏类型与 NaN/Inf。
         dq = result.get("dialogue_quality")
         if dq is not None:
-            dq = max(0.0, min(1.0, float(dq)))
-            if dq >= _DIALOGUE_QUALITY_HIGH:
-                signals["dialogue_quality_high"] = min(
-                    1.0, (dq - _DIALOGUE_QUALITY_HIGH) / max(1e-6, 1.0 - _DIALOGUE_QUALITY_HIGH)
-                )
-            elif dq <= _DIALOGUE_QUALITY_LOW:
-                signals["dialogue_quality_low"] = min(
-                    1.0, (_DIALOGUE_QUALITY_LOW - dq) / max(1e-6, _DIALOGUE_QUALITY_LOW)
-                )
+            try:
+                dq = float(dq)
+            except (ValueError, TypeError):
+                dq = None
+            if dq is not None and not math.isnan(dq) and not math.isinf(dq):
+                dq = max(0.0, min(1.0, dq))
+                if dq >= _DIALOGUE_QUALITY_HIGH:
+                    signals["dialogue_quality_high"] = min(
+                        1.0, (dq - _DIALOGUE_QUALITY_HIGH) / max(1e-6, 1.0 - _DIALOGUE_QUALITY_HIGH)
+                    )
+                elif dq <= _DIALOGUE_QUALITY_LOW:
+                    signals["dialogue_quality_low"] = min(
+                        1.0, (_DIALOGUE_QUALITY_LOW - dq) / max(1e-6, _DIALOGUE_QUALITY_LOW)
+                    )
 
         # 路由相关信号：连续 skip 表示持续沉默
         if route == "skip":
