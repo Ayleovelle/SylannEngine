@@ -148,6 +148,9 @@ class SylanneEngine:
             flags: Semantic flags (e.g. ["safe"], ["hurt", "boundary"]).
             now: Unix timestamp. Defaults to current time.
             values: Additional numeric signals (e.g. {"group_heat": 0.7}).
+                特殊键 ``"dialogue_quality"``（归一化 [0,1]）= 对上一轮回复的质量自评，
+                驱动「越聊越校准」人格漂移：高分强化表达欲+拉近关系，低分收敛表达欲。
+                滞后反馈——在评分对象的下一轮调用时传入。
 
         Returns:
             Surface dict with keys: state, decision, guard, personality, memory, dynamics.

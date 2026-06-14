@@ -85,6 +85,47 @@ class TestDriftSignalExtractor:
         signals = ext.extract({"emotion": {"tension": 0.9}})
         assert "high_tension" in signals
 
+    def test_dialogue_quality_high(self):
+        ext = DriftSignalExtractor()
+        signals = ext.extract({"dialogue_quality": 0.95})
+        assert signals.get("dialogue_quality_high", 0.0) > 0.0
+        assert "dialogue_quality_low" not in signals
+
+    def test_dialogue_quality_low(self):
+        ext = DriftSignalExtractor()
+        signals = ext.extract({"dialogue_quality": 0.05})
+        assert signals.get("dialogue_quality_low", 0.0) > 0.0
+        assert "dialogue_quality_high" not in signals
+
+    def test_dialogue_quality_mid_neutral(self):
+        ext = DriftSignalExtractor()
+        signals = ext.extract({"dialogue_quality": 0.5})
+        assert "dialogue_quality_high" not in signals
+        assert "dialogue_quality_low" not in signals
+
+    def test_dialogue_quality_absent(self):
+        ext = DriftSignalExtractor()
+        signals = ext.extract({"should_express": False})
+        assert not any(k.startswith("dialogue_quality") for k in signals)
+
+    def test_dialogue_quality_high_maps_to_traits(self):
+        # high-quality 信号经 canonical 漂移应抬升表达欲 + 拉近关系引力
+        traits = {
+            name: TraitMemory(0.5)
+            for name in (
+                "expression_drive_trait",
+                "perception_acuity",
+                "boundary_permeability",
+                "inner_order",
+                "relational_gravity",
+            )
+        }
+        compute_embodiment_drift(
+            traits, {"dialogue_quality_high": 1.0}, tick_count=0, dt=30.0
+        )
+        assert traits["expression_drive_trait"].value > 0.5
+        assert traits["relational_gravity"].value > 0.5
+
 
 class TestComputeEmbodimentDrift:
     def test_no_signals_no_drift(self):

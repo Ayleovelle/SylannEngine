@@ -641,3 +641,48 @@ class TestTierHotSwitch:
         energy_before = spine._field._last_energy
         spine.switch_tier("lite")  # same tier, should be noop
         assert spine._field._last_energy == energy_before
+
+
+class TestResonanceEmbodimentDrift:
+    """ResonanceSpine 的 canonical embodiment 漂移接线（含 dialogue_quality 信号）。"""
+
+    def test_process_triggers_drift(self):
+        # process() 应在 return 前调用 _drift_embodiment，使 drift_tick 推进
+        spine = ResonanceSpine()
+        assert hasattr(spine, "_drift_embodiment")
+        spine.process("你好", timestamp=1000.0)
+        spine.process("再说一句", timestamp=1100.0)  # 跨过 _drift_min_interval
+        assert spine._drift_tick >= 1
+
+    def test_dialogue_quality_high_raises_expression_drive(self):
+        spine = ResonanceSpine()
+        spine.process("打底一句", timestamp=1000.0)
+        before = spine._embodiment_traits["expression_drive_trait"].value
+        # 连续喂高质量自评（时间跨过速率限制），表达欲应被抬升
+        for i in range(1, 8):
+            spine.process(
+                f"很走心的第{i}句", timestamp=1000.0 + i * 60.0, dialogue_quality=0.95
+            )
+        after = spine._embodiment_traits["expression_drive_trait"].value
+        assert after > before
+
+    def test_dialogue_quality_low_vs_high_differential(self):
+        # dialogue_quality 是众多信号之一（expression_fired 等会同时作用），不保证绝对方向，
+        # 但相同输入下"低质量"必须比"高质量"留下更低的表达欲——隔离掉共有信号的差分检验。
+        def run(quality: float) -> float:
+            spine = ResonanceSpine()
+            spine.process("打底一句", timestamp=1000.0)
+            for i in range(1, 8):
+                spine.process(
+                    f"第{i}句", timestamp=1000.0 + i * 60.0, dialogue_quality=quality
+                )
+            return spine._embodiment_traits["expression_drive_trait"].value
+
+        assert run(0.05) < run(0.95)
+
+    def test_no_dialogue_quality_is_optional(self):
+        # 不传 dialogue_quality 时行为不变、不写该字段
+        spine = ResonanceSpine()
+        result = spine.process("普通一句", timestamp=1000.0)
+        assert "dialogue_quality" not in result
+

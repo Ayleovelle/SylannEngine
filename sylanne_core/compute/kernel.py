@@ -237,8 +237,14 @@ class AlphaKernel:
             "values": dict(event.values),
         }
         self.hot_pool.amplify_event(event_dict)
+        # dialogue_quality 走 values 通道（"额外数值信号"）→ 透传给 spine 的 canonical
+        # 漂移入参。滞后反馈：上一轮回复的自评在本轮 process 时随 values 一并进来。
+        _dq = event.values.get("dialogue_quality")
         self._last_computation_result = self.computation.process(
-            event.text, event.now, assessment=assessment
+            event.text,
+            event.now,
+            assessment=assessment,
+            dialogue_quality=float(_dq) if _dq is not None else None,
         )
         collapse_record = self.hot_pool.tick(body=self.body, spine=self.computation)
         if collapse_record is not None:
