@@ -660,9 +660,7 @@ class TestResonanceEmbodimentDrift:
         before = spine._embodiment_traits["expression_drive_trait"].value
         # 连续喂高质量自评（时间跨过速率限制），表达欲应被抬升
         for i in range(1, 8):
-            spine.process(
-                f"很走心的第{i}句", timestamp=1000.0 + i * 60.0, dialogue_quality=0.95
-            )
+            spine.process(f"很走心的第{i}句", timestamp=1000.0 + i * 60.0, dialogue_quality=0.95)
         after = spine._embodiment_traits["expression_drive_trait"].value
         assert after > before
 
@@ -673,9 +671,7 @@ class TestResonanceEmbodimentDrift:
             spine = ResonanceSpine()
             spine.process("打底一句", timestamp=1000.0)
             for i in range(1, 8):
-                spine.process(
-                    f"第{i}句", timestamp=1000.0 + i * 60.0, dialogue_quality=quality
-                )
+                spine.process(f"第{i}句", timestamp=1000.0 + i * 60.0, dialogue_quality=quality)
             return spine._embodiment_traits["expression_drive_trait"].value
 
         assert run(0.05) < run(0.95)
@@ -685,4 +681,3 @@ class TestResonanceEmbodimentDrift:
         spine = ResonanceSpine()
         result = spine.process("普通一句", timestamp=1000.0)
         assert "dialogue_quality" not in result
-
