@@ -439,6 +439,8 @@ inner_order 高 → patience 上限高
 | `feedback_ignored` | 表达被忽略 | expression_drive ↓ |
 | `expression_fired` | 成功触发表达 | expression_drive ↑ |
 | `sustained_silence` | 持续沉默（≥3条skip） | expression_drive ↓ |
+| `dialogue_quality_high` | 回复质量高（agent 层注入¹） | expression_drive ↑, relational_gravity ↑ |
+| `dialogue_quality_low` | 回复质量低（agent 层注入¹） | expression_drive ↓ |
 | `high_tension` | 张力 > 0.7 | perception_acuity ↑ |
 | `low_coherence` | 一致性 < 0.4 | perception_acuity ↑ |
 | `high_void_pressure` | 虚空压力 > 30 | perception_acuity ↑ |
@@ -451,6 +453,11 @@ inner_order 高 → patience 上限高
 | `repair_executed` | 修复执行 | relational_gravity ↑ |
 | `boundary_breached` | 边界被突破 | relational_gravity ↓↓ |
 | `relaxed_positive` | 正效价 + 低张力 | relational_gravity ↑ |
+
+> ¹ `dialogue_quality_*` 是对话质量自评信号（CP8-P4「越聊越校准」）。质量判断属应用层——
+> 你给回复打个归一化质量分，经 `process()` 的 `values={"dialogue_quality": q}` 喂回；
+> `DriftSignalExtractor` 据 `result["dialogue_quality"]` 自动产生高/低信号触发漂移。
+> 不传则不触发（默认行为不变）。完整用法见下方「场景 5」。
 
 ### 4.4 关系年龄调制
 
@@ -806,6 +813,32 @@ personality = surface["personality"]["surface"]  # 当前人格表现
 **场景 4：让 AI 的性格随时间变化**
 
 不需要额外代码。人格漂移是自动的。读 `surface["personality"]["surface"]` 就能看到当前人格状态，用它来调整语气和行为。
+
+**场景 5：让 AI「越聊越校准」（对话质量自我进化）**
+
+如果你的 agent 能给自己的回复打个质量分（比如 LLM 自评、用户反馈打分、规则启发式），
+把它经 `values["dialogue_quality"]` 喂回来，引擎会据此漂移人格——回复质量高就强化表达欲、
+拉近关系引力，质量低就收敛表达欲。质量判断是你（应用层）的事，漂移动力学是引擎的事，互不越界。
+
+关键是时序：质量分是对「上一轮回复」的评价，要在「下一轮」调 `process()` 时随 `values` 一起传进来
+（滞后反馈，和 `feedback_*` 同理）。质量分归一化到 `[0,1]`，≥0.7 算高、≤0.3 算低、中间不触发。
+
+```python
+# 第 N 轮：正常处理用户消息，拿到 surface 后生成回复
+surface = await engine.process(session_id, user_text)
+reply = await my_llm(surface)          # 你的回复生成
+quality = my_self_score(user_text, reply)  # 你的质量自评 ∈ [0,1]
+
+# 第 N+1 轮：把上一轮回复的质量分随这轮消息一起喂回
+surface = await engine.process(
+    session_id,
+    next_user_text,
+    values={"dialogue_quality": quality},  # ← 经 canonical 漂移通道，无后门
+)
+```
+
+底层（直接用 spine 时）等价于 `spine.process(text, ts, dialogue_quality=quality)`。
+不传该字段时行为完全不变。
 
 ---
 

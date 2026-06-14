@@ -35,11 +35,13 @@ from .hgt import HeterogeneousGraphTransformer
 from .meta_learner import MetaLearner
 from .pad_interop import PADProjector, PADVector
 from .personality import (
+    _REVERSE_LEGACY_MAP,
     EMBODIMENT_TRAITS,
     DriftAttribution,
     DriftSignalExtractor,
     OscillationDetector,
     TraitMemory,
+    compute_embodiment_drift,
     normalize_personality,
 )
 from .phase_transition import PhaseTransitionExpression
@@ -345,6 +347,7 @@ class ResonanceSpine:
         assessment: dict[str, Any] | None = None,
         *,
         session_key: str = "",
+        dialogue_quality: float | None = None,
     ) -> dict[str, Any]:
         """Process text through resonance field with real module injection.
 
@@ -354,6 +357,15 @@ class ResonanceSpine:
         3. Field resonates (iterative coupling) until convergence
         4. Expression decision emerges from the converged field state
         5. Emergence metrics feed back into coupling dynamics (criticality gain)
+
+        Args:
+            text: 输入消息文本
+            timestamp: 事件时间戳（epoch 秒）
+            assessment: 可选的 LLM 评估结果，用于精确语义调制
+            session_key: 可选的关系标识符，用于每关系人格覆盖
+            dialogue_quality: 可选的上一轮回复质量自评（归一化 [0,1]）。这是滞后反馈——
+                对第 N 轮回复的评分，在第 N+1 轮调 process() 时传入。高分强化表达欲、
+                拉近关系，低分收敛表达欲（经 canonical 自动漂移通道，无后门）。
         """
         if not text or not text.strip():
             self._route_counts["skip"] = self._route_counts.get("skip", 0) + 1
@@ -481,7 +493,56 @@ class ResonanceSpine:
         elapsed = time.perf_counter_ns() - t0
         self._timings.append(elapsed)
 
-        return self._build_result(text, timestamp, self._should_express, hgt_decision)
+        result = self._build_result(text, timestamp, self._should_express, hgt_decision)
+        if dialogue_quality is not None:
+            result["dialogue_quality"] = dialogue_quality
+        self._drift_embodiment(result)
+        return result
+
+    def _drift_embodiment(self, result: dict[str, Any]) -> None:
+        """从处理结果中提取信号并漂移 Embodiment 人格特质。
+
+        只有当某个特质变化超过 0.01 时才重新应用人格参数。
+        有速率限制：两次漂移之间最少间隔 _drift_min_interval 秒。
+        """
+        # Drift rate limiting: skip if too soon since last drift
+        timestamp = self._last_process_time
+        dt = timestamp - self._last_drift_time
+        if dt < self._drift_min_interval:
+            self._drift_tick += 1
+            return
+        self._last_drift_time = timestamp
+
+        signals = self._signal_extractor.extract(result)
+        if not signals:
+            self._drift_tick += 1
+            return
+        compute_embodiment_drift(
+            self._embodiment_traits,
+            signals,
+            self._drift_tick,
+            oscillation_detector=self._oscillation_detector,
+            drift_attribution=self._drift_attribution,
+            dt=dt,
+        )
+        self._drift_tick += 1
+
+        # Check if any trait changed significantly since last apply
+        needs_reapply = False
+        for name, tm in self._embodiment_traits.items():
+            if abs(tm.value - self._last_embodiment_apply.get(name, 0.5)) > 0.01:
+                needs_reapply = True
+                break
+        if needs_reapply:
+            self._last_embodiment_apply = {n: t.value for n, t in self._embodiment_traits.items()}
+            # Rebuild personality dict with new embodiment values mapped to legacy names
+            updated = dict(self._personality)
+            for emb_name, tm in self._embodiment_traits.items():
+                legacy_name = _REVERSE_LEGACY_MAP.get(emb_name)
+                if legacy_name:
+                    updated[legacy_name] = tm.value
+                updated[emb_name] = tm.value
+            self.apply_personality(updated)
 
     def _hdc_to_field_signal(self, h: bytearray) -> list[float]:
         """Compress HDC vector into field state dimension."""

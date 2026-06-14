@@ -19,6 +19,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `SylanneEngine.is_shared(data_dir)` / `SylanneEngine.list_shared()`：内省接口，查当前进程里有哪些共享引擎在跑
 - 冗余软护栏：直接 `SylanneEngine(...)` 构造时若目标 data_dir 已有活跃共享实例，记 warning 提示重复创建（不阻断）
 - `SharedEngineConflictError`：同一 data_dir 以不同 config 获取共享实例时抛出
+- **ResonanceSpine 接入 embodiment 人格漂移（canonical）**：`ResonanceSpine.process()` 现在
+  在 return 前调用 `_drift_embodiment(result)`，与 `ComputationSpine` 同位语义。此前 ResonanceSpine
+  （运行时默认 spine）虽已具备全部漂移基建字段，却从不触发漂移——基建就绪、接线缺失。补齐后
+  AGENT_GUIDE「每次 process() 自动漂移」对默认 spine 成立。
+- **对话质量自我进化（CP8-P4「越聊越校准」）端到端贯通**：agent 把回复质量自评经
+  `process(..., values={"dialogue_quality": q})`（或 spine 层 `process(..., dialogue_quality=q)`）
+  喂回，引擎据此漂移人格——质量高强化表达欲+拉近关系引力，质量低收敛表达欲。全程走 canonical
+  自动漂移通道（`engine → kernel → spine.process → result → DriftSignalExtractor → _drift_embodiment`），
+  无「第四写动词」后门。具体三层改动：
+  - `DRIFT_SIGNALS` 新增 `dialogue_quality_high` / `dialogue_quality_low` 两条映射
+  - `DriftSignalExtractor.extract()` 认 `result["dialogue_quality"]` → 产高/低信号
+    （阈值 `_DIALOGUE_QUALITY_HIGH=0.7` / `_LOW=0.3`，中间区不触发）
+  - 两个 spine 的 `process()` 加可选 `dialogue_quality` 入参；kernel 从 `values` 通道透传
+  - 质量分是滞后反馈：对第 N 轮回复的评分在第 N+1 轮传入。不传时行为完全不变（默认 None）
 
 ### 🔧 Changed
 
