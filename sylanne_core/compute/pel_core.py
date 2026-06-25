@@ -26,10 +26,15 @@ the latent Jacobian obeys ``||J_mu||_2 <= 1 - alpha*delta`` while
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 # --- dimensionality -----------------------------------------------------------
 N: int = 8  # emotion / latent dimensionality (frozen dim order, see design §2)
+
+# --- snapshot schema version (only ever incremented, never reshaped) ----------
+PEL_SCHEMA_VERSION: int = 1
 
 # --- working point (D-4 / D-5, techspec §1) -----------------------------------
 ALPHA: float = 0.3  # latent leak / descent step mix
@@ -312,6 +317,44 @@ class PELCore:
         self.last_e0 = e0f
         self.last_e1 = e1f
         return z, free_energy
+
+    # -- persistence -----------------------------------------------------------
+    def to_dict(self) -> dict[str, Any]:
+        """Serialise the full plastic state (snapshot-safe, additive sub-key).
+
+        The whole live state round-trips: ``mu``/``z`` (latent + read-out),
+        ``w_gen``/precisions/``pi`` (plastic params) and the D-8 drift bookkeeping
+        (``z_ema``, ``eta_w``). ``v`` is the schema version for forward migration.
+        """
+        st = self.state
+        return {
+            "mu": list(st.mu),
+            "z": list(st.z),
+            "w_gen": [list(row) for row in st.w_gen],
+            "pi_obs": list(st.pi_obs),
+            "pi_top": list(st.pi_top),
+            "pi": list(st.pi),
+            "z_ema": list(st.z_ema),
+            "eta_w": st.eta_w,
+            "free_energy": st.free_energy,
+            "v": PEL_SCHEMA_VERSION,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> PELCore:
+        """Reconstruct a :class:`PELCore` from :meth:`to_dict` output."""
+        state = PELState(
+            mu=[float(x) for x in data["mu"]],
+            z=[float(x) for x in data["z"]],
+            w_gen=[[float(x) for x in row] for row in data["w_gen"]],
+            pi_obs=[float(x) for x in data["pi_obs"]],
+            pi_top=[float(x) for x in data["pi_top"]],
+            pi=[float(x) for x in data["pi"]],
+            z_ema=[float(x) for x in data["z_ema"]],
+            eta_w=float(data["eta_w"]),
+            free_energy=float(data.get("free_energy", 0.0)),
+        )
+        return cls(state=state)
 
     # -- observability ---------------------------------------------------------
     def diagnostics(self) -> dict[str, float]:

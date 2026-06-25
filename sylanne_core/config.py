@@ -203,6 +203,11 @@ class SylanneConfig:
         training_data_salt: Local salt for the non-reversible session hash. If
             empty, a per-process random salt is used (cross-run grouping is then
             unstable). Keep it out of the dataset directory.
+        pel_core_enabled: Opt in to the PEL-Core predictive-coding emotion core
+            (v2.5). Default False — the legacy MLP ``_evolve_base`` runs and
+            behaviour is byte-identical to today. When True, the engine's
+            8-dim emotion core (lite tier) evolves via the PEL latent
+            micro-circuit instead. Additive and snapshot-migration-safe.
     """
 
     mode: Literal["lite", "pro", "max"] = "lite"
@@ -215,6 +220,7 @@ class SylanneConfig:
     training_data_sink: bool = False
     training_data_path: str | None = None
     training_data_salt: str = ""
+    pel_core_enabled: bool = False
 
     def __post_init__(self) -> None:
         if self.mode not in ("lite", "pro", "max"):

@@ -377,6 +377,7 @@ class SylanneEngine:
                 session_key=session_id,
                 profile=self._config.profile(),
                 telemetry_sink=self._telemetry_sink,
+                pel_enabled=self._config.pel_core_enabled,
             )
         return self._hosts[session_id]
 
