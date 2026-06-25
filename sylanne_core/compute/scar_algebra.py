@@ -216,6 +216,26 @@ class ScarredState:
         """True iff the PEL-Core latent path drives the main step (vs legacy MLP)."""
         return self._pel is not None
 
+    def pel_diagnostics(self) -> dict[str, Any] | None:
+        """Lightweight PEL signal surface (D-1/D-10), or ``None`` when PEL is off.
+
+        Non-semantic observability only: the latest free energy ``F``, the
+        per-dim precisions ``pi_obs``/``pi_top`` and the mean absolute bottom-up /
+        top-down errors. Pure read — never gates anything (downstream call-
+        skipping is explicitly out of scope, design D-10).
+        """
+        if self._pel is None:
+            return None
+        st = self._pel.state
+        n = len(self._pel.last_e0)
+        return {
+            "free_energy": st.free_energy,
+            "pi_obs": list(st.pi_obs),
+            "pi_top": list(st.pi_top),
+            "mean_abs_e0": sum(abs(v) for v in self._pel.last_e0) / n if n else 0.0,
+            "mean_abs_e1": sum(abs(v) for v in self._pel.last_e1) / n if n else 0.0,
+        }
+
     def set_pel_priors(self, personality: dict[str, float]) -> None:
         """Initialise the PEL-Core latent micro-circuit from Big-Five personality.
 

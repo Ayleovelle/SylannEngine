@@ -354,13 +354,18 @@ class VoidScarEngine:
         }
 
     def diagnostics(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "scar": self.scar_state.observe(),
             "void": self.void_space.diagnostics(),
             "coherence": self._coherence,
             "expression_drive": self.expression_drive(),
             "tick": self._tick,
         }
+        # PEL signal surface (additive; absent entirely when PEL is inactive).
+        pel = self.scar_state.pel_diagnostics()
+        if pel is not None:
+            out["pel"] = pel
+        return out
 
     def set_personality_params(
         self,

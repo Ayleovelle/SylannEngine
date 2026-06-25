@@ -55,6 +55,11 @@ if TYPE_CHECKING:
 
 _TIMING_WINDOW = 50
 
+# D-10: surprise below this (and no wound hint) marks the tick as low-novelty, so
+# the non-semantic ``assessor_advisable`` gate signal reads False. This only flags
+# a *suggestion* surfaced via diagnostics — it never skips any downstream call.
+_LOW_SURPRISE_THRESH = 0.25
+
 
 class ResonanceSpine:
     """Drop-in replacement for ComputationSpine using resonance field dynamics.
@@ -119,6 +124,8 @@ class ResonanceSpine:
         "_meta_learner",
         # PEL-Core enable flag (config-gated; default off)
         "_pel_enabled",
+        # PEL-Core D-10: last non-semantic assessor-advisable gate signal
+        "_last_assessor_advisable",
     )
 
     def __init__(
@@ -189,6 +196,8 @@ class ResonanceSpine:
         self._diagnostics_enabled = False
         self._last_hdc_vec: bytearray | None = None
         self._last_surprise = 0.0
+        # D-10: default True (fail-safe — when in doubt, advise calling the assessor).
+        self._last_assessor_advisable = True
 
         # Expression policy (contextual bandit for expression decisions)
         self._expression_policy = ExpressionPolicy(
@@ -434,12 +443,19 @@ class ResonanceSpine:
 
         # === Module 2: VoidScar Engine ===
         ssm_input = self._hdc_to_ssm_input(h, surprise)
-        self._engine.process(
+        engine_result = self._engine.process(
             event_vec=bytes(h),
             ssm_input=ssm_input,
             surprise=surprise,
             timestamp=timestamp,
         )
+        # D-10: non-semantic assessor-advisable gate. Wound hints come from the
+        # engine's own coupling wounds / fresh scars this tick (no assessor needed).
+        # Asymmetric safety: ANY wound hint => advisable True regardless of surprise.
+        scar_step = engine_result.get("scar")
+        new_scars = scar_step.get("new_scars") if isinstance(scar_step, dict) else None
+        wound_hint = bool(engine_result.get("coupling_wounds")) or bool(new_scars)
+        self._last_assessor_advisable = surprise >= _LOW_SURPRISE_THRESH or wound_hint
         if assessment:
             self._apply_assessment_to_engine(assessment)
         emotion = self._engine.observe()
@@ -666,6 +682,23 @@ class ResonanceSpine:
         # mutations above (scar base + void pressure) happen after that, so the
         # cache must be dropped for the upcoming ``observe()`` to see the LLM read.
         self._engine._cached_observe = None
+
+        # PEL-Core 1-tick deferred fold (D-2): the main VoidScar step already ran
+        # this tick *before* the assessor read was available, so stash the affect
+        # for the NEXT main tick's x_t = c*a_vec + (1-c)*s*h_t. a_vec mirrors the
+        # existing assessor->base mapping (design §3.1); no-op unless PEL is live.
+        confidence = max(0.0, min(1.0, float(assessment.get("confidence", 0.5))))
+        a_vec = [
+            0.67 * valence,  # 0 warmth tracks positive valence
+            arousal,  # 1 arousal
+            valence,  # 2 valence
+            0.8 * wound_risk,  # 3 tension
+            0.0,  # 4 curiosity
+            0.5 * wound_risk,  # 5 repair_pressure
+            0.0,  # 6 expression_drive
+            0.0,  # 7 boundary_firmness
+        ]
+        self._engine.store_pel_affect(a_vec, confidence)
 
     def _emotion_to_boundary_force(self, emotion: dict[str, float]) -> list[float]:
         values = (
@@ -927,6 +960,20 @@ class ResonanceSpine:
                 "boundary_firmness": 0.0,
             }
         )
+        resonance: dict[str, Any] = {
+            "iterations": self._last_resonance_meta.get("iterations", 0),
+            "converged": self._last_resonance_meta.get("converged", True),
+            "energy": round(obs["total_energy"], 4),
+            "sync_order": round(obs["sync_order"], 4),
+            "active_channels": obs["active_channels"],
+            "plasticity_ratio": round(obs["plasticity_ratio"], 4),
+            "phi": round(self._emergence.phi.phi, 4),
+        }
+        # D-1: surface the PEL free energy as an additive key (present only when the
+        # latent core is live, so the legacy path's result shape is unchanged).
+        pel_diag = self._engine.scar_state.pel_diagnostics()
+        if pel_diag is not None:
+            resonance["free_energy"] = round(float(pel_diag["free_energy"]), 4)
         return {
             "tick": self._tick_count,
             "text": text[:120],
@@ -947,21 +994,13 @@ class ResonanceSpine:
                 "exploration_rate": round(self._expression_policy.exploration_rate, 4),
             },
             "boundary_stability": self._boundary.stability(),
-            "resonance": {
-                "iterations": self._last_resonance_meta.get("iterations", 0),
-                "converged": self._last_resonance_meta.get("converged", True),
-                "energy": round(obs["total_energy"], 4),
-                "sync_order": round(obs["sync_order"], 4),
-                "active_channels": obs["active_channels"],
-                "plasticity_ratio": round(obs["plasticity_ratio"], 4),
-                "phi": round(self._emergence.phi.phi, 4),
-            },
+            "resonance": resonance,
             "hgt_decision": list(hgt_decision) if hgt_decision else [0.0, 0.0, 0.0, 0.0],
             "assessment_source": "resonance_field",
         }
 
     def diagnostics(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "tick_count": self._tick_count,
             "last_route": self._last_route,
             "route_counts": dict(self._route_counts),
@@ -979,6 +1018,21 @@ class ResonanceSpine:
                 "is_critical": self._emergence.order.is_critical,
             },
         }
+        # D-10: non-semantic PEL gate signal + surprise + per-dim precisions.
+        # SIGNAL ONLY — the SDK produces ``assessor_advisable``; any decision to
+        # actually skip an assessor/LLM call is a downstream concern, not wired here.
+        pel_diag = self._engine.scar_state.pel_diagnostics()
+        if pel_diag is not None:
+            out["pel"] = {
+                "assessor_advisable": self._last_assessor_advisable,
+                "surprise": round(self._last_surprise, 4),
+                "free_energy": round(float(pel_diag["free_energy"]), 4),
+                "pi_obs": pel_diag["pi_obs"],
+                "pi_top": pel_diag["pi_top"],
+                "mean_abs_e0": round(float(pel_diag["mean_abs_e0"]), 6),
+                "mean_abs_e1": round(float(pel_diag["mean_abs_e1"]), 6),
+            }
+        return out
 
     def to_dict(self) -> dict[str, Any]:
         return {
