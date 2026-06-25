@@ -211,3 +211,9 @@ training/data/
 training/models/
 training/training/
 _topology_test*.py
+
+# Distillation corpora / spike artifacts — regenerable (deterministic simulate_corpus.py
+# + pinned seed); never commit the binaries, only the generator + RESULTS.md.
+# (Trained model .npz go through the models/ Git-LFS registry, not here — see TDD §7.)
+training/student_core/*.parquet
+training/**/*.parquet
