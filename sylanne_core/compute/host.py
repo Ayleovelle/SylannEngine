@@ -25,6 +25,7 @@ from .runtime import AlphaRuntime
 
 if TYPE_CHECKING:
     from ..config import DimensionProfile
+    from ..telemetry import DistillationSink
 
 _FLUSH_INTERVAL: float = 5.0
 _FLUSH_TICK_THRESHOLD: int = 8
@@ -83,6 +84,7 @@ class SylanneAlphaHost:
     session_key: str = "default"
     legacy: dict[str, Any] | None = None
     profile: DimensionProfile | None = None
+    telemetry_sink: DistillationSink | None = None
     runtime: AlphaRuntime = field(init=False)
     kernel: AlphaKernel = field(init=False)
     _dirty: bool = field(init=False, default=False)
@@ -93,6 +95,7 @@ class SylanneAlphaHost:
     def __post_init__(self) -> None:
         self.runtime = AlphaRuntime(Path(self.root), profile=self.profile)
         self.kernel = self.runtime.load(self.session_key, legacy=self.legacy)
+        self.kernel.set_telemetry(self.telemetry_sink)
         self._last_flush_time = time.time()
 
     def on_request(
