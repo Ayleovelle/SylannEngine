@@ -55,11 +55,6 @@ if TYPE_CHECKING:
 
 _TIMING_WINDOW = 50
 
-# D-10: surprise below this (and no wound hint) marks the tick as low-novelty, so
-# the non-semantic ``assessor_advisable`` gate signal reads False. This only flags
-# a *suggestion* surfaced via diagnostics — it never skips any downstream call.
-_LOW_SURPRISE_THRESH = 0.25
-
 
 class ResonanceSpine:
     """Drop-in replacement for ComputationSpine using resonance field dynamics.
@@ -452,10 +447,20 @@ class ResonanceSpine:
         # D-10: non-semantic assessor-advisable gate. Wound hints come from the
         # engine's own coupling wounds / fresh scars this tick (no assessor needed).
         # Asymmetric safety: ANY wound hint => advisable True regardless of surprise.
+        #
+        # "Low novelty" is ADAPTIVE, not a fixed absolute constant. A tick counts as
+        # low-surprise only when its surprise sits below the gate's own running-mean
+        # surprise. The realistic spine regime has a high surprise floor (~0.45-0.5);
+        # a small fixed threshold (the old 0.25) sat far below that floor, pinning the
+        # gate to a constant True and leaving the "low => False" branch dead. Comparing
+        # against the running mean keeps the branch live across regimes/corpora — about
+        # half the ticks fall below their own recent average and advise skipping, while
+        # any wound still forces True. SIGNAL ONLY: no downstream call is skipped here.
         scar_step = engine_result.get("scar")
         new_scars = scar_step.get("new_scars") if isinstance(scar_step, dict) else None
         wound_hint = bool(engine_result.get("coupling_wounds")) or bool(new_scars)
-        self._last_assessor_advisable = surprise >= _LOW_SURPRISE_THRESH or wound_hint
+        low_surprise = surprise < self._gate.mean_surprise()
+        self._last_assessor_advisable = (not low_surprise) or wound_hint
         if assessment:
             self._apply_assessment_to_engine(assessment)
         emotion = self._engine.observe()

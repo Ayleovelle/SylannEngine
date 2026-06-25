@@ -24,10 +24,15 @@ from __future__ import annotations
 import math
 import statistics
 import time
+from typing import TYPE_CHECKING
 
 from sylanne_core.compute.pel_core import PELCore
+from sylanne_core.compute.predictive_coding import PredictiveCodingGate
 from sylanne_core.compute.resonance_integration import ResonanceSpine
 from sylanne_core.config import build_profile
+
+if TYPE_CHECKING:
+    from pytest import MonkeyPatch
 
 TSUNDERE: dict[str, float] = {
     "openness": 0.7,
@@ -209,20 +214,52 @@ def test_assessor_advisable_signal_surfaced_in_diagnostics() -> None:
     assert len(pel["pi_top"]) == 8
 
 
-def test_assessor_advisable_true_on_wound_hint() -> None:
-    # Asymmetric safety: any wound hint forces advisable True regardless of surprise.
+def test_assessor_advisable_true_on_wound_hint(monkeypatch: MonkeyPatch) -> None:
+    # Asymmetric safety (D-10): ANY engine wound forces advisable True even when the
+    # surprise branch would say "skip". This drives a REAL fresh scar through the live
+    # scar algebra — the exact lever D-10 reads (``engine_result["scar"]["new_scars"]``)
+    # — while NEUTRALISING the surprise branch by pinning the running-mean surprise
+    # above any observed surprise, so ``surprise < mean`` is always True (low-novelty
+    # => surprise branch contributes False). Advisable can then be True ONLY via the
+    # wound path; if that path regressed, the final assertion would go red.
     spine = ResonanceSpine(profile=build_profile("lite"), pel_enabled=True)
     spine.apply_personality(TSUNDERE)
-    # A strong-wound assessment drives a scar wound; the NEXT tick should see the
-    # gate stay advisable. Drive several ticks so a coupling/scar wound can form.
-    for t in range(6):
-        spine.process(
-            CORPUS[t],
-            timestamp=float(t + 1),
-            assessment={"valence": -0.8, "arousal": 0.7, "wound_risk": 0.9, "confidence": 0.8},
-        )
-    diag = spine.diagnostics()
-    assert diag["pel"]["assessor_advisable"] is True
+    # Warm a genuine surprise history first so the live gate is real, not cold.
+    for t in range(8):
+        spine.process(CORPUS[t], timestamp=float(t + 1))
+
+    # Neutralise the surprise branch: force every tick to read as low-novelty.
+    monkeypatch.setattr(PredictiveCodingGate, "mean_surprise", lambda self: 2.0)
+
+    # Control: surprise branch neutralised AND no wound => advisable MUST be False.
+    # This proves the neutralisation is real and the gate is not pinned to True
+    # (so a True later is attributable to the wound, not a constant signal).
+    spine.process("I am calm and fine today.", timestamp=100.0)
+    assert spine.diagnostics()["pel"]["assessor_advisable"] is False
+
+    # Drive a REAL engine fresh-scar: a near-zero wound threshold makes the live scar
+    # algebra form scars from this tick's modulated input (new_scars non-empty).
+    before = len(spine._engine.scar_state.scars)
+    spine._engine.scar_state.wound_threshold = -1.0
+    spine.process("hello there friend", timestamp=101.0)
+    after = len(spine._engine.scar_state.scars)
+    assert after > before, "no real wound formed — test would not exercise the rule"
+    assert spine.diagnostics()["pel"]["assessor_advisable"] is True
+
+
+def test_assessor_advisable_signal_is_non_constant_in_realistic_regime() -> None:
+    # D-10 recalibration guard (must-fix #2): the adaptive running-mean low-novelty
+    # rule must NOT collapse to a deployment-time constant the way the old absolute
+    # 0.25 threshold did (always True, dead "low => False" branch). Replaying the
+    # realistic corpus, the signal takes BOTH values — some ticks advise calling, some
+    # advise skipping — so the low-surprise branch is provably live.
+    spine = ResonanceSpine(profile=build_profile("lite"), pel_enabled=True)
+    spine.apply_personality(TSUNDERE)
+    seen: set[bool] = set()
+    for t in range(160):
+        spine.process(CORPUS[t % len(CORPUS)], timestamp=float(t + 1))
+        seen.add(spine.diagnostics()["pel"]["assessor_advisable"])
+    assert seen == {True, False}, seen
 
 
 def test_assessor_advisable_off_when_pel_disabled() -> None:
