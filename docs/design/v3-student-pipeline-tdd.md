@@ -1,482 +1,370 @@
-# TDD: SylannEngine v3 — Student Pipeline (corpus → train → serve, par2 reach-outcome loop)
+# TDD: SylannEngine v3 — Learned Emotional Core ("PEL-Core" / broad student)
 
-- Status: Draft (for owner review)
+- Status: Draft v2 (BROAD scope — supersedes the narrow-student v1 draft)
 - Author: Sylanne (design), Ayleovelle (owner/reviewer)
 - Last updated: 2026-06-25
 - Scope: SDK `sylanne_core` (branch `next-gen`) + plugin `Sylanne-next` (`sylanne_alpha`)
-- Related: par1 telemetry sink (built, `next-gen`), vendor-stability audit (GREEN)
+- Decision log: **D-1 = BROAD** (the student replaces the emotion core, not just `_decide`);
+  **(b) = brain loop committed** (the shared core continually re-distills real
+  assessor-labeled traffic — *not* a one-shot clone of the field).
+
+---
+
+## 0. What changed from v1 (narrow) and why
+
+The v1 draft scoped the student narrowly: a 30-feature→6-action MLP that imitates
+`kernel._decide`. An adversarial review of the **broad** scope was brutally clear and the
+owner accepted it: **distilling the existing resonance field is, by itself, theater** — it
+clones a deterministic `seed=42` contraction MLP and *gains zero new behavior*. The only
+thing that makes this a **brain** rather than a learned mask is the part the first design
+**deferred**: the **shared core continually re-trained on real assessor-labeled traffic**.
+
+This v2 commits that loop as the product. The student is **PEL-Core**: a small **recurrent
+learned emotion core** that replaces the `seed=42` MLP, bootstrapped to field-parity
+offline, then **kept improving by distilling the remote assessor's real affective
+judgments** on live conversations, and personalized per-session online. The field is never
+deleted — it is the offline distillation teacher *and* the instant runtime fallback.
+
+**Cost trajectory (owner's observation, now a design goal):** at bootstrap the assessor
+LLM call is the **same cost v1/v2 already pay** — collecting the training corpus is a free
+byproduct. At maturity the core has distilled the assessor, so we **confidence-gate** the
+assessor: call the LLM only when the fast core is uncertain. The brain therefore *pays for
+itself* by reducing LLM calls below today's baseline (§8, Phase M).
 
 ---
 
 ## 1. Executive summary
 
-We are building the **v3 "student"**: a small, CPU-only, offline-trained model that the
-SDK can serve inside a **2 vCPU / 2 GB-RAM / no-GPU, multi-session** box. The student
-learns the **affect + timing policy** (numeric state features → action) from a
-privacy-safe corpus, is corrected per-session online by the existing `MetaLearner`, and
-is taught by the remote **assessor** (the semantic organ). Semantics stay with the
-assessor; the student never produces text.
+Build **BroadCore-S**: a ~3.4K-param **recurrent** emotion cell (GRU-style over an 8-dim
+emotion latent) that replaces `ScarredState._evolve_base` (the fixed `seed=42` MLP) + the
+`_apply_assessment_to_engine` bias + the `observe()` readout. It produces `scar_state.base[0..7]`
+(the 8-dim emotion) from **(assessor affect + HDC-of-message + prior emotion state +
+time/body scalars)** — the **I/O flip**: the par1 `f_*` emotion features are now the
+core's **outputs**, never its inputs. Everything downstream (the field's
+void/resonance/HGT/expression machinery, `_decide`, `_guard`, par1/par2) runs **unchanged**
+on the student's base.
 
-Three tiers, already partly in place:
+Served as **pure-numpy int8** (`.npz` < 8 KB, sub-µs inline, **no torch**) in 2 vCPU / 2 GB /
+no-GPU multi-session; it is a **latency win** (it replaces the field's iterative
+Kuramoto/Hopfield `resonate()` loop). Default-off behind `student_model_enabled`; any
+failure falls instantly back to the live field.
 
-```
-            (offline, owner's local GPU)         (remote API)
-   teacher ───────────────► student ◄──────────── assessor
-   v2.1 EmotiCore           30 feats→action       LLM: valence/arousal/
-   (text→emotion,           ~12K-param MLP         wound_risk/flags
-   corpus auto-labeler)     int8 .npz, numpy       + online corrective
-        │                   served in 2c2g            teacher signal
-        │ labels                  ▲  ▲                    │
-        ▼                         │  │ par1 features      │ a_* labels
-   corpus_labeled.jsonl     par1 corpus ──── join ──── par2 reach-outcome
-   (1M rows, exists)        (built, default-off)   (this TDD: new)
-```
+Three teaching stages: **(A) offline field-distillation** (day-1 parity, unlimited free
+data from owned deterministic code), **(B) continual re-distillation of real
+assessor-labeled traffic** (the brain — the shared core surpasses the field by learning the
+assessor's real semantics), **(C) online per-session assessor-corrective residual** (bounded
+personalization). The reward purity rule holds: par2 `accepted/ignored/rejected` drives the
+**timing** loop only and **never** enters the emotion-core loss.
 
-What already exists (do **not** rebuild): the **par1 `DistillationSink`** (numeric
-feature + assessor-affect capture, default-off, privacy-safe), the **`MetaLearner`**
-online residual (`accepted/ignored/rejected`, elastic-regularized), the
-**train-torch → export-`.npz` → numpy-serve** pattern (proven by `EmotiCoreStudentLite`),
-and 1M+ rows of teacher-labeled text corpus.
-
-What this TDD adds: **par2** (the async reach-outcome label loop across both repos), the
-**student model + offline training pipeline**, the **numpy serving runtime** behind the
-unused `EngineFacade`, the **phased reversible rollout**, and the **engineering
-standards / observability / governance** around all of it.
-
-**The single biggest decision for the owner** is the **student's scope** — narrow
-(imitate `_decide`'s affect+timing policy, a safe drop-in) vs broad (replace the whole
-resonance tick as the learned core). See §14, Decision D-1. This TDD recommends and
-specs the **narrow** scope for v3.0 and treats broad as a gated v3.1.
+**This is "Ring 1"** — the smallest replacement that realizes the learned-core vision.
+Ring 2 (learn the resonance block) and Ring 3 (full tick) are gated future cycles. Body /
+`_decide` / `_guard` / `affect_debt` / `hot_pool` are **never** touched.
 
 ---
 
 ## 2. Goals / Non-goals
 
 ### Goals
-- G1 — Close the **par2 loop** end-to-end: a discrete, action-contingent outcome
-  (`accepted | ignored | rejected`) that joins back to the exact par1 row that caused it
-  (the tick where `decision.action == "reach_out"` and `guard.allowed`), correct under
-  async delay, multi-session concurrency, and process restarts on both repos.
-- G2 — Ship a **CPU-only, no-torch, low-RAM** student artifact (int8 `.npz`, pure-numpy
-  forward, sub-ms/inference) that loads **once** shared read-only across all sessions.
-- G3 — Define the **local offline training loop** (PyTorch on the owner's GPU, no cloud):
-  par1 JSONL → tensors → train → int8 `.npz` + manifest, reproducible, leakage-free.
-- G4 — **Additive / default-off** everywhere on the SDK side; honor the GREEN-frozen
-  public API + backward-compatible snapshot/restore.
-- G5 — Privacy-by-construction for multi-user data: no raw text, no PII, no network
-  egress; the only identity token is the existing salted `SHA-256(salt:key)[:16]`.
-- G6 — A **fully reversible phased rollout** with a kill switch to native `_decide()` at
-  every stage, plus observability and acceptance gates.
-- G7 — Adopt explicit **engineering standards** (commits / lint / types / tests +
-  data governance + model registry + acceptance gates).
+- G1 — Replace the `seed=42` emotion MLP with a **learned recurrent core** that is
+  **field-equivalent on day one** and then **improves** by distilling the assessor.
+- G2 — Make it a **real brain**: commit the **continual re-distillation of real
+  assessor-labeled traffic** (CORE2 stream) so the shared core exceeds the field, plus a
+  bounded **online per-session** assessor-corrective residual.
+- G3 — Serve **CPU-only, no-torch, < 1 MB RSS, sub-µs inline** in 2c2g multi-session;
+  a **latency win** vs the field tick.
+- G4 — **Additive / default-off**, GREEN-frozen public API intact, snapshot/restore
+  backward-compatible, field retained as teacher + instant fallback.
+- G5 — **No split-brain**: the same backend drives BOTH the par1 telemetry *and* the prompt
+  surface the LLM sees (the wrapper exposes `.engine`).
+- G6 — **Cost goal (maturity):** confidence-gate the assessor so the trained core lets us
+  call the LLM less than v1/v2 — the brain reduces cost, not just "feels smarter."
+- G7 — Adopt explicit engineering standards (commits/lint/types/tests + data governance +
+  model registry + acceptance gates), incl. the 7 required fixes from the adversarial review.
 
 ### Non-goals
-- NOT replacing the **assessor** — it stays the semantic oracle and online teacher; the
-  student maps numeric features to an action, it never emits text/semantics.
-- NOT replacing **EmotiCore** (text→emotion) — that is the offline corpus auto-labeler,
-  it never runs at 2c2g serving.
-- NOT **cloud / offline-at-serving** training — training is local-GPU only; serving does
-  zero backprop.
-- NOT using **assessor wound-delta** (or any `a_*` delta) as the reward — the reward is
-  the discrete `accepted/ignored/rejected` action class only (hard adversarial lesson).
-- NOT introducing **torch / onnxruntime / ggml** at serving (justified in §7).
-- NOT changing the **par1 schema** (`AFFECT_CONTEXT_FIELDS`, `FEATURE_SCHEMA_VERSION=1`).
-- NOT a **sequence model** in v3.0 (per-tick tabular; short-context is a gated v3.1 option).
+- NOT replacing the **assessor** (semantic organ + online teacher) or making the core do
+  text/semantics. The core does the **affect/emotion dynamics** only.
+- NOT touching `_decide`/`_guard`/body/`affect_debt`/`hot_pool` (timing is the par2 loop).
+- NOT Ring 2/3 in v3.0 (resonance-block / full-tick learning are gated later cycles).
+- NOT cloud or at-serving training; no torch/onnx/ggml at serving (§7).
+- NOT using assessor **wound-delta** or par2 reward in the **emotion-core** loss
+  (hard adversarial lesson — reward belongs to the timing loop only).
+- NOT deleting the resonance field (it is the distillation teacher and the fallback).
 
 ---
 
-## 3. Background & current state (grounding facts)
+## 3. Background & grounding facts (verified in code)
 
-These are verified facts from the codebase, not assumptions:
-
-- **par1 row** (`FEATURE_SCHEMA_VERSION=1`, written by `DistillationSink`,
-  `sylanne_core/telemetry/sink.py`): `{schema_version, session_hash[16hex], tick, 26 f_*
-  floats in AFFECT_CONTEXT_FIELDS order, a_valence, a_arousal, a_wound_risk, a_confidence,
-  decision_action:str}`. Captured **only on assessed ticks**
-  (`kernel.py:_capture_telemetry`, gated `sink is not None and assessment is not None`).
-  It captures **all** assessed ticks, not only `reach_out` — the reach filter is applied
-  **offline** at corpus-build time.
-- **Student input** = the 30-vector `[26 f_*] ++ [a_valence, a_arousal, a_wound_risk,
-  a_confidence]` in `AFFECT_CONTEXT_FIELDS` order. **Target** = `decision_action` ∈
-  `{repair, withdraw, reach_out, express, explore, wait}` (the deterministic
-  `kernel._decide` oracle).
-- **`MetaLearner`** (`sylanne_core/compute/meta_learner.py`) already implements
-  `update(outcome)` for exactly `accepted/rejected/ignored`, with EMA + elastic ≤30%-of-seed
-  regularization + exploration noise, and is already serialized in
-  `ResonanceSpine.to_dict()`. **This is the per-session online residual — do not reinvent it.**
-- **`ResonanceSpine.feedback(outcome, …)`** (`resonance_integration.py:795`) is the real
-  feedback bus (drives `MetaLearner.update`, scar healing, relationship deltas). It is
-  **NOT engine-public**; any use needs an explicit new wrapper (no fabricated path).
-- **par2 hook** is `host.on_proactive_check` (`host.py:146`) — the *only* path that
-  consumes interruption-budget. The plugin's `derive_should_send` reconstructs intent
-  **without** consuming budget — par2 must **not** hook there (double-count hazard).
-- **Plugin** (`Sylanne-next`) vendors the SDK at
-  `sylanne_alpha/_engine/sylanne_core`; consumes it through `engine_adapter.py`. The
-  **`EngineFacade`** (`engine_adapter.py:129`) is **defined but unused** — the designated
-  slot for the student backend. The definitive "message was sent" signal is
-  `ProactiveBridge.dispatch()` returning `{"dispatched": True}` (`proactive_bridge.py:301`).
-  No three-way outcome classifier exists today (only binary answered/unanswered).
-- **Serving facts**: AstrBot is a single async event loop; hosts are a
-  `BoundedDict(maxsize=200)` LRU; eviction = snapshot to disk via `AlphaRuntime.save`
-  (atomic `fsync`+`os.replace`); **no torch imported** (`force_backend='python'`).
-- **Training assets**: `training/` holds a **superseded** text→emotion stack
-  (`generate_data.py`, `train_model*.py`, `perception_v1.npz`) plus `EmotiCore`
-  (teacher/student-lite, source `.pyc`-only) and **1M+ rows** of teacher-labeled corpus.
-  **No trained teacher `.pt` exists in-repo** (`train_teacher.log` crashed 2026-06-02);
-  the owner's external v2.1 teacher must be located, or the affect-KD term is dropped.
+- The emotion core is **`ScarredState._evolve_base`** (`scar_algebra.py:276-306`) with
+  fixed `seed=42`, spectrally-normalized (`‖W1‖·‖W2‖ < 0.49`) → a **deterministic
+  contraction map**: `base_t = tanh(W2·tanh(W1·[base_{t-1}; modulated_input]))`. Plus
+  `ResonanceSpine._apply_assessment_to_engine` (`resonance_integration.py:588-647`) which
+  nudges `base[0/1/2]` + void pressure from the assessor. `observe()` reads `base[0..7]`.
+- **The I/O flip**: par1's `f_warmth..f_plasticity_ratio` are the field's **outputs**, so a
+  core that *produces* them cannot *consume* them. The core's inputs are the **causes** of
+  emotion: assessor `a_*`, HDC-of-message, prior `base`, time/body scalars.
+- **Per-tick is a chain, not one step**: `VoidScarEngine.process` calls `step()` **2..N
+  times/tick** (one per Γ-coupling wound + the main event, `void_scar_engine.py:182,186`),
+  each re-evolving `base` **and** mutating scar/void/circuit-breaker state. The bootstrap
+  corpus must log the **full per-step (pre,post) transition chain**, not just the endpoint.
+- **`.engine` is load-bearing for the prompt**: `kernel._computation_emotion_overlay`
+  (`kernel.py:612`) calls `self.computation.engine.observe()` directly to build the prompt
+  fragment the LLM sees. A wrapper that omits `.engine` produces a **split-brain**
+  (telemetry = student, prompt = field).
+- Already built / reuse: par1 `DistillationSink`; `MetaLearner` online residual
+  (`accepted/ignored/rejected`, elastic ≤30% drift, serialized); train-torch→export-`.npz`→
+  numpy-serve pattern (`EmotiCoreStudentLite`); 1M-row teacher-labeled text corpus.
+  **No trained teacher `.pt` in repo** (`train_teacher.log` crashed) → EmotiCore KD is
+  optional (`λ_kd=0`).
+- Plugin: vendors SDK at `_engine/sylanne_core`; `EngineFacade` (`engine_adapter.py:129`)
+  is the unused student slot; par2 send-confirm = `ProactiveBridge.dispatch()=={dispatched:True}`.
 
 ---
 
-## 4. Architecture overview
-
-The student is a **drop-in policy** inside the existing tick, not a new organ:
+## 4. Architecture (broad / Ring 1)
 
 ```
- user msg ─► plugin (engine_adapter / EngineFacade)
-              │  assessment (remote assessor: a_valence/arousal/wound_risk/flags)
-              ▼
-        SDK: host.on_request → kernel.tick(assessment)
-              │  build 30-vec x (26 f_* + 4 a_*)
-              ├─ if student.ready and enabled:
-              │     action,probs,p_reach = student.predict(x, residual_bias)   # numpy, µs
-              │  else:
-              │     action = kernel._decide()                                  # heuristic fallback
-              ├─ _guard()/cooldown/budget/sovereignty  (UNCHANGED — student never bypasses)
-              ├─ par1 DistillationSink.record_tick(...)  (assessed ticks, default-off)
-              ▼
-        surface → plugin business layer (UNCHANGED keys)
+ user msg ─► plugin ─► assessor (remote LLM: a_valence/arousal/wound_risk/flags)
+                         │  (same LLM cost as v1/v2 at bootstrap)
+                         ▼
+   SDK kernel.tick(assessment):
+     ResonanceSpine.process / BroadCoreRuntime.process  (same signature, same result dict)
+        ├─ HDC encode, predictive-coding gate            (UNCHANGED — feeds core input)
+        ├─ EMOTION CORE  ◄── the only thing replaced
+        │    if student.ready and enabled:
+        │       base[0..7] = BroadCore_S.step(a_*, hdc, prior base, dt/body)   # numpy, µs
+        │       (skip _apply_assessment_to_engine — a_* already consumed)      # fix #3
+        │    else:
+        │       base[0..7] = seed42_MLP._evolve_base(...) + assessment nudge    # field fallback
+        ├─ void/scar topology, sheaf, HGT, boundary, field.resonate(), Φ      (UNCHANGED, on base)
+        ├─ observe() / .engine.observe()  ◄── BOTH driven by the student base   # fix #1 (no split-brain)
+        ▼
+     result dict (emotion 8 + resonance + ...) → _decide/_guard/par1/par2/prompt  (ALL UNCHANGED)
 
- proactive: host.on_proactive_check → should_send → ProactiveBridge.dispatch
-              └─ on {dispatched:True}: plugin arms awaiting_par2[session]      # par2 attribution
- next user msg / timeout:
-              plugin classifies accepted/ignored/rejected
-              └─ engine.report_reach_outcome(session, originating_tick, outcome, apply_online?)
-                    ├─ Par2Sink.record_outcome(...)               # corpus label (default)
-                    └─ if apply_online: host.kernel.computation.feedback(outcome)  # → MetaLearner
+ BRAIN LOOP (what makes it learn, not clone):
+   (A) offline: run the real field headless → (x→base) corpus → distill to day-1 parity
+   (B) continual: capture real (x→assessor-affect) on live traffic (CORE2, default-off)
+                  → periodically RE-DISTILL the SHARED core so it exceeds the field
+   (C) online: per-tick predict-then-correct vs assessor a_* → bounded per-session residual
 ```
 
-Key invariants:
-- The student **augments** `_decide`; `_guard` and par1 capture are untouched → GREEN
-  contract + adversarial-lesson wiring preserved.
-- One **shared read-only** student; per-session personalization is the **existing**
-  `MetaLearner` residual → flat RAM across 200 sessions, no new snapshot field for the model.
-- par2 attribution lives **plugin-side** (the only actor that sees both send and reply),
-  in its own atomic store — never appended to `.alpha.json`.
+Invariants: the student **augments the producer of `base`**, nothing downstream changes
+shape; **one shared read-only** core + tiny per-session residual; the **field stays** as
+teacher + fallback; reward (`par2`) never touches the emotion loss.
 
 ---
 
 ## 5. Component design
 
-### 5.1 Data pipeline (par1 + par2 + offline join)
+### 5.1 BroadCore-S model
 
-- **par2 join key = `(session_hash, originating_tick)`.** Both already exist in every
-  par1 row; `tick` is `kernel.turns`, snapshot-persisted, so the join is **restart-safe
-  by construction** with **no `FEATURE_SCHEMA_VERSION` bump** and **no new identity token**.
-- **par2 is a separate append-only stream** `reach_outcomes.jsonl`, written by a new
-  `Par2Sink` modeled byte-for-byte on `DistillationSink` (thread-safe `Lock`, `0o600`,
-  `_resolve_under_base` traversal guard, same salt). **Never** rewrite par1 in place
-  (append-only + open `0o600` handle ⇒ corruption hazard) and **never** put pending state
-  in `.alpha.json`.
-- **Offline join** (`training/build_corpus.py`): read par1 shards → filter
-  `decision_action=='reach_out'` → left-outer-join par2 on `(session_hash, originating_tick)`
-  → apply deletion tombstones → emit a **parquet** shard + manifest. The reach filter is
-  enforced **twice** (plugin only arms after a confirmed reach_out dispatch; builder filters
-  par1) so a label can never land on a non-reach row.
-- **Write format = sharded JSONL** (stdlib, 2c2g-safe), **corpus format = parquet**
-  (pyarrow, **training-side only**, never shipped to serving). Rotate JSONL at 64 MB / daily.
-- **Volume**: ~300-400 B/par1-row; e.g. 50 opted-in users × ~200 assessed ticks/day ≈
-  10k rows/day ≈ 3-4 MB/day raw (~1 MB zstd-parquet) — JSONL is comfortable for years.
-  par2 rows are tiny and far fewer (reach ticks only).
-
-par2 row (`PAR2_SCHEMA_VERSION=1`):
+A **gated recurrent cell** over the 8-dim emotion latent `z` (because the field is a
+recurrent contraction map; a stateless MLP cannot reproduce hysteresis / `affect_debt`-like
+integration):
 ```
-{schema_version:1, session_hash:str16, originating_tick:int,
- outcome:"accepted"|"ignored"|"rejected", dispatch_ts:float, observed_ts:float,
- latency_turns:int}   # no text, no event_id, no a_* (those are par1 features)
+x_t (~40 floats, fixed order, all causes-of-emotion, never field outputs):
+  [0:4]  assessor a_valence[-1,1], a_arousal[0,1], a_wound_risk[0,1], a_confidence[0,1]
+  [4:8]  HDC-of-message compressed (4 floats, deterministic, text-free)
+  [8]    surprise (PredictiveCodingGate, kept as input)
+  [9:17] prior emotion z_{t-1}[0..7]   (the recurrent carry = scar_state.base)
+  [17:21] dt(log), turns(log), proactive_flag, repair_flag
+  [21:25] need_contact, need_repair, sovereignty, affect_debt   (from kernel pre-process)
+  [25:40] reserved zeros (forward-compat; loader asserts feature_order)
+cell:  h = tanh(x_t·Win);  h ⊙= σ(z_{t-1}·Uz + h·Uh);  z_t = clamp(tanh(z_{t-1}·Wrec + h·Wout), -1, 1)
+heads off [z_t; h]:  emotion = z_t (8) ; aux(coherence,void_pressure,active_voids,surprise,boundary_stability)=σ/softplus(40→5)
+                     resonance(energy,sync_order,phi,plasticity_ratio)=softplus/σ(40→4)
+                     should_express = (z_t[6] > learned_threshold)   # deterministic, reproducible
 ```
+~3.4K params; int8 `.npz` < 8 KB; f32 working < 32 KB. A **contraction regularizer**
+(effective spectral radius < 1) replaces the field's explicit spectral normalization so the
+recurrence **cannot diverge**.
 
-### 5.2 par2 cross-repo loop (SDK + plugin)
+### 5.2 Teaching (the three stages)
 
-**SDK (additive, default-off):**
-- `SylanneConfig`: `reach_outcome_sink: bool = False`, `reach_outcome_path: str|None = None`
-  (basename under `<data_dir>/telemetry`), reusing `training_data_salt` (must match par1
-  salt for joinability — `__post_init__` warns if par2 on while par1 off).
-- New `Par2Sink` + `engine._build_par2_sink()` (mirrors `_build_telemetry_sink`).
-- **One** new engine-public method — the unified, reconciled signature:
-  ```python
-  async def report_reach_outcome(
-      self, session_id: str, originating_tick: int,
-      outcome: Literal["accepted","ignored","rejected"], *,
-      dispatch_ts: float|None=None, observed_ts: float|None=None,
-      latency_turns: int=-1, apply_online: bool=False,
-  ) -> bool:
-      """Persist the par2 corpus label (default). If apply_online=True, ALSO route
-      to host.kernel.computation.feedback(outcome) (the real spine bus → MetaLearner).
-      Returns False (zero-cost) when the par2 sink is disabled / session unknown.
-      Validates outcome enum; never calls a fabricated path."""
-  ```
-  **Default `apply_online=False`** → corpus-only, zero runtime mutation (lowest risk).
-  `apply_online=True` is the explicit opt-in that closes the online residual loop.
-- **Additive read-only surface**: `host_payload['originating_tick'] = self.turns` and
-  `host_payload['guard_allowed'] = bool(last_guard["allowed"])` so the plugin arms par2
-  with the exact join key without reaching into kernel internals. (Adding keys is
-  vendor-audit-confirmed safe; existing readers ignore extra keys.)
+- **(A) Offline field-distillation — day-1 parity.** `training/student_core/simulate_corpus.py`
+  imports `ScarredState`+`VoidScarEngine`+`ResonanceSpine` directly (no plugin/network) and
+  runs the real field over **domain-randomized sequences** (a_* across full ranges incl.
+  `wound_risk>0.7` trauma spikes; prior-base across `[-1,1]^8`; dt across the clamp; HDC from
+  sampled/real text). It logs the **full per-step (pre-base, modulated-input, post-base)
+  transition chain** (fix #2) so the student learns the exact map incl. the multi-`step()`
+  per tick. Train BroadCore-S with **truncated BPTT** (≈16-tick windows), AdamW +
+  CosineAnnealingLR, on the owner's local GPU. PTQ → int8. **Loss:**
+  `SmoothL1(z, field_emotion_8)·1.0 + SmoothL1(res_head, field_res_4)·0.5 +
+  SmoothL1(aux_head, field_aux_5)·0.3 + BCE(should_express)·0.2 + λ_kd·EmotiCore_soft +
+  contraction_reg`. **Gate:** int8 emotion MAE vs field ≤ 0.03, resonance MAE ≤ 0.05,
+  trajectory correlation ≥ floor ("no worse than the field on day one").
+- **(B) Continual re-distillation — the brain (the (b) commitment).** A **CORE2 capture
+  stream** (`Par2Sink`-style, default-off, same salt) logs, on **real assessed ticks**,
+  `(x_t  →  assessor a_*)` joined by `(session_hash, tick)`. Periodically (offline, owner's
+  GPU) **re-train the shared core** with the assessor's real `a_*` as the target on the
+  driven dims, so the core distills the LLM's **real semantics** and **surpasses** the
+  hand-coded field. A **covariate-shift (KS)** gate compares real vs sim marginals before any
+  re-distilled core is promoted. *This is the line between brain and theater — it is in
+  scope, not deferred.*
+- **(C) Online per-session residual — personalization.** Predict-then-correct: each tick the
+  core predicts `z`; the assessor's `a_valence/a_arousal` (and the field's own nudge as a soft
+  target) correct the 3 driven dims via a **bounded plastic readout bias** (≤17 floats,
+  elastic ≤30% drift, EMA — **no backprop at serving**), riding the existing snapshot.
 
-**Plugin (`Sylanne-next`, additive):**
-- New `SessionStateStore` container `awaiting_par2_outcome: BoundedDict(maxsize=50)`,
-  persisted under a new `'par2'` subsystem key (atomic save), restored on session load.
-- **Arm** exactly once, when `ProactiveBridge.dispatch()` returns `{"dispatched": True}`
-  AND `host_payload.should_send` AND `guard_allowed` AND `decision.action=='reach_out'`.
-  Store `{originating_tick, dispatch_ts, session_key, ttl_deadline}`.
-- **Resolve** at `on_message` (`main.py:1106`, earliest signal) or a periodic timeout
-  sweep. Classify from the **reply tick's existing assessment** (no extra LLM call):
-  - `accepted` = substantive reply within window + positive engagement (length /
-    continuation / non-dismissive flags),
-  - `rejected` = explicit dismissal / stop / annoyed flag,
-  - `ignored` = no reply before `ttl_deadline` (timeout sweep; startup sweep drains
-    sidecars after restart).
-  Then pop and `await engine.report_reach_outcome(...)`.
-- **Capability negotiation**: top-level `SYLANNE_CAPABILITIES` frozenset (e.g.
-  `"reach_outcome_v1"`) + a vendored-version pin; the plugin feature-detects before
-  calling, so a new vendored SDK never breaks an old plugin and vice versa.
+Reward purity: par2 `accepted/ignored/rejected` feeds the **timing** loop
+(`report_reach_outcome` → `MetaLearner`) only; it **never** enters (A)/(B)/(C) emotion loss.
 
-### 5.3 Student model & offline training
+### 5.3 Serving runtime & integration
 
-- **Model** (`StudentMLP`, ~12-40K params): `Linear(30→128) tanh → Linear(128→64) tanh`
-  then three heads: `action_head(64→6)` softmax, `reach_head(64→1)` calibrated sigmoid,
-  `affect_head(64→4)` auxiliary (reproduce `a_*`). Per-tick i.i.d. tabular — no
-  attention/recurrence (30 unordered numeric features have no sequence structure;
-  `f_affect_debt`/`f_cooldown` already encode history as scalars).
-- **Supervision (reconciled, no fabricated KD)**:
-  `L = CE(action) + λ_r·BCE(reach) + λ_a·SmoothL1(affect) + λ_kd·MSE(affect, teacher_soft)`.
-  Action head is supervised on `decision_action` (the deterministic kernel oracle).
-  The **teacher provides affect soft-targets only** (it is text→emotion, has **no action
-  head**); `λ_kd=0` if no teacher checkpoint is located. par2 outcomes enter as an
-  **optional reach-head re-weighting** term, never a wound-delta reward.
-- **Bootstrap data**: run the real kernel **headless** with `training_data_sink=True` over
-  domain-randomized stimulus streams → genuine par1 rows with **true** oracle labels,
-  before real opt-in data exists. Mix in real par1 later, gated by a covariate-shift (KS)
-  check on marginals so a sim-only model is never promoted to real traffic blindly.
-- **Split GROUPED by `session_hash`** (no session straddles train/val/test) — enforced in
-  `build_corpus.py`, asserted in `eval.py`.
-- **New package** `training/student/`: `simulate_corpus.py`, `build_corpus.py` (→ parquet
-  + manifest), `model.py`, `train.py` (AdamW + CosineAnnealingLR, multi-task, group-split,
-  early-stop on val action-agreement), `quantize.py` (PTQ + optional QAT), `export.py`
-  (state_dict → int8 `.npz` + manifest), `eval.py` (gate runner), `registry.py`. Old
-  text-perception scripts move to `training/legacy/`.
+- **`BroadCoreRuntime`** wraps the live `ResonanceSpine`: same `process(text, timestamp,
+  assessment=None, **kwargs)` signature, same result-dict shape, so `kernel._tick_inner` is
+  untouched and backend-agnostic. It **delegates `to_dict()/from_dict()/feedback()`** to the
+  wrapped field (snapshot + `MetaLearner` serialization byte-unchanged) and **exposes
+  `.engine`** as an engine-shim whose `observe()` returns the **student** emotion (fix #1 —
+  prompt and telemetry share one backend; contract test asserts
+  `_computation_emotion_overlay() == telemetry emotion`).
+- The replacement **seam is inside `ScarredState`**: an optional runtime-only `_core_fn`
+  callable (set via `set_core_model()`, never serialized, like `_telemetry_sink`); `None` ⇒
+  the `seed=42` MLP exactly as today.
+- **Fallback state machine** (load → `sha256` → 1-step int8-vs-f32 parity self-test →
+  `feature_order` check → ready); any failure or per-tick exception ⇒ `field.process(...)`.
+  A **runtime contraction circuit-breaker** (clamp `base∈[-1,1]` + `‖Δbase‖`-spike ⇒ field
+  fallback) lands **before canary** (fix #5).
+- **Ownership of coherence/void_pressure/active_voids** (fix #4): Ring 1 keeps them
+  **field-computed on the student base** and asserts downstream tolerance; they are emitted
+  from the student only in Ring 2. Documented, not implicitly desynced.
 
-### 5.4 Serving @ 2c2g
+### 5.4 par2 (timing) loop — carried unchanged from v1
 
-- **Runtime = pure numpy** (`StudentRuntime` / `NumpyStudent`, `sylanne_core/student/`),
-  loaded from int8 `.npz`, in-process, **no thread** (forward ≈ 4K MACs ≈ single-digit µs
-  ⇒ runs inline in the async loop). Justification vs onnx/ggml in §7.
-- **Shared read-only** weights loaded once. **Per-session residual = existing
-  `MetaLearner`** state mapped to a small **6-logit bias** (`|bias| ≤ ~1.5` logits),
-  bounded by MetaLearner's elastic ≤30% drift cap. The residual rides the **existing**
-  snapshot (`computation.to_dict()` already serializes `meta_learner`) — **no new
-  per-session model state, no schema bump**. (A runtime-only `_student_runtime` field on
-  the kernel mirrors `_telemetry_sink`; an additive `_student_residual` 6-vec is the only
-  optional new snapshot key, default `None` ⇒ heuristic-equivalent.)
-- **Integration at `EngineFacade`** (the unused slot), **not** by editing
-  `SylanneAlphaHost` or the frozen API. The student outputs a policy distribution the
-  kernel maps to an action; `_guard`/cooldown/budget/sovereignty/par1-capture all unchanged.
-- **Graceful degradation** is a start-time state machine: load `.npz` → verify `sha256` →
-  1-row int8-vs-reference **parity self-test** → `ready`; any failure ⇒ `backend='heuristic'`,
-  plus a per-tick `try/except` falling to `_decide()`. "No model" / "model off" is
-  behaviorally identical to today.
-- **Online teacher loop**: the remote assessor's `a_*` feed the student's **features**
-  (never the reward); par2 discrete outcomes feed `MetaLearner.update()` via
-  `report_reach_outcome(..., apply_online=True)`. No backprop at serving.
+par2 (the reach-outcome label that joins to the originating `reach_out` tick) is **unchanged
+by the broad scope**: one additive default-off `engine.report_reach_outcome(session_id,
+originating_tick, outcome, *, apply_online=False)` (corpus-only by default; `apply_online=True`
+routes to `host.kernel.computation.feedback` → `MetaLearner`), join key
+`(session_hash, originating_tick)`, plugin `awaiting_par2_outcome` store armed on
+`bridge.dispatch()=={dispatched:True}`, classified from the reply tick's assessment, `ignored`
+on timeout. See §A1 for the carried spec. par2 supervises **timing**, never the emotion core.
 
 ---
 
-## 6. Interfaces & schemas (summary)
+## 6. Required fixes from the adversarial review (all MUST land for Ring 1)
 
-| Surface | What | Compatibility |
-|---|---|---|
-| `SylanneConfig` | `+reach_outcome_sink:bool=False`, `+reach_outcome_path:str\|None=None`, `+student_model_enabled:bool=False`, `+student_model_path:str\|None=None` | additive, safe defaults |
-| `SylanneEngine` | `+async report_reach_outcome(...)`; `+SYLANNE_CAPABILITIES` | additive, default-off |
-| `host_payload` | `+originating_tick:int`, `+guard_allowed:bool` | additive read-only keys |
-| kernel snapshot | `+_student_residual:list[float]\|None` (optional) | `dict.get` default `None`, no schema bump |
-| `Par2Sink` | new internal writer, `reach_outcomes.jsonl` | internal, not in `__all__` |
-| `StudentRuntime` | new internal numpy runtime | internal, not in `__all__` |
-| Plugin | `+awaiting_par2_outcome` store, `+'par2'` subsystem, arm/resolve/classifier, `EngineFacade` student wiring | downstream, owner-driven |
-
-Student `.npz` (`STUDENT_SCHEMA_VERSION=1`): per-layer int8 weights + f32 scales/biases,
-`feature_mean/std[30]`, `feature_order` (== `AFFECT_CONTEXT_FIELDS ++ a_*`), `class_order`
-(== 6 actions), `reach_temperature`. Sidecar `manifest.json`: `model_id`, semver,
-`feature_schema_version`, `data_hash`, `git_sha`, `seed`, torch/cuda versions, gate
-results, `promotion_state`, `parent_model_id`, `sha256`.
+1. **Wrapper exposes `.engine`** (engine-shim `observe()` → student emotion) + forward
+   `apply_personality`/`embodiment_bounds`; contract test: overlay == telemetry emotion.
+2. **Full per-step transition corpus** (log every `_evolve_base` call's `(pre, input, post)`,
+   since `VoidScarEngine.process` re-evolves base 2..N times/tick); decide+test whether the
+   student replaces every call or only the readout.
+3. **Skip `_apply_assessment_to_engine` when the student is active** (it already consumes
+   `a_*`); unit test asserting single application of valence/arousal.
+4. **Pin ownership of coherence/void_pressure/active_voids** (Ring 1: field-computed + assert
+   downstream tolerance; never implicitly desynced).
+5. **Runtime contraction circuit-breaker** (clamp + `‖Δbase‖`-spike → field) **before** canary;
+   gated on trajectory stability, not per-tick MAE alone.
+6. **Shadow gate includes expression-decision divergence** (`should_express`, hgt-gated path),
+   not only base/resonance MAE.
+7. **Snapshot round-trip CI both directions**, with and without `_broad_core_residual`.
 
 ---
 
-## 7. Recommended tech stack (with justification)
+## 7. Tech stack
 
 | Layer | Choice | Why |
 |---|---|---|
-| Training | **PyTorch** (AdamW + CosineAnnealingLR), owner local GPU only | reuses `train_model_torch.py` + `export_to_numpy()`; cost-free; never shipped |
-| Quantization | **int8 per-tensor symmetric** PTQ (+ optional QAT) | `w_f32 = scale·w_i8` trivial in numpy; ~4× shrink; precedent in `EmotiCoreStudentLite`; gated by parity test |
-| Model format | **`.npz`** (`np.savez_compressed`) + `manifest.json` | proven in-repo (`perception_v1.npz`); self-describing; one mmap-friendly load; no protobuf/onnx graph |
-| Serving runtime | **pure numpy** `NumpyStudent` | **no torch (~300-400 MB)**, no onnxruntime (~15-40 MB + native dep + per-session arena RAM) — for a <50 KB / 4K-FLOP MLP the graph-opt benefit is **noise** while the dep cost is real against 2 GB. numpy is already a dep. |
-| Online residual | **existing `MetaLearner`** | already does `accepted/rejected/ignored` + elastic reg + serialization; reinventing risks the "no backprop at serving" rule |
-| Eviction/persist | **existing `AlphaRuntime`** atomic snapshot + `BoundedDict` LRU | recon-confirmed idle-evict mechanism; residual rides it |
-| par2 writer | **stdlib JSONL** `Par2Sink` | byte-for-byte the GREEN-audited `DistillationSink` pattern; zero deps; crash-safe lines |
-| Offline corpus | **parquet (pyarrow)** + zstd, sharded | columnar projection / predicate pushdown / repro shards; **training-side only** |
-| Registry | flat `models/` + `manifest.json` + SHA-256 (Git-LFS for `.npz`) | no MLflow/W&B server fits a solo, local, offline workflow; manifest + hash = repro + provenance |
-| Tests/lint/types | **pytest + pytest-asyncio** (`asyncio_mode=auto`), **ruff(+ASYNC)**, **mypy --strict** | AstrBot dev standard §10/§11; SDK already mypy-strict |
-
-**ONNX / ggml are explicitly rejected** for v3.0 serving and kept only as a documented
-escape hatch if a future student exceeds ~1-2M params or adopts sequence-over-ticks modeling.
+| Model | tiny **recurrent** cell (GRU-style, ~3.4K params) | the field is a recurrent contraction map; a stateless MLP loses the dynamics; recurrence is ~free and IS the per-session state |
+| Training | **PyTorch** (truncated BPTT, AdamW+cosine), owner GPU only | reuses `train_model_torch.py` + `export_to_numpy()`; never shipped |
+| Quant | int8 per-tensor symmetric PTQ | `.npz` < 8 KB; trivial numpy dequant; gated by parity test; f32 runtime state to bound recurrent int8 error |
+| Serving | **pure numpy** int8, inline | no torch (~300-400 MB), no onnx/ggml; proven by `EmotiCoreStudentLite`; latency win vs field |
+| Online residual | bounded plastic readout bias (elastic ≤30%, EMA) reusing `MetaLearner` discipline | no backprop at serving; rides existing snapshot |
+| Corpus | sim: stdlib JSONL → parquet (training-side); CORE2: `Par2Sink`-style default-off | unlimited free sim data; real-traffic stream for the brain loop |
+| Registry | flat `models/` + `manifest.json` + sha256 (Git-LFS) | repro/provenance, zero infra |
+| Tests/lint/types | pytest+pytest-asyncio, ruff(+ASYNC), mypy --strict | AstrBot §10/§11; SDK already mypy-strict |
 
 ---
 
-## 8. Phased rollout (all reversible; kill switch = config flag → `_decide`)
+## 8. Phased rollout (Ring 1; each reversible, kill switch = flag → field)
 
-| Phase | Work | Gate to advance | Reversible? |
-|---|---|---|---|
-| **P0 Collect** | owner vendors `next-gen` (separate session); enable `training_data_sink` (+ par2 sink); accumulate corpus | corpus rows ≥ N, par2 coverage ≥ M% | yes (flag off) |
-| **P1 Bootstrap-train** | headless sim corpus → train StudentMLP → int8 `.npz` + manifest | full **gate suite** (below) on held-out test | n/a (offline) |
-| **P2 Shadow** | student infers but **does not act**; log student-vs-`_decide` and student-vs-assessor agreement on real traffic | rolling agreement ≥ floor over a window; covariate-shift KS ≤ threshold | yes |
-| **P3 Canary** | student acts for a small session subset behind `student_model_enabled` + canary % | canary agreement/SLOs hold; no guard-divergence regressions | yes (flag/percent) |
-| **P4 Promote** | student default for affect+timing map; `MetaLearner` residual on via `apply_online=True` | sustained SLOs; auto-rollback armed | yes (instant flag → `_decide`) |
+| Phase | Work | Gate |
+|---|---|---|
+| **P0** | `simulate_corpus.py` (full per-step chain) → parquet + manifest | — (offline) |
+| **P1** | train BroadCore-S (BPTT) → int8 `.npz` + manifest | int8 emotion MAE ≤ 0.03, res MAE ≤ 0.05, traj-corr ≥ floor, numpy==torch parity |
+| **P2 Shadow** | `BroadCoreRuntime` computes+logs but field drives; compare student-vs-field on real traffic (par1 cols = field targets) | rolling base+expression divergence ≤ thr; KS covariate-shift OK |
+| **P3 Canary** | student drives `base` for a canary %; circuit-breaker + per-tick try/except → field; assessor-correction residual on | trajectory stability; expression divergence ≤ small %; latency/RSS SLOs |
+| **P4 Promote Ring 1** | student is the emotion core by default; online residual on; auto-rollback armed | sustained SLOs |
+| **Phase B (brain loop)** | CORE2 real-traffic capture on; periodic shared-core **re-distillation** vs assessor; KS-gated promote of each new core version | re-distilled core beats prior on held-out real traffic |
+| **Phase M (maturity / cost)** | **confidence-gate the assessor**: when the core's predicted affect is high-confidence + low-surprise, skip/defer the LLM assessor call; call it on uncertainty/novelty | LLM-call rate ↓ vs v1/v2 with affect quality held |
 
-**Model acceptance gate suite** (all must pass on the held-out, session-grouped test split,
-run on the **int8** artifact): action-agreement vs `_decide` ≥ 0.97 (with per-class
-`reach_out` recall reported, not just accuracy); reach ECE ≤ 0.05; replay guard-decision
-divergence ≤ 0.5%; p99 inference latency ≤ 1 ms (CI); RSS delta < 5 MB; int8-vs-f32
-argmax-agreement ≥ 99%; no session-hash leakage; covariate-shift KS ≤ threshold. **Auto-rollback**:
-if rolling student-vs-`_decide` agreement drops below the floor over a window in P3/P4,
-flip back to `_decide`.
-
-**Vendor cutover (owner, separate session)** — the safe procedure: (1) back up
-`sylanne_alpha/_engine/sylanne_core`; (2) replace the **whole directory** atomically with
-`next-gen` (never file-by-file — a half-new tree calls `set_telemetry` on an old kernel →
-`AttributeError`); (3) keep the assessor knob in its current state (a swap is behaviorally
-inert unless assessor is on); (4) smoke test: process one message, assert no exception +
-capability present; (5) rollback = restore the backup dir.
+Ring 2 (resonance block) / Ring 3 (full tick) are **separate future P0–P4 cycles**, only
+after Ring 1 + Phase B prove out. Vendor cutover (owner, separate session): atomic
+whole-`_engine/sylanne_core` swap, keep assessor knob, backup + smoke test + one-command
+rollback.
 
 ---
 
-## 9. Engineering standards & conventions
+## 9. Standards / observability / testing / governance (carried + delta)
 
-- **Commits/branches** (AstrBot §9): Conventional Commits, English subject+body,
-  trunk-based short-lived `feat/`/`fix/`/`docs/`/`chore/` branches, squash-merge.
-  v3 integration line = `next-gen`.
-- **Lint/types** (§10): `ruff format` + `ruff check` (add **ASYNC** ruleset),
-  `mypy --strict` on `sylanne_core`; pure-logic helpers fully typed.
-- **Tests** (§11): pytest + pytest-asyncio (`asyncio_mode=auto`); fakes for LLM + proactive
-  plugin; frozen-clock fixture for timeout sweeps.
-- **Data governance**: opt-in default-off (`training_data_sink`, `reach_outcome_sink`); no
-  PII / no raw text / no network egress; `0o600` files; salt stored **outside**
-  `<data_dir>/telemetry`; `salt_fingerprint = SHA-256(salt)[:8]` in each manifest so the
-  builder fails loud on cross-salt joins; documented retention window; **right-to-deletion**
-  by appending the anonymized `session_hash` to a tombstone file (builder excludes; a
-  compaction pass physically purges raw shards within an SLA).
-- **Model registry / reproducibility**: every `.npz` carries a `manifest.json`
-  (semver + `sha256` + feature/class order + `data_hash` + `git_sha` + seed + env);
-  promotion = moving a `current` pointer; a `feature_order` mismatch at load forces
-  degradation (prevents feeding a misordered vector).
+- **Standards**: Conventional Commits + trunk-based + English (§9); ruff(+ASYNC) + mypy
+  strict (§10); pytest+pytest-asyncio (§11); review checklist (§13). v3 line = `next-gen`.
+- **Observability** (stdlib-only, no egress, via `health()`/diagnostics + JSONL metrics):
+  corpus growth (sim + CORE2), **student-vs-field base/resonance/expression divergence**,
+  int8 parity, fallback rate, contraction-breaker trips, residual drift, per-tick latency
+  p50/p95/p99, RSS, **assessor-call rate** (Phase M), re-distillation version + KS deltas.
+- **Testing**: parity (numpy==torch), **no-split-brain** (overlay==telemetry), assessment
+  no-double-apply, contraction-breaker, shadow-divergence, snapshot round-trip ±residual,
+  load test (N sessions, 2c2g budget). par2 attribution (arm/resolve/restart/reset) carried.
+- **Governance**: opt-in default-off (`student_model_enabled`, CORE2 sink); no PII / no text /
+  no egress; `0o600`; salted hash join; retention + tombstone right-to-deletion;
+  model registry (semver + sha256 + feature_order check forces degradation on mismatch).
 
 ---
 
-## 10. Observability (stdlib-only, no network egress)
-
-Metrics emitted to a local JSONL metrics log + an in-process counter snapshot surfaced via
-the existing `engine.health()` / diagnostics: corpus growth (par1/par2 rows/day, par2
-label coverage %, class histogram), student health (inference p50/p95/p99 latency, fallback
-rate, int8 parity), agreement (student-vs-`_decide`, student-vs-assessor, drift of the
-per-session residual), resource (RSS delta, host-eviction rate), and governance counters
-(tombstone count, orphan-label count). Optional `prometheus-client` only if the owner
-already runs Prometheus — off by default.
-
----
-
-## 11. Testing strategy
-
-- **Unit**: `Par2Sink` (write/disabled/no-PII/traversal/rotation), `report_reach_outcome`
-  (enum validation, default-off zero-cost, `apply_online` routing), `NumpyStudent`
-  (numpy==torch parity within 1e-4 + argmax-identical, int8 dequant, residual bias add).
-- **Integration**: arm→resolve par2 across a fake proactive send + fake reply; restart
-  between dispatch and reply resolves via sidecar; `reset()` mid-wait drops the entry
-  (no mis-join); the par2 row's `originating_tick` equals the par1 `reach_out` tick.
-- **Contract**: introspect `process/feedback/snapshot/restore` signatures + result keys
-  unchanged with student/par2 enabled; snapshot round-trip with `_student_residual`
-  byte-stable; an **old** snapshot (no key) restores cleanly.
-- **Eval/gates**: the full §8 gate suite in CI on a fixture model.
-- **Load**: `asyncio.gather` over N synthetic sessions measuring p50/p95 latency + RSS
-  under the 2 vCPU / 2 GB budget.
-
----
-
-## 12. Risks & mitigations (top)
+## 10. Risks & mitigations (broad-specific top)
 
 | Risk | Mitigation |
 |---|---|
-| Two send paths double-count par2 | arm **only** on `bridge.dispatch()=={dispatched:True}` (budget path); assert arm-count == confirmed-send count |
-| Restart loses in-flight attribution | atomic sidecar at arm time + startup sweep resumes timeout accounting |
-| `reset()` tick reuse mis-joins | drop awaiting entries on `reset()`; builder `(session_hash, tick)` unique-latest dedup |
-| Train/serve numerical divergence | mandatory CI parity test (numpy==torch, argmax-identical) gates the model build |
-| Corpus scarcity at launch | bootstrap via headless kernel sim (true oracle labels), then mix real par1 under a KS gate |
-| Salt mismatch silently empties join | par2 reuses `training_data_salt`; builder verifies `salt_fingerprint` across shards, **fails loud** |
-| Residual drift → degenerate always-reach | MetaLearner elastic 30% cap + logit clamp + drift circuit-breaker resets residual |
-| Snapshot/contract drift | shared read-only student, no required new snapshot field; round-trip CI test both directions |
-| No teacher checkpoint | affect head trains on `a_*` alone (`λ_kd=0`); teacher KD optional |
-| **Oracle-imitation low value** | if `_decide` is already cheap, the student's win is only calibration + residual substrate — see Decision D-1 |
-| Right-to-deletion completeness | tombstone excludes at build + scheduled compaction purges raw shards within SLA (deletion by anonymized hash) |
-| Vendored-version skew | `SYLANNE_VENDOR_VERSION` pin + `SYLANNE_CAPABILITIES` feature-detect + post-cutover smoke test |
+| **Theater** (clone-the-field gains nothing) | **Phase B** continual re-distillation on real assessor traffic is committed, not deferred — the core is *trained to beat the field* |
+| Split-brain (telemetry vs prompt) | fix #1 wrapper `.engine` + contract test |
+| Per-tick `step()`-chain desync | fix #2 full per-step corpus + decide single-vs-readout replacement |
+| `a_*` double-apply | fix #3 skip-guard + test |
+| Recurrent int8 divergence over long sessions | f32 runtime state + clamp + contraction reg + circuit-breaker + long-horizon CI |
+| coherence/void/active_voids desync | fix #4 field-computed in Ring 1, asserted tolerance |
+| Expression timing flips while base MAE tiny | fix #6 expression-divergence shadow gate |
+| Mid-session fallback hands field stale void/scar state | keep field void/scar bookkeeping live in shadow/canary; documented decision |
+| Two spine classes (`ResonanceSpine`/`ComputationSpine`) | wrapper + corpus target whichever is `_DEFAULT_SPINE`; assert at build |
+| Uncorrected dims (tension/curiosity/boundary) drift online | only the 3 assessor-driven dims get online correction; others anchored to the distilled prior + contraction reg; bound residual |
+| No teacher `.pt` | `λ_kd=0`; field-distill + assessor are sufficient |
 
 ---
 
-## 13. What is reused vs built-new
+## 11. Open decisions for the owner
 
-- **Reuse (do not rebuild)**: `DistillationSink` + par1 schema; `MetaLearner` residual;
-  `train_model_torch.py` `export_to_numpy()`; `EmotiCoreStudentLite` NumpyInference/int8
-  pattern; `AlphaRuntime` atomic snapshot + LRU eviction; `corpus_labeled.jsonl` (1M rows,
-  teacher-labeled) for the **corpus-labeler** role.
-- **Build new**: `Par2Sink` + `report_reach_outcome` + the 2 host_payload keys (SDK);
-  `awaiting_par2_outcome` store + arm/resolve/classifier + `EngineFacade` student wiring
-  (plugin); `StudentMLP` + `training/student/` package; `NumpyStudent` serving runtime;
-  the offline `build_corpus.py` join + parquet; the registry + gate suite + observability.
-- **Supersede** (move to `training/legacy/`): `generate_data.py`, `train_model*.py`,
-  `perception_v1.npz` (text→emotion, wrong task). `EmotiCore` stays as the corpus labeler.
-- **Recover/decide**: `EmotiCore`/`sylann_v3` source is `.pyc`-only — rewrite the ~30-line
-  NumpyInference/int8 helper rather than decompile; locate the external v2.1 teacher.
-
----
-
-## 14. Open decisions for the owner (genuine forks)
-
-- **D-1 (scope — the big one):** Is the student the **narrow** affect+timing policy
-  (imitate `_decide`; safe drop-in; this TDD) or the **broad** learned core that **replaces
-  the whole resonance tick** (the original v3 "real brain" vision)? Recon says the tick is
-  already cpu-cheap, so the narrow student's value is mostly *calibrated reach probability +
-  a differentiable substrate for the residual*, not raw speed. **Recommendation:** ship
-  narrow for v3.0 (low risk, proves the corpus→train→serve→online loop), gate broad as v3.1.
-- **D-2 (online loop timing):** Does `report_reach_outcome` run **corpus-only**
-  (`apply_online=False`) for v3.0, with online `MetaLearner` routing deferred — or close the
-  online loop immediately? **Recommendation:** corpus-only first (no runtime mutation),
-  flip `apply_online=True` at P4.
-- **D-3 (acceptance SLOs / asymmetry):** the numeric promote bars, and is **false-silence**
-  (stay quiet when she should reach out) worse than **false-reach**? This weights
-  `reach_out` recall vs overall agreement — a personality/UX call.
-- **D-4 (governance):** retention window for raw shards; opt-in disclosure wording for
-  multi-user data; minimum-N before a real-data student may be promoted.
-- **D-5 (`ignored` semantics):** the timeout (default: next user message OR 4 h) that
-  decides when silence becomes `ignored` — encodes her patience/clinginess and shapes the
-  class balance.
-- **D-6 (teacher):** locate the external v2.1 teacher checkpoint (enables affect-KD), or
-  accept `λ_kd=0` (affect head on `a_*` alone).
+- **D-1 RESOLVED**: broad scope, **Ring 1** (emotion core), **brain loop committed** (Phase B).
+- **D-7 (assessor extension):** to ground more than 3/8 dims online, extend the assessor
+  output schema (add e.g. curiosity/intimacy/boundary continuous fields). Backward-compatible
+  prompt change. **Recommend yes** (it directly widens what the brain can learn) — your call.
+- **D-8 (Phase M aggressiveness):** how hard to confidence-gate the assessor (cost↓ vs affect
+  fidelity). A cost/quality dial only you set.
+- **D-9 (online residual reach):** keep online correction to the 3 driven dims, or let it
+  touch more once D-7 lands?
+- **D-10 (governance):** retention window; opt-in disclosure for the CORE2 real-traffic stream
+  (multi-user data); minimum-N before a re-distilled core may promote.
+- **D-11 (Ring 2 trigger):** what proof from Ring 1 + Phase B greenlights learning the
+  resonance block (skipping the Kuramoto/Hopfield loop for more latency win)?
 
 ---
 
-## 15. Appendix — key file pointers
+## Appendix A1 — par2 timing loop (carried spec)
 
-SDK (`G:\SylannEngine`): `sylanne_core/telemetry/sink.py:37` (`AFFECT_CONTEXT_FIELDS`),
-`compute/kernel.py:927` (`_capture_telemetry`), `:988` (`_decide`), `:895`
-(`_reach_threshold`), `compute/meta_learner.py:198` (`update`), `compute/host.py:146`
-(`on_proactive_check`), `compute/resonance_integration.py:795` (spine `feedback`),
-`engine.py:383` (`_build_telemetry_sink`), `config.py:183` (config), `training/` (superseded
-text stack + `EmotiCore` `.pyc` + 1M-row corpus).
-Plugin (`G:\Sylanne-next`): `sylanne_alpha/engine_adapter.py:129` (`EngineFacade`),
-`:34` (`SEND_ACTIONS`), `proactive_bridge.py:301` (`dispatch`), `main.py:1106` (`on_message`),
-`session_state_store.py` (stores), `state_persistence.py` (`_VALID_SUBSYSTEMS`).
+SDK: `+report_reach_outcome(session_id, originating_tick, outcome, *, dispatch_ts=None,
+observed_ts=None, latency_turns=-1, apply_online=False) -> bool`; `+Par2Sink`
+(`reach_outcomes.jsonl`, `PAR2_SCHEMA_VERSION=1`, row `{schema_version, session_hash,
+originating_tick, outcome, dispatch_ts, observed_ts, latency_turns}`); `+SylanneConfig
+reach_outcome_sink/reach_outcome_path`; `+host_payload originating_tick/guard_allowed`
+(additive read-only); `+SYLANNE_CAPABILITIES`. Plugin: `awaiting_par2_outcome` store
+(persisted, restart-safe), arm on `bridge.dispatch()=={dispatched:True}` ∧ `guard_allowed` ∧
+`decision.action=='reach_out'`, classify from the reply tick's assessment, `ignored` on a
+default-4h timeout sweep. Reward stays discrete; never wound-delta; never into emotion loss.
+
+## Appendix A2 — key file pointers
+
+SDK: `scar_algebra.py:218-306` (`seed=42` `_evolve_base`), `void_scar_engine.py:182,186`
+(per-tick `step()` chain) `:211-233` (`observe`), `resonance_integration.py:343-511`
+(`process`) `:588-647` (`_apply_assessment_to_engine`) `:886-939` (`_build_result`)
+`:985` (`MetaLearner` serialize), `kernel.py:265` (`process` call) `:612`
+(`_computation_emotion_overlay` → `.engine.observe()`), `telemetry/sink.py:37`
+(`AFFECT_CONTEXT_FIELDS`), `meta_learner.py:198` (`update`), `config.py:183`.
+Plugin: `engine_adapter.py:129` (`EngineFacade`), `proactive_bridge.py:301` (`dispatch`),
+`main.py:1106` (`on_message`), `state_persistence.py` (`_VALID_SUBSYSTEMS`).
