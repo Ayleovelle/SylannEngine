@@ -124,6 +124,12 @@ class AlphaKernel:
     hot_pool: HotPool = field(default_factory=HotPool)
     _last_computation_result: dict[str, Any] = field(default_factory=dict)
     _cached_vector_summary: dict[str, float] | None = field(default=None, repr=False)
+    # Unresolved emotional pressure (allostatic threshold bias for proactive reach-out).
+    # Asymmetric-leak scalar: spikes on a hurtful/negative read, leaks slowly, clears
+    # when soothed or after a successful reach-out. Lowers reach_out's need_contact
+    # threshold so a bruised exchange brings her back sooner than flat silence would —
+    # but never bypasses _guard (opt-in/cooldown/budget/sovereignty all stay in front).
+    _affect_debt: float = 0.0
 
     @classmethod
     def boot(
@@ -177,6 +183,10 @@ class AlphaKernel:
             snapshot["_last_computation_result"], dict
         ):
             kernel._last_computation_result = snapshot["_last_computation_result"]
+        try:
+            kernel._affect_debt = max(0.0, min(1.0, float(snapshot.get("_affect_debt", 0.0))))
+        except (TypeError, ValueError):
+            kernel._affect_debt = 0.0
         return kernel
 
     def tick(
@@ -253,6 +263,10 @@ class AlphaKernel:
             assessment=assessment,
             dialogue_quality=_dq,
         )
+        # Emotional debt is updated from this tick's read before _decide reads the
+        # reach_out threshold — a bruising exchange brings her back sooner than flat
+        # silence. Only biases the threshold; _guard still gates every outward action.
+        self._update_affect_debt(assessment)
         collapse_record = self.hot_pool.tick(body=self.body, spine=self.computation)
         if collapse_record is not None:
             self._apply_collapse(collapse_record)
@@ -331,6 +345,7 @@ class AlphaKernel:
             "computation": self.computation.to_dict(),
             "hot_pool": self.hot_pool.to_dict(),
             "_last_computation_result": self._last_computation_result,
+            "_affect_debt": self._affect_debt,
         }
 
     def _diagnostics(
@@ -830,6 +845,71 @@ class AlphaKernel:
         self._cached_vector_summary = summary
         return summary
 
+    def _trait_view(self) -> dict[str, Any]:
+        """Effective Big-Five traits for this session (handles the optional
+        ``{"traits": {...}}`` wrapper). Per-relationship and drifts over time, so
+        affect-driven timing is her temperament, not a global knob."""
+        p = self._personality()
+        if not isinstance(p, dict):
+            return {}
+        inner = p.get("traits", p)
+        return inner if isinstance(inner, dict) else {}
+
+    def _update_affect_debt(self, assessment: dict[str, Any] | None) -> None:
+        """Accumulate unresolved emotional pressure (allostatic threshold bias).
+
+        Asymmetric leak, paced by personality so the behaviour emerges from her
+        traits rather than a hardcoded knob: a bruising read spikes it fast, calm
+        leaks it slowly, being soothed clears it. Reads ONLY the raw assessment
+        (valence/wound_risk); with no assessment (idle / proactive checks) it merely
+        leaks. Never touches ``body.needs`` or ``_guard`` — it only biases the
+        reach_out threshold in ``_decide``; the safety gates stay fully in front.
+        """
+        t = self._trait_view()
+        neuro = max(0.0, min(1.0, float(t.get("neuroticism", 0.5))))
+        leak = max(0.02, min(0.14, 0.08 - 0.05 * (neuro - 0.5)))  # high neuroticism holds longer
+        debt = self._affect_debt * (1.0 - leak)
+        if assessment:
+            try:
+                valence = max(-1.0, min(1.0, float(assessment.get("valence", 0.0))))
+                wound = max(0.0, min(1.0, float(assessment.get("wound_risk", 0.0))))
+            except (TypeError, ValueError):
+                valence, wound = 0.0, 0.0
+            raw = max(0.0, -valence) * 0.6 + wound * 0.4  # unresolved negative pressure [0,1]
+            if raw > debt:
+                alpha_up = max(0.3, min(0.9, 0.6 + 0.3 * (neuro - 0.5)))  # reactive spike
+                debt += alpha_up * (raw - debt)
+            if valence > 0.5:  # being soothed discharges
+                debt *= max(0.0, 1.0 - (valence - 0.5) * 2.0)
+        self._affect_debt = max(0.0, min(1.0, debt))
+
+    def _reach_threshold(self, *, proactive: bool) -> float:
+        """need_contact threshold for reach_out, lowered by unresolved emotional debt.
+
+        Extraversion (plus a little anxious neuroticism) makes her come back sooner
+        after a bruise. At ``affect_debt == 0`` this returns the original literals
+        (0.1 proactive / 0.2 reactive) exactly, so behaviour is unchanged absent
+        any emotional charge.
+        """
+        t = self._trait_view()
+        extra = max(0.0, min(1.0, float(t.get("extraversion", 0.5))))
+        neuro = max(0.0, min(1.0, float(t.get("neuroticism", 0.5))))
+        aggr = max(0.04, min(0.24, 0.12 + 0.10 * (extra - 0.5) + 0.06 * (neuro - 0.5)))
+        pull = aggr * self._affect_debt
+        if proactive:
+            return max(0.04, 0.1 - pull)
+        return max(0.08, 0.2 - pull)
+
+    def discharge_affect_debt(self) -> None:
+        """Spend emotional debt after a successful reach-out, so it cannot keep
+        re-firing each time cooldown recovers (the delayed-talkative hole). How much
+        lingers is set by agreeableness: an agreeable read is soothed by acting, a
+        guarded one stays a little sulky even after reaching out."""
+        t = self._trait_view()
+        agree = max(0.0, min(1.0, float(t.get("agreeableness", 0.5))))
+        keep = max(0.1, min(0.6, 0.3 - 0.2 * (agree - 0.5)))
+        self._affect_debt *= keep
+
     def _decide(self) -> dict[str, Any]:
         """基于身体需求的行动决策。
 
@@ -850,7 +930,8 @@ class AlphaKernel:
             reason = "boundary asks for distance"
             reason_code = "boundary_pressure"
         elif (
-            (proactive and needs["need_contact"] >= 0.1) or needs["need_contact"] > 0.2
+            (proactive and needs["need_contact"] >= self._reach_threshold(proactive=True))
+            or needs["need_contact"] > self._reach_threshold(proactive=False)
         ) and self.body.muscle.fatigue < 0.8:
             action = "reach_out"
             reason = "contact need has accumulated"
