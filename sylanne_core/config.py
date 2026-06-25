@@ -194,6 +194,15 @@ class SylanneConfig:
         force_backend: Override auto-detected compute backend.
             None = auto-detect, "torch" = force GPU via PyTorch,
             "python" = force pure-Python (useful for testing/debugging).
+        training_data_sink: Opt in to writing a local distillation corpus
+            (numeric features + assessor affect) for offline student training.
+            Default False — collects nothing. This is multi-user data; no raw
+            text or PII is ever written and there is no network egress.
+        training_data_path: Filename for the corpus under ``<data_dir>/telemetry``.
+            Defaults to "distill_corpus.jsonl"; only the basename is used.
+        training_data_salt: Local salt for the non-reversible session hash. If
+            empty, a per-process random salt is used (cross-run grouping is then
+            unstable). Keep it out of the dataset directory.
     """
 
     mode: Literal["lite", "pro", "max"] = "lite"
@@ -203,6 +212,9 @@ class SylanneConfig:
     tick_drift_cap: float = 0.05
     locale: str = "zh"
     force_backend: str | None = None
+    training_data_sink: bool = False
+    training_data_path: str | None = None
+    training_data_salt: str = ""
 
     def __post_init__(self) -> None:
         if self.mode not in ("lite", "pro", "max"):

@@ -54,6 +54,7 @@ except ImportError:
 
 if TYPE_CHECKING:
     from ..config import DimensionProfile
+    from ..telemetry import DistillationSink
 
 logger = logging.getLogger("sylanne_core")
 
@@ -130,6 +131,10 @@ class AlphaKernel:
     # threshold so a bruised exchange brings her back sooner than flat silence would —
     # but never bypasses _guard (opt-in/cooldown/budget/sovereignty all stay in front).
     _affect_debt: float = 0.0
+    # Optional distillation corpus sink (runtime-only; never serialized). Attached
+    # by the host after load when SylanneConfig.training_data_sink is on; otherwise
+    # stays None so the per-tick guard is a single None check (zero cost when off).
+    _telemetry_sink: DistillationSink | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def boot(
@@ -287,6 +292,10 @@ class AlphaKernel:
         )
         self.last_decision = self._decide()
         self.last_guard = self._guard(self.last_decision)
+        # Distillation corpus capture (par1): assessed ticks only, numeric-only,
+        # never the raw text. A None sink is a single is-check — zero cost when off.
+        if self._telemetry_sink is not None and assessment is not None:
+            self._capture_telemetry(assessment)
         return {
             "state": self.body,
             "decision": self.last_decision,
@@ -909,6 +918,72 @@ class AlphaKernel:
         agree = max(0.0, min(1.0, float(t.get("agreeableness", 0.5))))
         keep = max(0.1, min(0.6, 0.3 - 0.2 * (agree - 0.5)))
         self._affect_debt *= keep
+
+    def set_telemetry(self, sink: DistillationSink | None) -> None:
+        """Attach (or detach) the distillation corpus sink. Runtime-only — the
+        sink is never part of snapshot()/restore()."""
+        self._telemetry_sink = sink
+
+    def _capture_telemetry(self, assessment: dict[str, Any]) -> None:
+        """Append one numeric training tuple (features + assessor affect) for the
+        distillation corpus. Pulls only numeric fields by explicit key — never the
+        raw message text (``result['text']``) or assessor free-text flags. Any
+        failure is logged at debug and never disrupts the tick."""
+        sink = self._telemetry_sink
+        if sink is None or not sink.enabled:
+            return
+        try:
+            result = self._last_computation_result
+            raw_emotion = result.get("emotion")
+            emotion = raw_emotion if isinstance(raw_emotion, dict) else {}
+            raw_resonance = result.get("resonance")
+            resonance = raw_resonance if isinstance(raw_resonance, dict) else {}
+            needs = self.body.needs
+            imm = self.body.immunity
+
+            def _f(value: Any) -> float:
+                try:
+                    return float(value)
+                except (TypeError, ValueError):
+                    return 0.0
+
+            row: dict[str, Any] = {
+                "tick": self.turns,
+                "f_warmth": _f(emotion.get("warmth")),
+                "f_arousal": _f(emotion.get("arousal")),
+                "f_valence": _f(emotion.get("valence")),
+                "f_tension": _f(emotion.get("tension")),
+                "f_curiosity": _f(emotion.get("curiosity")),
+                "f_repair_pressure": _f(emotion.get("repair_pressure")),
+                "f_expression_drive": _f(emotion.get("expression_drive")),
+                "f_boundary_firmness": _f(emotion.get("boundary_firmness")),
+                "f_coherence": _f(emotion.get("coherence")),
+                "f_void_pressure": _f(emotion.get("void_pressure")),
+                "f_active_voids": _f(emotion.get("active_voids")),
+                "f_surprise": _f(result.get("surprise")),
+                "f_boundary_stability": _f(result.get("boundary_stability")),
+                "f_resonance_energy": _f(resonance.get("energy")),
+                "f_sync_order": _f(resonance.get("sync_order")),
+                "f_phi": _f(resonance.get("phi")),
+                "f_plasticity_ratio": _f(resonance.get("plasticity_ratio")),
+                "f_need_contact": _f(needs.get("need_contact")),
+                "f_need_quiet": _f(needs.get("need_quiet")),
+                "f_need_repair": _f(needs.get("need_repair")),
+                "f_need_expression": _f(needs.get("need_expression")),
+                "f_boundary_pressure": _f(imm.boundary_pressure),
+                "f_sovereignty": _f(imm.sovereignty),
+                "f_interruption_budget": _f(imm.interruption_budget),
+                "f_cooldown": _f(imm.cooldown),
+                "f_affect_debt": _f(self._affect_debt),
+                "a_valence": _f(assessment.get("valence")),
+                "a_arousal": _f(assessment.get("arousal")),
+                "a_wound_risk": _f(assessment.get("wound_risk")),
+                "a_confidence": _f(assessment.get("confidence")),
+                "decision_action": str(self.last_decision.get("action", "")),
+            }
+            sink.record_tick(session_key=self.session_key, row=row)
+        except Exception:
+            logger.debug("telemetry capture skipped", exc_info=True)
 
     def _decide(self) -> dict[str, Any]:
         """基于身体需求的行动决策。
