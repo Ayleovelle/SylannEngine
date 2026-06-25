@@ -150,6 +150,10 @@ class SylanneAlphaHost:
                 0.0, self.kernel.body.immunity.interruption_budget - 0.2
             )
             self.kernel.body.immunity.cooldown = max(self.kernel.body.immunity.cooldown, 0.35)
+            # Spend the emotional debt that drove this reach-out so it can't re-fire
+            # every time cooldown recovers (delayed-talkative guard), keeping the
+            # affect-debt clock in sync with the real-time cooldown/budget clocks.
+            self.kernel.discharge_affect_debt()
             self._dirty = True
             self._pending_snapshot = self.kernel.snapshot()
             self._flush()
