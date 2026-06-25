@@ -348,6 +348,7 @@ class ResonanceSpine:
         *,
         session_key: str = "",
         dialogue_quality: float | None = None,
+        expression_outcome: bool | None = None,
     ) -> dict[str, Any]:
         """Process text through resonance field with real module injection.
 
@@ -366,6 +367,10 @@ class ResonanceSpine:
             dialogue_quality: 可选的上一轮回复质量自评（归一化 [0,1]）。这是滞后反馈——
                 对第 N 轮回复的评分，在第 N+1 轮调 process() 时传入。高分强化表达欲、
                 拉近关系，低分收敛表达欲（经 canonical 自动漂移通道，无后门）。
+            expression_outcome: 可选的 agent 真实表达裁决（True=SPEAK, False=SILENT）。
+                这是上一轮 renderer 裁决后的 ground-truth，在第 N+1 轮调 process() 时
+                传入（与 dialogue_quality 同款滞后通道）。若提供，会覆盖 result["should_express"]
+                中 policy 的猜测值，使 expression_fired 漂移信号反映真实裁决而非策略预测。
         """
         if not text or not text.strip():
             self._route_counts["skip"] = self._route_counts.get("skip", 0) + 1
@@ -496,6 +501,12 @@ class ResonanceSpine:
         result = self._build_result(text, timestamp, self._should_express, hgt_decision)
         if dialogue_quality is not None:
             result["dialogue_quality"] = dialogue_quality
+            result["_consume_dialogue_quality"] = True  # one-shot bypass of drift rate-limit
+        # Ground-truth 覆盖：agent 把上一轮 renderer 真实裁决（SPEAK/SILENT）经此通道
+        # 灌入 result["should_express"]，覆盖 policy 猜测，消除假阳性 expression_fired。
+        # 与 dialogue_quality 相同的滞后通道（N+1 轮传入上一轮裁决），无破契约。
+        if expression_outcome is not None:
+            result["should_express"] = bool(expression_outcome)
         self._drift_embodiment(result)
         return result
 
@@ -505,10 +516,15 @@ class ResonanceSpine:
         只有当某个特质变化超过 0.01 时才重新应用人格参数。
         有速率限制：两次漂移之间最少间隔 _drift_min_interval 秒。
         """
-        # Drift rate limiting: skip if too soon since last drift
+        # Drift rate limiting: skip if too soon since last drift.
+        # Exception: an explicit dialogue_quality feedback bypasses the interval gate
+        # so fast-chat turns don't silently drop quality signals. Consume-once: the
+        # marker is popped here, and _last_drift_time still advances on a bypass, so
+        # repeated fast turns are dt-scaled down rather than blowing the 30s budget.
         timestamp = self._last_process_time
         dt = timestamp - self._last_drift_time
-        if dt < self._drift_min_interval:
+        has_explicit_feedback = result.pop("_consume_dialogue_quality", False)
+        if dt < self._drift_min_interval and not has_explicit_feedback:
             self._drift_tick += 1
             return
         self._last_drift_time = timestamp
@@ -800,6 +816,20 @@ class ResonanceSpine:
         """
         if outcome in self._feedback_counts:
             self._feedback_counts[outcome] += 1
+        # Inject feedback into embodiment drift (parity with ComputationSpine.feedback).
+        # 'ignored' is the real "expression got no response" signal (feedback_ignored ->
+        # expression_drive_trait -0.2). ResonanceSpine previously omitted this, so being
+        # persistently ignored could never drift expression drive on the resonance
+        # channel (SDK backlog gap-1). Mirrors ComputationSpine exactly (no dt = full step).
+        signal_key = f"feedback_{outcome}"
+        if signal_key in ("feedback_accepted", "feedback_ignored", "feedback_rejected"):
+            compute_embodiment_drift(
+                self._embodiment_traits,
+                {signal_key: 1.0},
+                self._drift_tick,
+                oscillation_detector=self._oscillation_detector,
+                drift_attribution=self._drift_attribution,
+            )
         # Real engine feedback (scar healing/deepening)
         self._engine.feedback(outcome, dt)
         # HGT adaptation
