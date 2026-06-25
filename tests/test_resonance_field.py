@@ -301,6 +301,73 @@ class TestResonanceSpine:
         assert not all(e == energies[0] for e in energies)
 
 
+class TestAssessmentInjection:
+    """The assessor (external LLM) is the SDK's only semantic organ. These guard
+    that its continuous affect read actually reaches the emotion core — the
+    ``wound_risk``/``valence`` path was previously a dead no-op (the assessor never
+    emitted those keys). The scar MLP is seeded deterministically, so two fresh
+    spines on identical input differ only by the injected assessment."""
+
+    NEG = {
+        "confidence": 0.9,
+        "flags": ["negative"],
+        "valence": -0.9,
+        "arousal": 0.7,
+        "wound_risk": 0.0,
+    }
+    POS = {
+        "confidence": 0.9,
+        "flags": ["positive"],
+        "valence": 0.9,
+        "arousal": 0.3,
+        "wound_risk": 0.0,
+    }
+    NEUTRAL = {
+        "confidence": 0.5,
+        "flags": ["idle"],
+        "valence": 0.0,
+        "arousal": 0.0,
+        "wound_risk": 0.0,
+    }
+
+    def test_negative_read_lowers_valence(self):
+        baseline = ResonanceSpine().process("说点什么", timestamp=1.0)
+        negative = ResonanceSpine().process("说点什么", timestamp=1.0, assessment=self.NEG)
+        assert negative["emotion"]["valence"] < baseline["emotion"]["valence"]
+
+    def test_positive_read_raises_valence(self):
+        baseline = ResonanceSpine().process("说点什么", timestamp=1.0)
+        positive = ResonanceSpine().process("说点什么", timestamp=1.0, assessment=self.POS)
+        assert positive["emotion"]["valence"] > baseline["emotion"]["valence"]
+
+    def test_high_wound_risk_injects_tension(self):
+        baseline = ResonanceSpine().process("随便说", timestamp=1.0)
+        wounded = ResonanceSpine().process(
+            "随便说",
+            timestamp=1.0,
+            assessment={
+                "confidence": 0.95,
+                "flags": ["conflict", "negative"],
+                "valence": -0.8,
+                "arousal": 0.8,
+                "wound_risk": 0.9,
+            },
+        )
+        assert wounded["emotion"]["tension"] > baseline["emotion"]["tension"]
+
+    def test_neutral_assessment_is_noop_on_emotion(self):
+        # All-zero affect must not perturb the emotion core (gated by magnitude).
+        baseline = ResonanceSpine().process("hi", timestamp=1.0)
+        neutral = ResonanceSpine().process("hi", timestamp=1.0, assessment=self.NEUTRAL)
+        assert neutral["emotion"] == baseline["emotion"]
+
+    def test_absent_assessment_is_noop_on_emotion(self):
+        # Regression guard: assessment=None never reaches the injection path.
+        baseline = ResonanceSpine().process("hi", timestamp=1.0)
+        explicit_none = ResonanceSpine().process("hi", timestamp=1.0, assessment=None)
+        assert explicit_none["emotion"] == baseline["emotion"]
+
+
 class TestHigherOrderPropagation:
     """Verify that pro/max tiers use multi-body simplicial interactions."""
 
@@ -583,33 +650,44 @@ class TestBifurcationExpression:
         # Novel input should have high expression drive
         assert result["expression_state"]["drive"] > 0.1
 
-    def test_repeated_input_forms_attractor(self):
+    def test_repeated_input_stays_bounded(self):
+        # v2.5: the Hopfield attractor mechanism was retired with the resonance
+        # field. Repeated identical input must still process deterministically and
+        # keep the field bounded (no runaway, no NaN).
         spine = ResonanceSpine()
+        last = None
         for i in range(10):
-            spine.process("same message", timestamp=float(i))
-        # After repeated input, an attractor should form in the field
-        assert len(spine._field._attractor_patterns) > 0
+            last = spine.process("same message", timestamp=float(i))
+        energy = last["resonance"]["energy"]
+        assert energy == energy  # not NaN
+        assert 0.0 <= energy < 1e6
+        assert all(m == m for m in spine._field.observe()["module_magnitudes"])
 
 
 class TestTierHotSwitch:
     """Verify lossless tier switching."""
 
-    def test_upgrade_preserves_attractors(self):
+    def test_upgrade_preserves_state_continuity(self):
+        # v2.5: attractors retired; tier upgrade must still preserve per-module
+        # state dimensionality growth and keep processing after the switch.
         spine = ResonanceSpine()
         for i in range(10):
             spine.process(f"msg {i}", timestamp=float(i))
-        n_attractors = len(spine._field._attractor_patterns)
-        assert n_attractors > 0
+        dim_before = spine._field.state_dim
         spine.switch_tier("pro")
-        assert len(spine._field._attractor_patterns) >= n_attractors
+        assert spine._field.state_dim >= dim_before
+        r = spine.process("after upgrade", timestamp=99.0)
+        assert "emotion" in r and r["route"] == "resonance"
 
-    def test_upgrade_preserves_channels(self):
+    def test_active_channels_defined_across_tiers(self):
+        # v2.5: the simplicial complex is gone; active_channels is a flat
+        # directed-pairwise stand-in (7*6=42), stable across tiers.
         spine = ResonanceSpine()
         assert spine._field.active_channels == 42
         spine.switch_tier("pro")
-        assert spine._field.active_channels == 287
+        assert spine._field.active_channels == 42
         spine.switch_tier("max")
-        assert spine._field.active_channels == 441
+        assert spine._field.active_channels == 42
 
     def test_downgrade_works(self):
         spine = ResonanceSpine()
