@@ -1,0 +1,22 @@
+# Normalize line endings: store LF in the repo and check out LF everywhere.
+# Kills the spurious "modified" churn from core.autocrlf on Windows clones.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF on checkout.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+*.ps1   text eol=crlf
+
+# Binary assets Git must never touch.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.pdf   binary
+*.zip   binary
+*.gz    binary
+*.npy   binary
+*.npz   binary
+*.pt    binary
+*.bin   binary
