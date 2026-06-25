@@ -209,10 +209,12 @@ def set_pel_priors(self, personality: dict[str, float]) -> None:
 
 ## 9. 实现顺序（落到 commit 粒度）
 
-1. **P0**：`pel_core.py` + test 6/7（有界/收缩，零真数据、锁证明）→ test 1/3/4。`ruff+mypy strict+5 测试绿`。单 commit。
-2. **P1**：`scar_algebra` 槽/迁移/setter + `void_scar_engine` 穿 `pel_ctx` + D-3/D-7 路由 + `apply_personality` 接线。test 9/10/11。既有 tests 全绿、`_field` 未碰断言。
-3. **P2**：`resonance_integration` 装配 `x_t` + 延迟 affect 存储 +（D-1）`free_energy` 键。test 2/5/8/12。test 8 红则 retune 再前进。
-4. **P3**：消融扫 + 更新 ADR + changelog（D-1 additive 键）+ SemVer 2.1.0。合并 `feat/pel-core`。
+1. **P0** ✅：`pel_core.py` + test 6/7（有界/收缩，零真数据、锁证明）→ test 1/3/4。`ruff+mypy strict+5 测试绿`。单 commit。（commit `371433b`）
+2. **P1** ✅：`scar_algebra` 槽/迁移/setter + `void_scar_engine` 穿 `pel_ctx` + D-3/D-7 路由 + `apply_personality` 接线。test 9/10/11。既有 tests 全绿、`_field` 未碰断言。（commit `acc9669`）
+3. **P2** ✅：`resonance_integration` 装配 `x_t` + 延迟 affect 存储 +（D-1）`free_energy` 键 +（D-10）`assessor_advisable` 信号。test 2/5/8/12。（commit `3caf1a2` / `d36c574`）
+4. **P3** ✅：消融扫（`tests/test_pel_ablation.py`，`Pi_top→0`/`eta_W→0`/`ρ_p→0` 各可测）+ changelog（D-1 additive 键 + default-off flag + D-10 信号）+ SemVer **2.1.0**。合并 `feat/pel-core`。
+
+> 实现状态：P0–P3 全部落地。默认 `pel_core_enabled=False`，既有套件逐字节不变；PEL-on 集成另测。`ruff` + `mypy --strict` + 全量 `pytest` 两路（off=baseline / on）均绿。
 
 ---
 

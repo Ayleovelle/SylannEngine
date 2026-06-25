@@ -14,6 +14,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### ✨ Added
 
+- **PEL-Core（v2.5 预测编码情绪核，default-off）**：新增两层预测编码微电路
+  `sylanne_core/compute/pel_core.py`——演化 8 维潜信念 `μ` 与情绪读出 `z`（下游写入
+  `scar_state.base`），纯 Python（`math` + list-of-lists，无 numpy，lite 可用）、全 mypy-strict。
+  K=2 自由能下降 + 三因子 surprise 门控的 `W_gen` 在线 Hebbian 可塑 + 在线精度 + 谱钳 ≤0.9；
+  有界性与收缩为结构性保证（`μ,z∈[−1,1]^8` 前向不变，`‖J_μ‖₂≤1−αδ`）。
+  - 新增 `SylanneConfig.pel_core_enabled` 开关，**默认 `False`**——关时引擎走遗留 `_evolve_base`，
+    行为与此前逐字节一致（既有套件全绿、未改）；开时才跑 PEL，由其自有测试置位
+  - **加性 `free_energy` 键（D-1）**：PEL 开启时 `result["resonance"]` 多一个有限的 `free_energy`
+    诊断键；关闭时结果形状完全不变（无契约改动）
+  - **非语义 `assessor_advisable` 门信号（D-10）**：经 `diagnostics()["pel"]` 暴露
+    （低 surprise 且无创伤 => False，否则 True），连同 surprise/精度一并提供。SDK 只产出信号，
+    不接任何下游 call-skip
+  - 快照两条路径（`ResonanceSpine` / `ComputationSpine`）均往返 PEL 子键；旧档缺键时从人格重初始化
+  - P3 消融扫测试（`tests/test_pel_ablation.py`）：`Pi_top→0` / `eta_W→0` / `ρ_p→0` 各产生可测变化，
+    证明无机制是 no-op
 - `SylanneEngine.shared(data_dir, llm, ...)`：进程内按解析后的 data_dir 去重的共享实例机制，替代已删除的插件版 `get_engine()`。同一目录只由一个引擎拥有，避免状态分裂与 flush 丢更新；返回已 start 的引擎
 - `SylanneEngine.release_shared(data_dir)`：关闭并释放共享实例（应用关闭时调用，会 flush 落盘）
 - `SylanneEngine.is_shared(data_dir)` / `SylanneEngine.list_shared()`：内省接口，查当前进程里有哪些共享引擎在跑
