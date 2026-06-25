@@ -1,131 +1,184 @@
 # TDD: SylannEngine v3 — Learned Emotional Core ("PEL-Core" / broad student)
 
-- Status: Draft v2 (BROAD scope — supersedes the narrow-student v1 draft)
-- Author: Sylanne (design), Ayleovelle (owner/reviewer)
-- Last updated: 2026-06-25
-- Scope: SDK `sylanne_core` (branch `next-gen`) + plugin `Sylanne-next` (`sylanne_alpha`)
-- Decision log: **D-1 = BROAD** (the student replaces the emotion core, not just `_decide`);
-  **(b) = brain loop committed** (the shared core continually re-distills real
-  assessor-labeled traffic — *not* a one-shot clone of the field).
+- **Status: v4 (GATED on real-data collection).** Supersedes v3.1. A 66-agent / 6-dimension
+  adversarial review (2026-06-25) returned 22 findings incl. 2 blockers; an 11-agent digest
+  consolidated them (`v3-review-digest.md`); a pre-P0 spike ran and returned a **gated verdict**
+  ratified in **`adr-0001-v3-core-go-no-go.md`**: *do not enter P0 on the offline spike; gate on
+  collecting real assessor-labeled traffic and re-running the probes.* This v4 folds every accepted
+  fix + the spike learnings, re-sequences the program so **Phase-0-collection comes before P0**, and
+  marks **P0 as gated**.
+- **The boundary (load-bearing):** the CORE2 telemetry sink + salt fix + adapter + probe harness are
+  **Phase-0-collection — authorized, additive, default-off, NOT P0** (`v3-realdata-harness-spec.md`).
+  **P0 (cell / distillation / online-residual / serving-int8 / brain / cost-gating / kill) stays
+  gated** behind the real-data result.
+- Author: Sylanne (design), Ayleovelle (owner/reviewer). Last updated: 2026-06-25.
+- Scope: SDK `sylanne_core` (branch `next-gen` / `feat/v3-core`) + plugin `Sylanne-next`
+  (`sylanne_alpha`).
+- Decision log:
+  - **D-1 = BROAD** — the student replaces the emotion core, not just `_decide`.
+  - **(b) = brain loop committed** — the shared core continually re-distills real assessor-labeled
+    traffic, *not* a one-shot clone of the field.
+  - **North star = retire the `seed=42` field from the RUNTIME** (live core, fallback, stability),
+    **demoting, not deleting, its source** to a frozen offline `reference_teacher`. Deleting the
+    source is the one *truly* irreversible white-train; field out of the live path, source kept
+    forever as the regeneration oracle. (Caveat: a scoped `ScarModulator` survives, fork U1.)
+  - **Spike verdict (ADR-0001) = gate on real data.** The field is both data generator and baseline,
+    so it cannot generate data proving its own replacement; the go/no-go cannot be settled offline.
 
 ---
 
-## 0. What changed from v1 (narrow) and why
+## 0. What changed (v3.1 → v4) and why
 
-The v1 draft scoped the student narrowly: a 30-feature→6-action MLP that imitates
-`kernel._decide`. An adversarial review of the **broad** scope was brutally clear and the
-owner accepted it: **distilling the existing resonance field is, by itself, theater** — it
-clones a deterministic `seed=42` contraction MLP and *gains zero new behavior*. The only
-thing that makes this a **brain** rather than a learned mask is the part the first design
-**deferred**: the **shared core continually re-trained on real assessor-labeled traffic**.
+1. **The spike ran; the program is now gated.** A reusable headless generator
+   (`training/student_core/simulate_corpus.py`) drove the real field over 2000 synthetic sessions
+   (~62k ticks). Two probes (`spike_ntap.py`, `spike_predict_assessor.py`) produced a **deliberate
+   non-verdict** (ADR-0001):
+   - **Probe 1 (NTAP, cross-tick memory): FAIL** — the student cannot beat the steelmanned field+nudge
+     baseline (0.215 vs 0.203). Structural: synthetic field data is Markovian, the field's reactive
+     state already captures the increment. *This empirically confirms the theater critique.*
+   - **Probe 2 (predict-assessor, Phase-M payoff): PARTIAL PASS, synthetic only** — a trained core
+     reading the WIDE HDC (0.209) far beats the field's **fixed pre-nudge transform** (0.533), but
+     **does NOT beat trivial persistence on the autocorrelated/realistic slice** (0.200 vs 0.197), and
+     **the binding field+nudge baseline was never run** in that probe. D-12 confirmed *mechanically*
+     (V0 0.250 → V4 0.244 → Vfull 0.209).
+   - **Consequence:** offline can't de-risk this (field = generator + baseline). The real gate is
+     **collect real assessor-labeled traffic + re-run the probes** (`v3-realdata-harness-spec.md`).
+2. **The "field is semantic-blind" claim is corrected.** The field's pre-nudge base **has** seen the
+   message (via `HDC → ssm_input → _evolve_base`); it simply lacks a *learned* message→affect map. The
+   defensible claim: the field's fixed transform doesn't recover the assessor's read; a trained core
+   does (so the target is learnable, not already produced by the field).
+3. **All 22 review findings + completeness items are resolved in the §6 ledger** (with the digest's
+   overstatement corrections preserved), including two the review missed entirely — **concurrency**
+   and **int8 PTQ reproducibility** — and one **fabricated citation** the digest itself introduced,
+   now corrected (there is **no** breaker at `resonance_integration.py:387-426`; D15).
+4. **Citations re-verified.** `_evolve_base` is **defined** at `scar_algebra.py:276`, **called** in
+   `step()` at `scar_algebra.py:402` (the v3 phrasing conflated them). `state_persistence.py`
+   (`_VALID_SUBSYSTEMS`) is **plugin-only** (`G:/Sylanne-next`), not in the SDK.
 
-This v2 commits that loop as the product. The student is **PEL-Core**: a small **recurrent
-learned emotion core** that replaces the `seed=42` MLP, bootstrapped to field-parity
-offline, then **kept improving by distilling the remote assessor's real affective
-judgments** on live conversations, and personalized per-session online. The field is never
-deleted — it is the offline distillation teacher *and* the instant runtime fallback.
-
-**Cost trajectory (owner's observation, now a design goal):** at bootstrap the assessor
-LLM call is the **same cost v1/v2 already pay** — collecting the training corpus is a free
-byproduct. At maturity the core has distilled the assessor, so we **confidence-gate** the
-assessor: call the LLM only when the fast core is uncertain. The brain therefore *pays for
-itself* by reducing LLM calls below today's baseline (§8, Phase M).
+Everything else from v2/v3 (PEL-Core, the I/O flip, the three teaching stages, the cost trajectory,
+the kill north star) stands — but **behind the real-data gate**.
 
 ---
 
 ## 1. Executive summary
 
-Build **BroadCore-S**: a ~3.4K-param **recurrent** emotion cell (GRU-style over an 8-dim
-emotion latent) that replaces `ScarredState._evolve_base` (the fixed `seed=42` MLP) + the
-`_apply_assessment_to_engine` bias + the `observe()` readout. It produces `scar_state.base[0..7]`
-(the 8-dim emotion) from **(assessor affect + HDC-of-message + prior emotion state +
-time/body scalars)** — the **I/O flip**: the par1 `f_*` emotion features are now the
-core's **outputs**, never its inputs. Everything downstream (the field's
-void/resonance/HGT/expression machinery, `_decide`, `_guard`, par1/par2) runs **unchanged**
-on the student's base.
+Build **BroadCore-S**: a ~3.4K-param **recurrent** emotion cell over an 8-dim emotion latent that
+replaces `ScarredState._evolve_base` (the fixed `seed=42` MLP) + the `_apply_assessment_to_engine`
+nudge + the `observe()` readout. It produces `scar_state.base[0..7]` from **(assessor affect + HDC-of-
+message + prior emotion state + time/body scalars)** — the **I/O flip**: par1's `f_*` emotion features
+are the core's **outputs**, never its inputs. Everything downstream (void/resonance/HGT/expression,
+`_decide`, `_guard`, par1/par2) runs **unchanged** on the student's base.
 
-Served as **pure-numpy int8** (`.npz` < 8 KB, sub-µs inline, **no torch**) in 2 vCPU / 2 GB /
-no-GPU multi-session; it is a **latency win** (it replaces the field's iterative
-Kuramoto/Hopfield `resonate()` loop). Default-off behind `student_model_enabled`; any
-failure falls instantly back to the live field.
+Served as **pure-numpy int8** (`.npz` < 8 KB, no torch) in 2 vCPU / 2 GB / no-GPU multi-session.
+**Ring 1 does NOT remove `resonate()`** (it stays unchanged), so Ring 1 is justified by
+**learnability, not latency**. Default-off behind `student_model_enabled`; any failure falls back
+through a layered fallback chain.
 
-Three teaching stages: **(A) offline field-distillation** (day-1 parity, unlimited free
-data from owned deterministic code), **(B) continual re-distillation of real
-assessor-labeled traffic** (the brain — the shared core surpasses the field by learning the
-assessor's real semantics), **(C) online per-session assessor-corrective residual** (bounded
-personalization). The reward purity rule holds: par2 `accepted/ignored/rejected` drives the
-**timing** loop only and **never** enters the emotion-core loss.
+Three teaching stages: **(A) offline field-distillation** (day-1 parity), **(B) continual
+re-distillation of real assessor-labeled traffic** (the brain), **(C) online per-session
+assessor-corrective residual** (bounded). Reward purity holds: par2 `accepted/ignored/rejected` drives
+the **timing** loop only, **never** the emotion-core loss.
 
-**This is "Ring 1"** — the smallest replacement that realizes the learned-core vision.
-Ring 2 (learn the resonance block) and Ring 3 (full tick) are gated future cycles. Body /
-`_decide` / `_guard` / `affect_debt` / `hot_pool` are **never** touched.
+**Gating reality (v4):** this whole build is **P0 and is GATED** (ADR-0001). The first authorized step
+is **Phase-0-collection** (CORE2 sink + salt fix + adapter + probe additions, all default-off); P0
+proceeds **iff the real-data Probe 2 passes** against persistence **and** a steelmanned field+nudge
+baseline on the autocorrelated slice. **The endgame** (Phase K: retire the field from the runtime,
+keep its source as a frozen `reference_teacher`) is reached only after P4 + Phase B.
+
+This is **Ring 1**. Ring 2 / 3 are gated future cycles. Body / `_decide` / `_guard` / `affect_debt` /
+`hot_pool` are **never** touched.
 
 ---
 
 ## 2. Goals / Non-goals
 
 ### Goals
-- G1 — Replace the `seed=42` emotion MLP with a **learned recurrent core** that is
-  **field-equivalent on day one** and then **improves** by distilling the assessor.
-- G2 — Make it a **real brain**: commit the **continual re-distillation of real
-  assessor-labeled traffic** (CORE2 stream) so the shared core exceeds the field, plus a
-  bounded **online per-session** assessor-corrective residual.
-- G3 — Serve **CPU-only, no-torch, < 1 MB RSS, sub-µs inline** in 2c2g multi-session;
-  a **latency win** vs the field tick.
-- G4 — **Additive / default-off**, GREEN-frozen public API intact, snapshot/restore
-  backward-compatible, field retained as teacher + instant fallback.
-- G5 — **No split-brain**: the same backend drives BOTH the par1 telemetry *and* the prompt
-  surface the LLM sees (the wrapper exposes `.engine`).
-- G6 — **Cost goal (maturity):** confidence-gate the assessor so the trained core lets us
-  call the LLM less than v1/v2 — the brain reduces cost, not just "feels smarter."
-- G7 — Adopt explicit engineering standards (commits/lint/types/tests + data governance +
-  model registry + acceptance gates), incl. the 7 required fixes from the adversarial review.
+- **G-core** — replace the `seed=42` emotion MLP with a **learned recurrent core**, field-equivalent
+  on day one, then improving by distilling the assessor.
+- **G-brain** — commit **continual re-distillation of real assessor traffic** (CORE2) plus a bounded
+  online per-session residual.
+- **G-serve** — CPU-only, no-torch, < 1 MB RSS, low-µs inline in 2c2g multi-session; **no latency
+  regression** in Ring 1 (Ring 1 keeps `resonate()`; the latency win is deferred to Ring 2).
+- **G-safe** — additive / default-off; GREEN-frozen public API intact; snapshot/restore
+  backward-compatible. Until Phase K the field is the instant runtime fallback **and** the offline
+  teacher; after Phase K the runtime fallback is **pinned-npz + analytic floor** and the field source
+  is retained **only** as the frozen offline `reference_teacher`.
+- **G-onebrain** — **no split-brain**: one backend drives BOTH par1 telemetry AND the prompt surface
+  the LLM sees (the wrapper exposes `.engine`).
+- **G-cost** — confidence-gate the assessor at maturity so we call the LLM **less** than v1/v2.
+- **G-retire** — get the `seed=42` formula out of the runtime under the Phase-K gates, source demoted
+  (not deleted).
+- **G-durable** — a two-tier durable-asset + versioning/migration contract so an SDK update **never**
+  wastes training (§9).
+- **G-gate** — **prove value on real data before building**: Phase-0-collection then the Probe-2 gate
+  (ADR-0001); never enter P0 on synthetic/field-generated evidence.
 
 ### Non-goals
-- NOT replacing the **assessor** (semantic organ + online teacher) or making the core do
-  text/semantics. The core does the **affect/emotion dynamics** only.
-- NOT touching `_decide`/`_guard`/body/`affect_debt`/`hot_pool` (timing is the par2 loop).
-- NOT Ring 2/3 in v3.0 (resonance-block / full-tick learning are gated later cycles).
-- NOT cloud or at-serving training; no torch/onnx/ggml at serving (§7).
-- NOT using assessor **wound-delta** or par2 reward in the **emotion-core** loss
-  (hard adversarial lesson — reward belongs to the timing loop only).
-- NOT deleting the resonance field (it is the distillation teacher and the fallback).
+- NOT replacing the **assessor** (semantic organ + online teacher); the core does **affect dynamics**
+  only.
+- NOT touching `_decide`/`_guard`/body/`affect_debt`/`hot_pool`.
+- NOT Ring 2/3 in v3.0. NOT cloud or at-serving training; no torch/onnx/ggml at serving (§7).
+- NOT using assessor wound-delta or par2 reward in the **emotion-core** loss.
+- **NOT deleting the field *source*** — demoted to a frozen offline `reference_teacher`. What is
+  deleted (Phase K) is the field's presence in the **live runtime path**.
+- NOT non-text input modalities in this cycle (text-only; non-text turns excluded from the corpus).
 
 ---
 
 ## 3. Background & grounding facts (verified in code)
 
-- The emotion core is **`ScarredState._evolve_base`** (`scar_algebra.py:276-306`) with
-  fixed `seed=42`, spectrally-normalized (`‖W1‖·‖W2‖ < 0.49`) → a **deterministic
-  contraction map**: `base_t = tanh(W2·tanh(W1·[base_{t-1}; modulated_input]))`. Plus
-  `ResonanceSpine._apply_assessment_to_engine` (`resonance_integration.py:588-647`) which
-  nudges `base[0/1/2]` + void pressure from the assessor. `observe()` reads `base[0..7]`.
-- **The I/O flip**: par1's `f_warmth..f_plasticity_ratio` are the field's **outputs**, so a
-  core that *produces* them cannot *consume* them. The core's inputs are the **causes** of
-  emotion: assessor `a_*`, HDC-of-message, prior `base`, time/body scalars.
-- **Per-tick is a chain, not one step**: `VoidScarEngine.process` calls `step()` **2..N
-  times/tick** (one per Γ-coupling wound + the main event, `void_scar_engine.py:182,186`),
-  each re-evolving `base` **and** mutating scar/void/circuit-breaker state. The bootstrap
-  corpus must log the **full per-step (pre,post) transition chain**, not just the endpoint.
+- **The emotion core** = `ScarredState._evolve_base` (**defined** `scar_algebra.py:276-306`,
+  **called** in `step()` at `scar_algebra.py:402`), fixed `seed=42`, spectrally-normalized (each
+  `‖W‖₂≤0.7` via `max_sigma=0.7` at `scar_algebra.py:231-232` ⇒ two-layer product `<0.49`):
+  `base_t = tanh(W2·tanh(W1·[base_{t-1}; modulated_input]))`. **Boundedness is the final `tanh`**
+  (`scar_algebra.py:304`), structural and provable; the `<0.49` is *convergence*, not boundedness.
+  `step()` is called **1..N times/tick** by `VoidScarEngine.process` (`void_scar_engine.py:182,186`);
+  the per-tick `_evolve_base` floor is **1**.
+- **Two emotion-mutating paths, both in the kill-list:**
+  - `ResonanceSpine._apply_assessment_to_engine` (`resonance_integration.py:588-647`): gain
+    `(0.4+0.6·confidence)·0.3`; in-place **clamped** writes `base[2]=max(-1,min(1,base[2]+valence·
+    gain))` (`:627`), `base[1]` (`:629`), `base[0]` (`:631`); wound-step if `wound_risk>0.7`; void
+    pressure nudges (`:636-641`).
+  - `ComputationSpine.apply_assessment` (`computation_spine.py:511-565`): the same wound/void nudges
+    **plus** intent handling for **撒娇/生气** via `base[0,3]` — behavior `ResonanceSpine` lacks.
+    `_DEFAULT_SPINE` falls back to `ComputationSpine` on import failure (`kernel.py:47-53`), so this
+    path is reachable.
+- **The I/O flip**: par1's `f_warmth..f_plasticity_ratio` are the field's **outputs**; the core's
+  inputs are the **causes** (assessor `a_*`, HDC-of-message, prior `base`, time/body).
+- **`base_pre_nudge` is NOT message-blind.** Snapshotted after `_evolve_base` but before the nudge, it
+  has already incorporated this tick's message via `HDC → ssm_input` (`resonance_integration.py:413-
+  423`). Its 0.533 spike MAE means the field's *fixed* transform doesn't decode the message to the
+  assessor's read — not that it never saw the message.
 - **`.engine` is load-bearing for the prompt**: `kernel._computation_emotion_overlay`
-  (`kernel.py:612`) calls `self.computation.engine.observe()` directly to build the prompt
-  fragment the LLM sees. A wrapper that omits `.engine` produces a **split-brain**
-  (telemetry = student, prompt = field).
-- Already built / reuse: par1 `DistillationSink`; `MetaLearner` online residual
-  (`accepted/ignored/rejected`, elastic ≤30% drift, serialized); train-torch→export-`.npz`→
-  numpy-serve pattern (`EmotiCoreStudentLite`); 1M-row teacher-labeled text corpus.
-  **No trained teacher `.pt` in repo** (`train_teacher.log` crashed) → EmotiCore KD is
-  optional (`λ_kd=0`).
-- Plugin: vendors SDK at `_engine/sylanne_core`; `EngineFacade` (`engine_adapter.py:129`)
-  is the unused student slot; par2 send-confirm = `ProactiveBridge.dispatch()=={dispatched:True}`.
+  (`kernel.py:605-612`) calls `self.computation.engine.observe()`. A wrapper omitting `.engine` ⇒
+  split-brain (telemetry=student, prompt=field).
+- **par1 is endpoint-only telemetry, not the brain's corpus.** `_capture_telemetry`
+  (`kernel.py:927-986`, called at `kernel.py:298`) writes one row per assessed tick: 26 `f_*` + 4
+  `a_*` + `decision_action` + `tick`. It does **not** log prior base `z_{t-1}`, the per-step
+  transition chain, any message embedding, or `dt`. ⇒ par1 retrains the *shipped* contract at best;
+  the brain needs the **CORE2 stream** (`v3-realdata-harness-spec.md`).
+- **Versioning today is thin.** `FEATURE_SCHEMA_VERSION=1` (bare int, no migration,
+  `telemetry/sink.py:33`); positional `AFFECT_CONTEXT_FIELDS` (`:37-64`); **no**
+  `model_version`/manifest/sha256 on any `.npz`; the only runtime fallback guard catches
+  `ImportError`. par2 / `BroadCoreRuntime` / int8-`.npz` serving / shadow flag are **SPEC-ONLY**.
+- **Salt is mis-documented (D14).** `training_data_salt=""` (`config.py:217`) yields
+  `SHA-256(":"+session_key)` (`telemetry/sink.py:74`) — **stable / cross-deploy-linkable**, the
+  *opposite* of the docstring's "per-process random" (`config.py:203-205`). No `delete_session()`.
+- **`state_persistence.py` (`_VALID_SUBSYSTEMS`) is plugin-only** (`G:/Sylanne-next`), absent from the
+  SDK. **V1 (no-split-brain) verified GREEN this session** via the plugin's emotion-read path
+  (`llm_request_pipeline.py:1601` → `host.kernel.computation.engine.observe()`, the same spine
+  instance the kernel mutates). The `EngineFacade.engine` forwarding (`engine_adapter.py:129`) is a
+  related plugin-repo claim not separately re-verified; both live out of SDK-audit scope.
+- **Reuse:** `MetaLearner.update` (`meta_learner.py:198-260`); `train_model_torch.py`→`.npz` export; a
+  1M-row teacher-labeled text corpus (**V2: asserted, not counted/schema-checked**). **No trained
+  teacher `.pt`** ⇒ EmotiCore KD is dead (C8: delete `λ_kd`).
 
 ---
 
 ## 4. Architecture (broad / Ring 1)
 
 ```
- user msg ─► plugin ─► assessor (remote LLM: a_valence/arousal/wound_risk/flags)
-                         │  (same LLM cost as v1/v2 at bootstrap)
+ user msg ─► plugin ─► assessor (remote LLM: a_valence/arousal/wound_risk/confidence/flags)
                          ▼
    SDK kernel.tick(assessment):
      ResonanceSpine.process / BroadCoreRuntime.process  (same signature, same result dict)
@@ -133,130 +186,211 @@ Ring 2 (learn the resonance block) and Ring 3 (full tick) are gated future cycle
         ├─ EMOTION CORE  ◄── the only thing replaced
         │    if student.ready and enabled:
         │       base[0..7] = BroadCore_S.step(a_*, hdc, prior base, dt/body)   # numpy, µs
-        │       (skip _apply_assessment_to_engine — a_* already consumed)      # fix #3
-        │    else:
-        │       base[0..7] = seed42_MLP._evolve_base(...) + assessment nudge    # field fallback
+        │       (REPLACE base[0,1,2] only; PRESERVE wound/scar/void/撒娇·生气)  # fix B4 (not "skip nudge")
+        │    else:                                                             # fallback chain (§5.3):
+        │       base = field._evolve_base(...) + nudge   (pre-Phase-K)
+        │            └─ post-Phase-K: pinned-npz → analytic floor (NO field in runtime)
         ├─ void/scar topology, sheaf, HGT, boundary, field.resonate(), Φ      (UNCHANGED, on base)
         ├─ observe() / .engine.observe()  ◄── BOTH driven by the student base   # fix #1 (no split-brain)
         ▼
-     result dict (emotion 8 + resonance + ...) → _decide/_guard/par1/par2/prompt  (ALL UNCHANGED)
+     result dict → _decide/_guard/par1/par2/prompt  (ALL UNCHANGED)
 
  BRAIN LOOP (what makes it learn, not clone):
-   (A) offline: run the real field headless → (x→base) corpus → distill to day-1 parity
-   (B) continual: capture real (x→assessor-affect) on live traffic (CORE2, default-off)
-                  → periodically RE-DISTILL the SHARED core so it exceeds the field
+   (A) offline: real field headless → full-transition corpus → distill to day-1 parity
+   (B) continual: capture real (x_t → assessor a_*) on live traffic (CORE2, default-off)
+                  → periodically RE-DISTILL the SHARED core
    (C) online: per-tick predict-then-correct vs assessor a_* → bounded per-session residual
+
+ REGENERATION ORACLE (why the source survives the kill):
+   frozen reference_teacher (= demoted field) + versioned simulate_corpus parquet
+   → can re-emit the FULL transition corpus for ANY future architecture, forever.
+
+ THE GATE (v4): Phase-0-collection (CORE2) → re-run Probe 2 on REAL data
+                → PASS ⇒ enter P0;  FAIL/escalate ⇒ STOP (ADR-0001).
 ```
 
-Invariants: the student **augments the producer of `base`**, nothing downstream changes
-shape; **one shared read-only** core + tiny per-session residual; the **field stays** as
-teacher + fallback; reward (`par2`) never touches the emotion loss.
+Invariants: the student **augments the producer of `base`**, nothing downstream changes shape; **one
+shared read-only core** + tiny per-session residual; the field **leaves the runtime** at Phase K but
+its **source is retained**; reward (par2) never touches the emotion loss.
 
 ---
 
 ## 5. Component design
 
-### 5.1 BroadCore-S model
+### 5.1 BroadCore-S model (architectural boundedness — fixes the false-equivalence, blocker #1)
 
-A **gated recurrent cell** over the 8-dim emotion latent `z` (because the field is a
-recurrent contraction map; a stateless MLP cannot reproduce hysteresis / `affect_debt`-like
-integration):
+A gated recurrent cell over the 8-dim emotion latent `z` whose boundedness and contraction are
+**closed-form architectural properties** (validated as the spike's `BroadCoreS`, `spike_ntap.py:79-
+101`):
+
 ```
 x_t (~40 floats, fixed order, all causes-of-emotion, never field outputs):
-  [0:4]  assessor a_valence[-1,1], a_arousal[0,1], a_wound_risk[0,1], a_confidence[0,1]
-  [4:8]  HDC-of-message compressed (4 floats, deterministic, text-free)
-  [8]    surprise (PredictiveCodingGate, kept as input)
-  [9:17] prior emotion z_{t-1}[0..7]   (the recurrent carry = scar_state.base)
-  [17:21] dt(log), turns(log), proactive_flag, repair_flag
-  [21:25] need_contact, need_repair, sovereignty, affect_debt   (from kernel pre-process)
-  [25:40] reserved zeros (forward-compat; loader asserts feature_order)
-cell:  h = tanh(x_t·Win);  h ⊙= σ(z_{t-1}·Uz + h·Uh);  z_t = clamp(tanh(z_{t-1}·Wrec + h·Wout), -1, 1)
-heads off [z_t; h]:  emotion = z_t (8) ; aux(coherence,void_pressure,active_voids,surprise,boundary_stability)=σ/softplus(40→5)
-                     resonance(energy,sync_order,phi,plasticity_ratio)=softplus/σ(40→4)
-                     should_express = (z_t[6] > learned_threshold)   # deterministic, reproducible
+  [0:4]  a_valence[-1,1], a_arousal[0,1], a_wound_risk[0,1], a_confidence[0,1]
+  [4:8]  HDC-of-message density (WIDE per D-12; deterministic, text-free, non-invertible*)
+  [8]    surprise (PredictiveCodingGate)
+  [9:17] scar-modulation summary (the field's modulate() factor, scar_algebra.py:352-363)
+         REQUIRED for tick-parity (hypothesized; gated by the A3 ablation). NOTE: z_{t-1} is NOT
+         in x_t — it enters ONLY via the recurrent term below. Feeding it here too was blocker #1.
+  [17:25] dt(log), turns(log), proactive/repair flags, needs, sovereignty, affect_debt
+  [25:40] reserved zeros (loader asserts feature_order)
+cell:
+  h    = tanh(x_t · Win)
+  u    = tanh(z_{t-1} · Wrec_sn + h · Wout)         # Wrec_sn spectrally-normed: σ(Wrec_sn) ≤ 0.9
+  z_t  = (1 - α) · z_{t-1} + α · u                  # α ∈ (0,1), learned-but-clamped, per-dim sigmoid
+heads: emotion = z_t (8); aux/resonance via σ/softplus.  NO should_express head in Ring 1 (B10).
 ```
-~3.4K params; int8 `.npz` < 8 KB; f32 working < 32 KB. A **contraction regularizer**
-(effective spectral radius < 1) replaces the field's explicit spectral normalization so the
-recurrence **cannot diverge**.
+\* the non-invertibility of the HDC density is **unverified** and must be tested before collection
+(harness §2.4).
+
+**Why boundedness is structural and contraction is certifiable (the K3 gate):**
+- **Structural boundedness (unconditional).** `u ∈ [-1,1]^8` (final `tanh`); if `z_{t-1} ∈ [-1,1]^8`
+  then `z_t = (1-α)z_{t-1} + α·u ∈ [-1,1]^8` (convex combination). `[-1,1]^8` is **forward-invariant**
+  — closed-form, no clamp. (Clamp rejected: clamp ≠ contraction; it permits rail-oscillation.)
+- **Contraction — ONLY because `z_{t-1} ∉ x_t`.** The Jacobian is exactly
+  `∂z_t/∂z_{t-1} = (1-α)I + α·diag(tanh'_u)·Wrec_sn`, so `‖J‖₂ ≤ (1-α)+α‖Wrec_sn‖₂`. With the design
+  pin **`σ(Wrec_sn) ≤ 0.9`**: `‖J‖₂ ≤ (1-α)+0.9α = 1−0.1α < 1` **for every `α∈(0,1]`** — contractive
+  with no α-dependent slack needed. *(This is the student's single `Wrec`, distinct from the field's
+  two-layer 0.49 product; the two bounds are unrelated.)* Blocker #1: the v3 draft also fed `z_{t-1}`
+  via `x_t[9:17]`, adding an unbounded `Win·diag(tanh'_h)·Wout` path the Jacobian dropped — fixed by
+  removing `z_{t-1}` from `x_t`.
+- **Certification on the SERVED weights, not f32.** Power iteration estimates `σ_max` from *below*, so
+  train-side **spectrally-normalize `Wrec`** to the pin and **re-verify at LOAD on the dequantized
+  int8 weights**: exact `np.linalg.norm(Wrec_deq,2) < 1` (with margin), `α∈[ε,1-ε]`, wrapped in
+  try/except → **RefuseLoad** (R4). K3's exit gate is this static check on the *served* int8 weights —
+  **never** val-set MAE. The torch→numpy int8 boundary itself is a golden-vector CI (U1/V4, §6).
+- ~3.4K params; int8 `.npz` < 8 KB; f32 recurrent state to bound int8 drift.
 
 ### 5.2 Teaching (the three stages)
 
-- **(A) Offline field-distillation — day-1 parity.** `training/student_core/simulate_corpus.py`
-  imports `ScarredState`+`VoidScarEngine`+`ResonanceSpine` directly (no plugin/network) and
-  runs the real field over **domain-randomized sequences** (a_* across full ranges incl.
-  `wound_risk>0.7` trauma spikes; prior-base across `[-1,1]^8`; dt across the clamp; HDC from
-  sampled/real text). It logs the **full per-step (pre-base, modulated-input, post-base)
-  transition chain** (fix #2) so the student learns the exact map incl. the multi-`step()`
-  per tick. Train BroadCore-S with **truncated BPTT** (≈16-tick windows), AdamW +
-  CosineAnnealingLR, on the owner's local GPU. PTQ → int8. **Loss:**
-  `SmoothL1(z, field_emotion_8)·1.0 + SmoothL1(res_head, field_res_4)·0.5 +
-  SmoothL1(aux_head, field_aux_5)·0.3 + BCE(should_express)·0.2 + λ_kd·EmotiCore_soft +
-  contraction_reg`. **Gate:** int8 emotion MAE vs field ≤ 0.03, resonance MAE ≤ 0.05,
-  trajectory correlation ≥ floor ("no worse than the field on day one").
-- **(B) Continual re-distillation — the brain (the (b) commitment).** A **CORE2 capture
-  stream** (`Par2Sink`-style, default-off, same salt) logs, on **real assessed ticks**,
-  `(x_t  →  assessor a_*)` joined by `(session_hash, tick)`. Periodically (offline, owner's
-  GPU) **re-train the shared core** with the assessor's real `a_*` as the target on the
-  driven dims, so the core distills the LLM's **real semantics** and **surpasses** the
-  hand-coded field. A **covariate-shift (KS)** gate compares real vs sim marginals before any
-  re-distilled core is promoted. *This is the line between brain and theater — it is in
-  scope, not deferred.*
-- **(C) Online per-session residual — personalization.** Predict-then-correct: each tick the
-  core predicts `z`; the assessor's `a_valence/a_arousal` (and the field's own nudge as a soft
-  target) correct the 3 driven dims via a **bounded plastic readout bias** (≤17 floats,
-  elastic ≤30% drift, EMA — **no backprop at serving**), riding the existing snapshot.
+- **(A) Offline field-distillation — day-1 parity.** `simulate_corpus.py` imports the real field (no
+  plugin/network) and runs it over domain-randomized sequences (a_* full ranges incl. `wound_risk>
+  0.7`; prior-base across `[-1,1]^8`; dt across the clamp). It logs the **tick-granular** transition
+  `(pre-tick base, full inputs incl. a_* + scar-mod, post-tick base, dt)` — **Tier-1 durable** (§9).
+  **Teacher determinism (U3): GREEDY expression policy, frozen RNG, sorted scar iteration**; two
+  generation runs must be byte-identical before P0. Train with truncated BPTT (≈16-tick windows),
+  AdamW + CosineAnnealingLR, owner GPU; PTQ → int8. **Loss:**
+  `SmoothL1(z, field_emotion_8)·1.0 + SmoothL1(res, field_res_4)·0.5 + SmoothL1(aux, field_aux_5)·0.3`
+  — **no** `BCE(should_express)` (B10), **no** `λ_kd` (C8, EmotiCore is dead), **no** `contraction_reg`
+  (architectural). **Gate:** int8 emotion MAE vs field ≤ 0.03, res MAE ≤ 0.05, traj-corr ≥ floor —
+  **note: the 0.03 gate needs a session-clustered power treatment** (per ADR §6), not a bare
+  threshold, especially since dropping the BCE/KD heads recalibrates the loss landscape (R5).
+- **(B) Continual re-distillation — the brain (the (b) commitment).** The **CORE2 capture stream**
+  (`v3-realdata-harness-spec.md`, default-off) logs real `x_t → a_*` joined by `(session_hash, tick)`,
+  **input-complete** (Tier-2). Periodically re-train the **shared core** with real `a_*` so it
+  distills the LLM's real semantics. **Leakage-free target = divergence `d_t = a_t − base_pre_nudge`**
+  (C6, the shared `base_pre_nudge` instrument), with a **field-ablation control** asserting `d_t` is
+  not reconstructable from `x_t` alone, and a **KS** covariate-shift gate before any re-distilled core
+  promotes. *This is the line between brain and theater — in scope, not deferred.*
+- **(C) Online per-session residual — personalization.** Predict-then-correct: the core predicts `z`;
+  the assessor's `a_valence/a_arousal` correct the driven dims via a **bounded plastic readout bias**
+  `b_res` (≤17 floats, elastic ≤30% drift, EMA — **no backprop at serving**), injected **pre-tanh**
+  (`u = tanh(… + b_res)`, A9) so it stays in `[-1,1]^8` and is invisible to the A1 Jacobian; riding
+  the existing snapshot; **session-local** (concurrency-tested, §11).
 
-Reward purity: par2 `accepted/ignored/rejected` feeds the **timing** loop
-(`report_reach_outcome` → `MetaLearner`) only; it **never** enters (A)/(B)/(C) emotion loss.
+Reward purity: par2 `accepted/ignored/rejected` feeds the **timing** loop only; never (A)/(B)/(C).
 
 ### 5.3 Serving runtime & integration
 
-- **`BroadCoreRuntime`** wraps the live `ResonanceSpine`: same `process(text, timestamp,
-  assessment=None, **kwargs)` signature, same result-dict shape, so `kernel._tick_inner` is
-  untouched and backend-agnostic. It **delegates `to_dict()/from_dict()/feedback()`** to the
-  wrapped field (snapshot + `MetaLearner` serialization byte-unchanged) and **exposes
-  `.engine`** as an engine-shim whose `observe()` returns the **student** emotion (fix #1 —
-  prompt and telemetry share one backend; contract test asserts
-  `_computation_emotion_overlay() == telemetry emotion`).
-- The replacement **seam is inside `ScarredState`**: an optional runtime-only `_core_fn`
-  callable (set via `set_core_model()`, never serialized, like `_telemetry_sink`); `None` ⇒
-  the `seed=42` MLP exactly as today.
-- **Fallback state machine** (load → `sha256` → 1-step int8-vs-f32 parity self-test →
-  `feature_order` check → ready); any failure or per-tick exception ⇒ `field.process(...)`.
-  A **runtime contraction circuit-breaker** (clamp `base∈[-1,1]` + `‖Δbase‖`-spike ⇒ field
-  fallback) lands **before canary** (fix #5).
-- **Ownership of coherence/void_pressure/active_voids** (fix #4): Ring 1 keeps them
-  **field-computed on the student base** and asserts downstream tolerance; they are emitted
-  from the student only in Ring 2. Documented, not implicitly desynced.
+- **`BroadCoreRuntime`** wraps the live spine: same `process(...)` signature and result shape;
+  delegates `to_dict/from_dict/feedback`; **exposes `.engine`** (engine-shim `observe()` returns the
+  **student** emotion — fix #1; contract test asserts overlay==telemetry).
+- The replacement **seam is inside `ScarredState`**: a runtime-only `_core_fn` (set via
+  `set_core_model()`, **never serialized**, like `_telemetry_sink`); `None` ⇒ the `seed=42` MLP exactly
+  as today (pre-Phase-K).
+- **Layered fallback chain** (a single `.npz` is NOT a sufficient fallback — K2):
+  `student core → pinned last-good .npz → hardcoded analytic floor` (a ~20-line pure-Python identity/
+  EMA core, no file load). An **implemented runtime guard** wraps **both `.npz` load and per-tick
+  compute** in try/except (catching `FileNotFoundError`/`ValueError`/numpy load errors/`NaN`, not just
+  `ImportError`). Load gate: `sha256` → 1-step int8-vs-f32 parity → `feature_order`/
+  `input_contract_hash` → ready. A **contraction circuit-breaker** (`‖Δbase‖`-spike ⇒ drop to the next
+  tier) lands **before canary** (fix #5). **The contraction breaker is greenfield** — there is **no**
+  existing breaker at `resonance_integration.py:387-426` (D15: those lines are personality-overlay /
+  HDC / predictive-coding gate / VoidScar `process()`); it scopes to **non-proven** modes only
+  (corrupt/NaN/int8-edge/load-bug), and a trip on the **proven** path = precondition-violation
+  **ALARM → rollback**, which does **not** contradict the §5.1 proof.
+- **Failure matrix (U4/M3):** every cell (corrupt/truncated/NaN/wrong-shape/load-error) has a tested
+  outcome; default = **fall back to the full field path, alert, never crash, never serve NaN**.
+- **Ownership of coherence/void_pressure/active_voids** (fix #4): Ring 1 keeps them field-computed on
+  the student base + asserts downstream tolerance; emitted from the student only in Ring 2.
+- **Concurrency (U2/M2 — one of the two scariest, review-missed):** the shared core array is
+  **read-only** (assert non-writeable); `b_res` is strictly **session-local**; core hot-swap is
+  **atomic** (load new obj, swap ref under lock, never mutate in place); copy-on-snapshot; `b_res`
+  invalidated atomically with a swap. Stress test asserts per-session trajectories match solo **within
+  tolerance (`< 1e-9` per element) under a pinned single-thread BLAS** (bit-identity is not guaranteed
+  under BLAS thread variance, so tolerance + pinned threads, not "bit-identical").
 
-### 5.4 par2 (timing) loop — carried unchanged from v1
-
-par2 (the reach-outcome label that joins to the originating `reach_out` tick) is **unchanged
-by the broad scope**: one additive default-off `engine.report_reach_outcome(session_id,
-originating_tick, outcome, *, apply_online=False)` (corpus-only by default; `apply_online=True`
-routes to `host.kernel.computation.feedback` → `MetaLearner`), join key
-`(session_hash, originating_tick)`, plugin `awaiting_par2_outcome` store armed on
-`bridge.dispatch()=={dispatched:True}`, classified from the reply tick's assessment, `ignored`
-on timeout. See §A1 for the carried spec. par2 supervises **timing**, never the emotion core.
+### 5.4 par2 (timing) loop — carried unchanged. See Appendix A1.
 
 ---
 
-## 6. Required fixes from the adversarial review (all MUST land for Ring 1)
+## 6. Review-resolution ledger (all 22 findings + completeness; MUST land for Ring 1 / P0)
 
-1. **Wrapper exposes `.engine`** (engine-shim `observe()` → student emotion) + forward
-   `apply_personality`/`embodiment_bounds`; contract test: overlay == telemetry emotion.
-2. **Full per-step transition corpus** (log every `_evolve_base` call's `(pre, input, post)`,
-   since `VoidScarEngine.process` re-evolves base 2..N times/tick); decide+test whether the
-   student replaces every call or only the readout.
-3. **Skip `_apply_assessment_to_engine` when the student is active** (it already consumes
-   `a_*`); unit test asserting single application of valence/arousal.
-4. **Pin ownership of coherence/void_pressure/active_voids** (Ring 1: field-computed + assert
-   downstream tolerance; never implicitly desynced).
-5. **Runtime contraction circuit-breaker** (clamp + `‖Δbase‖`-spike → field) **before** canary;
-   gated on trajectory stability, not per-tick MAE alone.
-6. **Shadow gate includes expression-decision divergence** (`should_express`, hgt-gated path),
-   not only base/resonance MAE.
-7. **Snapshot round-trip CI both directions**, with and without `_broad_core_residual`.
+Verdicts are the digest's **re-verified** ones; overstatement corrections are marked **[CORRECTED]**
+so v4 never re-introduces them. Spike-derived numbers are **synthetic, pre-P0 targets — not
+real-world results.**
+
+### Cluster-A — boundedness / contraction (A1, A3, A9)
+| ID | Verdict | Fix (file:line) | Test |
+|---|---|---|---|
+| **A1** | Real bug; `z_{t-1}` out of `x_t` correct & sufficient; cert uncertified until load recheck. | §5.1 cell; load-time exact-norm cert on **dequant int8** → RefuseLoad. | Static K3 test `(1-α)+α‖Wrec_deq‖<1` on served weights; train-side `σ(Wrec)≤0.9`. |
+| **A3** | Confirmed cause; "MAE≤0.03 impossible without scar-mod" **[CORRECTED → hypothesized, gated by ablation]** (asserted, not yet measured). | scar-mod summary in `x_t[9:17]` (input-side, no contract break); producer fork **U1**. | Ablation: with/without `x_t[9:17]`; assert without > 0.03 floor, with ≤ 0.03 held-out. |
+| **A9** | **[CORRECTED] — spec-only, NOT a current bug.** The existing nudge **already per-element clamps**: `max(-1,min(1,…))` at `resonance_integration.py:627/629/631`. Future residual only. | When Stage-C lands: `b_res` **pre-tanh** inside `BroadCore.step()`; never a post-hoc `base[i]=` write (kills the `:625` alias). | Property test `z_t∈[-1,1]^8` ∀`b_res`; grep-gate no post-tanh `base` residual write. |
+
+### Cluster-B — tick / nudge / expression / KD contract (B4, B2, B10, C8)
+| ID | Verdict | Fix (file:line) | Test |
+|---|---|---|---|
+| **B4** | Confirmed (incl. ComputationSpine vacuous-test). **Resolve before B2.** | Per-side-effect **REPLACE-vs-PRESERVE** in both spines (`resonance_integration.py:588-647`, `computation_spine.py:511-565`): student REPLACES `base[0,1,2]` only; PRESERVE wound/scar/void/撒娇·生气/`expression.accumulate`. | Spine-specific tests: student drives `base[0,1,2]` AND each side-effect fires exactly once. |
+| **B2** | Confirmed; floor=1; tick-level **forced** (per-call welds core into the field ⇒ Phase K impossible). **[Grounding CORRECTED]** `_evolve_base` defined `:276`, called `:402`. | Tick-level recurrent map; target = final post-tick base after both `step()`s (`void_scar_engine.py:182,186`) + B4-preserved side-effects; corpus tick-granular. Coupling add-on → **U4**. | Tick-parity ≤0.03 held-out; assert exactly one inference/tick. |
+| **B10** | Confirmed hidden behavior change (`should_express` = bifurcation+HGT-veto+bandit, not `z[6]>thr`). | DROP the `should_express` head in Ring 1; remove `BCE·0.2` (same loss line as C8); fix #6 → monitor-only. | Assert no `should_express` head, no BCE term; shadow-log (not gate) expression divergence. |
+| **C8** | Confirmed — EmotiCore is an orphan `.pyc`, `λ_kd=0` always; cited teacher is a 128-dim text Transformer (category mismatch). | DELETE `λ_kd·EmotiCore_soft` + the "λ_kd=0/no teacher" clauses (same line as B10); CI grep-gate. | grep-gate fails if `EmotiCore`/`lambda_kd` reappears; loss has no KD term. |
+
+### Cluster-C — corpus / leakage / cost / theater (C6, C7, C11)
+| ID | Verdict | Fix | Test |
+|---|---|---|---|
+| **C6** | Real; mechanism **[CORRECTED]** — par1 logs **post-nudge `f_*`**, does NOT copy `x_t`'s `a_*`; "student copies `x_t a_*`" is FALSE. The real (weaker) leak: same-tick `a_*` is both input and inside the nudged target. | Stage-B target = `d_t = a_t − base_pre_nudge` (shared instrument, logged at the pre-nudge point near `:625`); KS → admission only; promote on held-out MAE on `d_t`; manifest carries `assessor_version`. Fork **U2**. | Leakage guards: `corr(pred d_t, a_*-bearing inputs)` flag>0.7/abort>0.95; **field-ablation control** (predict `d_t` from `x_t` alone must fail); variance floor; session-split. |
+| **C7** | Confirmed gap (cost-gating starves the labels the brain needs). | Mandatory assessor-call **exploration floor `ρ_floor`** on gated-away ticks, stratified on `(conf,surprise)`; savings ceiling `(1−ρ_floor)·gateable`. Magnitude → **U3/D-8**; **global token-bucket** not per-session (R2). | Gated-away ticks still sample at rate ≥ `ρ_floor`/stratum; burst test cannot exceed the global budget. |
+| **C11** | Confirmed circular — field already injects `a_*` every tick, so distilling post-nudge `f_*` shows zero increment. | ROI = predict `d_t` (or next-tick `a_{t+1}`) **before** the LLM call. **Add an independent ROI readout (`a_{t+1}`)** so C11 is not validated by the same `base_pre_nudge` construction it shares with C6. The real-data Probe 2 gate (ADR-0001) is the pass condition. | Probe re-run on **real** data beats persistence **and** steelmanned field+nudge by ≥15% rel ∧ ≥0.02 abs on the autocorrelated slice; report skippable as an **upper bound**, net of `ρ_floor`. |
+
+### Cluster-D — versioning / lifecycle / salt / breaker / latency (D12, D13, D14, D15, D5, D16)
+| ID | Verdict | Fix | Test |
+|---|---|---|---|
+| **D12** | Partial — gap real; residual-snapshot claim premature. | `_core_fn` runtime-only; per-session `b_res` rides snapshot with `core_version`; every `.npz` carries a manifest `{model_version, schema_version, input_contract_hash, sha256, quant_recipe, …}`; unknown schema ⇒ **refuse**, not silent v1. | Unknown `schema_version`/hash-mismatch ⇒ RefuseLoad + keep prior pinned + alert. |
+| **D13** | Partial — materializes once Stage-C exists. | On re-distill bump `core_version`; `restore()` discards `b_res` on mismatch; add `core_version` to residual to/from_dict. | Round-trip: residual under version A restored under B ⇒ discarded; same ⇒ preserved. |
+| **D14** | Confirmed; **[CORRECTED] failure mode REVERSED** — `salt=""` is **STABLE/cross-deploy-linkable** (`telemetry/sink.py:74`, `config.py:217`), not per-process-random. | Pick: per-process-random-on-empty OR refuse-enable-on-empty; deployment collection **MUST use refuse + explicit stable salt** (deletion needs it). Add `delete_session()`/tombstone. Gates R1. | Empty-salt ⇒ refuse-enable; `delete_session()` tombstones. |
+| **D15** | Partial — **[CORRECTED, fabrication removed]:** there is **NO** breaker/limiter at `resonance_integration.py:387-426` (verified: personality/HDC/gate/VoidScar process). The contraction breaker is **greenfield**, no sibling to conflate. | New `‖Δbase‖` breaker, non-proven modes only, before canary; trip on proven path = ALARM→rollback. State it does NOT contradict §5.1. | Fault-injection (NaN/corrupt/int8-edge) trips the new breaker → next tier. |
+| **D5** | Partial — conclusion right; **[CORRECTED]** the Kuramoto/Hopfield loop is **RETIRED PRIOR CODE**, not a Ring-2 add. | Doc-only: Ring 1 keeps single-pass `resonate()` UNCHANGED (no win, no regression); Ring 2 eliminates it. | Ring-1 latency p50/p95/p99 SLO: no regression. |
+| **D16** | Enumeration (plugin/corpus). | Before Phase K verify in `G:/Sylanne-next`: `.engine` forwarding, same spine instance, residual subsystem (`state_persistence._VALID_SUBSYSTEMS`, **plugin-only**), 1M corpus exists & schema-matches. **V1 done (§3); V2/V3/V5 open.** | Plugin contract test: `EngineFacade.engine` = student backend; corpus census. |
+
+### Completeness (review-missed findings, new risks, unverified, modalities)
+| ID | Verdict | Fix | Test |
+|---|---|---|---|
+| **U1/V4** int8 PTQ reproducibility | **CRITICAL.** Cert proven on f32-torch, served on numpy int8; two paths, no pinned recipe, σ_max can flip after the gate. | Pin `{quant_scheme, per_channel, rounding, accumulator}` in manifest; refuse-load on mismatch; cert re-runs on dequant int8 (A1). | **Golden-vector CI**: numpy-serve == f64-ref `<1e-6` across numpy versions + on the 2c2g box. |
+| **U2/M2** concurrency | **CRITICAL** (tied most-dangerous); zero review finding. | §5.3 concurrency block (read-only core, session-local `b_res`, atomic hot-swap, copy-on-snapshot). | N-session stress: per-session trajectories match solo `<1e-9`, pinned single-thread BLAS; hot-swap-mid-tick race. |
+| **U3** teacher determinism | HIGH. | GREEDY policy, frozen RNG, sorted scars in `simulate_corpus.py`. | Two gen runs byte-identical before P0. |
+| **U4/M3** failure matrix | HIGH (§5.3). | Tested outcome per cell; default fall-back-to-field, alert, no NaN. | Each cell → defined outcome; no NaN reaches the result dict. |
+| **U5/M4** observability | MED-HIGH. | stdlib-only: student-vs-field divergence, `b_res` drift, per-tier fallback rate, breaker/refuse counters, brain-loop staleness (`kernel.py:927-986`). | Each counter increments on its event; staleness fires when stale. |
+| **U6** dt/timestamp | MED. | Decide α `dt`-scaled vs fixed; restate the §5.1 bound; log numeric `dt` (D-13). | First-tick-after-restore (large `dt`) stays bounded; corpus-vs-serve `dt` match. |
+| **R1** PII surface | New (from fixes). `base_pre_nudge`+`a_*` is the richest surface; depends on D14. | Default-off + **D14 fix first** + consent gate + HDC-inversion test (harness §2.4). | Sink refuses to enable while salt empty/stable or consent absent. |
+| **R2** ρ_floor DoS | New. | Global token-bucket, not per-session prob. | Burst: N sessions cannot exceed the global budget. |
+| **R3** spine asymmetry | New. Trained on one spine, served on both (撒娇/生气). | Stratify corpus by spine; parity-gate both. | Emotion MAE≤0.03 on both spine paths. |
+| **R4** SVD boot error | New. | Wrap the norm cert in try/except → RefuseLoad. | Degenerate `Wrec` ⇒ RefuseLoad, not crash. |
+| **R5** loss-head recalibration | New. Dropping BCE/KD shifts the 0.03 calibration. | Re-tune the P1 gate after head removal (with ADR §6 power treatment). | Re-run P1 gate post-removal; threshold still separates. |
+| **V1** plugin `.engine` | **Verified GREEN this session** (plugin emotion-read path, §3). Keep as regression guard. | None. | Overlay==telemetry; `EngineFacade.engine`=student (plugin-side). |
+| **V2/V3/V5** | Unverified: V2 1M corpus not counted; V3 no `assessor_version` field; V5 current field contractivity (power-iter underestimate). | Count+schema corpus (V2); add `assessor_version` (V3, lands with D12); exact-norm load recheck on the field (V5). | Census; manifest has `assessor_version`; exact `‖W‖₂` on field weights. |
+| **M1** corpus privacy lifecycle | Modality. Plaintext JSONL, no deletion. | Encryption/retention/deletion/egress policy; 0o600; tombstone (D14). | Retention enforced; `delete_session()` tombstones; no egress. |
+| **M5** .npz integrity | Modality. Brain loop writes cores the runtime loads. | `np.load(allow_pickle=False)` always; sha256 + atomic write. | Tampered/non-atomic `.npz` ⇒ RefuseLoad. |
+
+**Resolution order:** B4 → B2 (B2's target depends on B4's preserved side-effects). C8 + B10 edit the
+**same loss line** — land together behind one CI grep-gate (no partial land). The `base_pre_nudge`
+instrument lands **once** (shared C6 + C11; plus the independent `a_{t+1}` readout for C11). The
+manifest/contract-hash bump lands **once** (D12 + D13 `core_version` + V3 `assessor_version` + sha256 +
+U1/V4 quant recipe). A9 pre-tanh residual + A1 contraction are **mutually reinforcing** — `b_res` is
+additive and constant in `z_{t-1}`, invisible to the Jacobian.
+
+**Overstatements the digest corrected — do NOT re-introduce:** A9 (spec-only, nudge already clamps);
+D14 (`salt=""` is stable, not random); D15 (**no** breaker at `:387-426`); D5 (Kuramoto loop is
+retired code); C6 ("copies `x_t a_*`" is false); A3 ("info-theoretically impossible" → hypothesized);
+and all spike numbers are synthetic targets, not results.
 
 ---
 
@@ -264,85 +398,176 @@ on timeout. See §A1 for the carried spec. par2 supervises **timing**, never the
 
 | Layer | Choice | Why |
 |---|---|---|
-| Model | tiny **recurrent** cell (GRU-style, ~3.4K params) | the field is a recurrent contraction map; a stateless MLP loses the dynamics; recurrence is ~free and IS the per-session state |
-| Training | **PyTorch** (truncated BPTT, AdamW+cosine), owner GPU only | reuses `train_model_torch.py` + `export_to_numpy()`; never shipped |
-| Quant | int8 per-tensor symmetric PTQ | `.npz` < 8 KB; trivial numpy dequant; gated by parity test; f32 runtime state to bound recurrent int8 error |
-| Serving | **pure numpy** int8, inline | no torch (~300-400 MB), no onnx/ggml; proven by `EmotiCoreStudentLite`; latency win vs field |
-| Online residual | bounded plastic readout bias (elastic ≤30%, EMA) reusing `MetaLearner` discipline | no backprop at serving; rides existing snapshot |
-| Corpus | sim: stdlib JSONL → parquet (training-side); CORE2: `Par2Sink`-style default-off | unlimited free sim data; real-traffic stream for the brain loop |
-| Registry | flat `models/` + `manifest.json` + sha256 (Git-LFS) | repro/provenance, zero infra |
-| Tests/lint/types | pytest+pytest-asyncio, ruff(+ASYNC), mypy --strict | AstrBot §10/§11; SDK already mypy-strict |
+| Model | tiny recurrent cell (~3.4K), convex-combo + spectrally-normed `Wrec` | boundedness+contraction architectural & provable (§5.1) |
+| Training | PyTorch (truncated BPTT, AdamW+cosine), owner GPU only | reuses `train_model_torch.py` + numpy export; never shipped |
+| Quant | int8 per-tensor symmetric PTQ + **pinned recipe in manifest + golden-vector CI** | `.npz` < 8 KB; gated by parity; closes the torch→numpy boundary (U1/V4) |
+| Serving | pure numpy int8, inline | no torch/onnx; no latency regression Ring 1 (resonate() stays; win at Ring 2) |
+| Online residual | bounded plastic readout bias (elastic ≤30%, EMA), session-local | no backprop at serving; concurrency-safe (§5.3) |
+| Corpus | sim full-transition parquet (Tier-1); CORE2 `x_t→a_*` (Tier-2), default-off | §9 two-tier durable asset |
+| Registry | flat `models/` + `manifest.json` + Git-LFS | repro/provenance/migration, zero infra |
+| Fallback floor | ~20-line pure-Python analytic core compiled into source | survives a bad `.npz`; the true last resort |
+| Tests/lint/types | pytest+pytest-asyncio, ruff(+ASYNC), mypy --strict | AstrBot §10/§11 |
 
 ---
 
-## 8. Phased rollout (Ring 1; each reversible, kill switch = flag → field)
+## 8. Phase K — retiring the field from the runtime (the kill, gated)
+
+Only after the learned core is proven (P4 + Phase B). A **two-release quarantine**, never a one-shot
+delete. All six gates must pass.
+
+- **K1 — runtime teacher replaced** (learned core drives `base` by default, proven through P4+Phase B).
+- **K2 — fallback replaced + floored** (pinned-npz backed by the analytic floor; runtime guard wraps
+  load+compute; fault-injection CI proves the floor engages).
+- **K3 — stability made architectural** (§5.1 static proof on served int8 weights; never val-MAE).
+- **K4 — both spines enumerated** (`ResonanceSpine` + `ComputationSpine` 撒娇/生气 either learned or
+  formally dropped as a signed-off behavior change).
+- **K5 — post-deletion config proven** (validation window with the field import **physically disabled
+  (flag off)** so the actual shipped fallback chain takes real traffic + injected faults + a
+  cold-start cohort `base=0`; prove *what you ship*, not "core + field-fallback").
+- **K6 — quarantine-then-delete across two releases** (Release N: field flagged off, dead, shipped,
+  rollback = flip the flag; Release N+1: `git rm` the field from the live path, toggle deleted LAST).
+  **The field source is NOT removed** — moved to `training/reference_teacher/` (frozen, version-
+  pinned, import-only, no runtime path) as the regeneration oracle (§9).
+
+**Field-source custody (the most-irreversible artifact gets the most governance — completeness gap):**
+the frozen `reference_teacher` has a named owner, a fixed storage location, a recorded **sha256 pin**,
+and a **CI "no-delete" guard** that fails any change removing it. The thing declared the one
+irreversible white-train must not be lost to an accidental `git rm`.
+
+**Why source-retention is mandatory:** the field is the only deterministic, infinite generator over
+the full state space; real corpora are an on-distribution sample. Deleting the source makes
+off-distribution data (future wider clamps, D-7 dims, Ring 2) permanently unregenerable.
+
+---
+
+## 9. Data lifecycle & anti-wasted-training contract
+
+**Claim (scoped, true): updating the SDK never wastes training** — learning lives in durable data + a
+deterministic generator; weights are a regenerable cache.
+
+**Two-tier durable asset**
+- **Tier-1 — Regeneration oracle (retrains ANY architecture; covers off-distribution).** Frozen
+  `reference_teacher` (demoted field source) + the versioned `simulate_corpus` full-transition
+  parquet. *Why the source can't be `git rm`'d.* Kept forever.
+- **Tier-2 — Real-semantics corpus (retrains the SHIPPED contract; on-distribution).** CORE2
+  (`x_t → a_*`, input-complete; schema and capture in `v3-realdata-harness-spec.md`) + par1 (endpoint
+  diagnostics). The brain's food; the thing the field can never generate.
+
+**Retracted:** "par1 alone retrains any future architecture." par1 is endpoint-only; broader needs are
+regenerated from Tier-1.
+
+**SDK-update decision table**
+| Change | Action | Wasted? |
+|---|---|---|
+| No core-IO-contract change | weights load as-is (`input_contract_hash` matches) | none |
+| Same contract, retrain wanted | replay Tier-2 (CORE2) → retrain shipped contract | compute only |
+| New architecture / wider dims | regenerate from Tier-1 + re-fold Tier-2 real labels | compute only |
+
+**Versioning / migration (must land before Phase K):** every `.npz` carries a manifest
+`{model_version(semver), schema_version, feature_order, input_contract_hash, torch_version,
+numpy_version, seed, quant_recipe, assessor_version, sha256}`. Load policy: hash match ⇒ load-as-is;
+mismatch ⇒ auto-retrain **iff** corpus schema ⊇ required inputs, **else refuse + keep prior pinned +
+alert**. Auto-retrain is **gated, not auto-promote** (must beat the prior pinned core on a frozen
+held-out set — KS + MAE + trajectory — reproducible via pinned seeds/lib-versions). The pinned-last-
+good `.npz` is contract-pinned and **regenerated on every contract change**.
+
+**Corpus schema discipline (forward-only):** append-only columns, nullable appends,
+`FEATURE_SCHEMA_VERSION` bump each append; schema-aware loader up-projects old rows; mixed-schema
+training parity CI. (Fixes the silent "fall back to v1 on unknown version" mis-parse.)
+
+**Input-completeness one-way doors (settle before more collection):**
+- **D-12 (message bandwidth).** Carry the message as **WIDE HDC density** (numeric, non-invertible*),
+  and **widen via D-7** (assessor emits more numeric affect dims) — **never** raw text or invertible
+  sentence embeddings (re-identification breaks no-PII). The spike confirmed width matters
+  *mechanically* (V0→V4→Vfull); the *real-text* size is open. **Recommend yes.** *non-invertibility
+  unverified (harness §2.4).
+- **D-13 (time).** Log numeric `dt` per row **now** (non-PII; sim parquet already carries it).
+  **Recommend yes.**
+
+---
+
+## 10. Phased rollout (re-sequenced for the v4 gate; each reversible; kill switch = flag → fallback)
 
 | Phase | Work | Gate |
 |---|---|---|
-| **P0** | `simulate_corpus.py` (full per-step chain) → parquet + manifest | — (offline) |
-| **P1** | train BroadCore-S (BPTT) → int8 `.npz` + manifest | int8 emotion MAE ≤ 0.03, res MAE ≤ 0.05, traj-corr ≥ floor, numpy==torch parity |
-| **P2 Shadow** | `BroadCoreRuntime` computes+logs but field drives; compare student-vs-field on real traffic (par1 cols = field targets) | rolling base+expression divergence ≤ thr; KS covariate-shift OK |
-| **P3 Canary** | student drives `base` for a canary %; circuit-breaker + per-tick try/except → field; assessor-correction residual on | trajectory stability; expression divergence ≤ small %; latency/RSS SLOs |
-| **P4 Promote Ring 1** | student is the emotion core by default; online residual on; auto-rollback armed | sustained SLOs |
-| **Phase B (brain loop)** | CORE2 real-traffic capture on; periodic shared-core **re-distillation** vs assessor; KS-gated promote of each new core version | re-distilled core beats prior on held-out real traffic |
-| **Phase M (maturity / cost)** | **confidence-gate the assessor**: when the core's predicted affect is high-confidence + low-surprise, skip/defer the LLM assessor call; call it on uncertainty/novelty | LLM-call rate ↓ vs v1/v2 with affect quality held |
+| **Phase 0 — Collection (AUTHORIZED NOW, NOT P0)** | CORE2 sink + salt/consent fix + `core2_to_corpus.py` + probe additions, all default-off (`v3-realdata-harness-spec.md`); deploy runbook HELD | privacy gates green (R1 salt, consent, HDC-inversion test); ≥30-session pilot → ADR §6 N |
+| **★ REAL-DATA GATE (ADR-0001)** | re-run Probe 2 on real data vs persistence **and** steelmanned field+nudge, autocorrelated slice | **PASS ⇒ enter P0; FAIL/escalate ⇒ STOP** |
+| **P0** | `simulate_corpus.py` (full per-step + dt) → Tier-1 parquet + manifest; **deterministic teacher (U3)** | — (offline) |
+| **P1** | train BroadCore-S (BPTT) → int8 `.npz` + manifest | int8 emotion MAE ≤0.03 (**power-treated, ADR §6**), res ≤0.05, traj-corr ≥ floor, **numpy==torch golden-vector (U1)**, **K3 static contraction proof** |
+| **P2 Shadow** | `BroadCoreRuntime` computes+logs, field drives; student-vs-field on real traffic | base + expression divergence ≤ thr; KS OK |
+| **P3 Canary** | student drives `base` for a canary %; circuit-breaker + layered fallback + residual + **concurrency stress (U2)** on | trajectory stability; expression divergence ≤ small %; latency/RSS SLOs; per-session isolation `<1e-9` |
+| **P4 Promote Ring 1** | student is the core by default; online residual on; auto-rollback armed | sustained SLOs |
+| **Phase B (brain)** | CORE2 re-distillation vs assessor; KS-gated promote; **field-ablation control** | re-distilled core beats prior on held-out real traffic on `d_t` |
+| **Phase M (cost)** | confidence-gate the assessor; **`ρ_floor` exploration via global token-bucket** | LLM-call rate ↓ vs v1/v2 (net of `ρ_floor`), affect quality held |
+| **Phase K (retire field)** | execute K1–K6; demote source to `reference_teacher` with custody (§8) | all six kill gates green |
 
-Ring 2 (resonance block) / Ring 3 (full tick) are **separate future P0–P4 cycles**, only
-after Ring 1 + Phase B prove out. Vendor cutover (owner, separate session): atomic
-whole-`_engine/sylanne_core` swap, keep assessor knob, backup + smoke test + one-command
-rollback.
-
----
-
-## 9. Standards / observability / testing / governance (carried + delta)
-
-- **Standards**: Conventional Commits + trunk-based + English (§9); ruff(+ASYNC) + mypy
-  strict (§10); pytest+pytest-asyncio (§11); review checklist (§13). v3 line = `next-gen`.
-- **Observability** (stdlib-only, no egress, via `health()`/diagnostics + JSONL metrics):
-  corpus growth (sim + CORE2), **student-vs-field base/resonance/expression divergence**,
-  int8 parity, fallback rate, contraction-breaker trips, residual drift, per-tick latency
-  p50/p95/p99, RSS, **assessor-call rate** (Phase M), re-distillation version + KS deltas.
-- **Testing**: parity (numpy==torch), **no-split-brain** (overlay==telemetry), assessment
-  no-double-apply, contraction-breaker, shadow-divergence, snapshot round-trip ±residual,
-  load test (N sessions, 2c2g budget). par2 attribution (arm/resolve/restart/reset) carried.
-- **Governance**: opt-in default-off (`student_model_enabled`, CORE2 sink); no PII / no text /
-  no egress; `0o600`; salted hash join; retention + tombstone right-to-deletion;
-  model registry (semver + sha256 + feature_order check forces degradation on mismatch).
+Ring 2 / 3 are separate future cycles. Vendor cutover (owner, separate session): atomic whole-
+directory swap, keep assessor knob, backup + smoke test + one-command rollback (config **and** data
+side, harness §4).
 
 ---
 
-## 10. Risks & mitigations (broad-specific top)
+## 11. Standards / observability / testing / governance
+
+- **Standards**: Conventional Commits + trunk + English; ruff(+ASYNC) + mypy strict;
+  pytest+pytest-asyncio; review checklist. v3 line = `next-gen` / `feat/v3-core`.
+- **Observability** (stdlib-only, no egress): Tier-1+Tier-2 corpus growth, student-vs-field
+  base/resonance/expression divergence, int8 parity, **per-tier fallback rate**, contraction-breaker /
+  refuse-load counters, residual drift, latency p50/p95/p99, RSS, assessor-call rate (Phase M, net of
+  `ρ_floor`), re-distillation version + KS deltas, **brain-loop staleness**, manifest/contract-hash on
+  every load.
+- **Testing**: parity (numpy==torch **golden-vector**, U1), static contraction proof (K3),
+  no-split-brain (overlay==telemetry), assessment REPLACE/PRESERVE (**both spines**, B4),
+  contraction-breaker + **failure matrix** (U4), fault-injection fallback (K2), cold-start cohort (K5),
+  mixed-schema corpus parity (§9), **residual instance-locality under 2c2g concurrency `<1e-9`** (U2),
+  **deterministic teacher byte-identical** (U3), **field-ablation leakage control** (C6), shadow-
+  divergence, snapshot round-trip ±residual (D13), `.npz` integrity (M5), load test. par2 carried.
+- **Governance**: opt-in default-off (`student_model_enabled`, CORE2 sink); **consent gate as an
+  enable precondition**; no PII / no text / no raw embeddings / no egress; `0o600`; salted hash join
+  (**D14 fix first**); retention + tombstone right-to-deletion (best-effort; raw logs only — distilled
+  weights non-revocable); model registry (manifest semver + sha256 + contract-hash); CORE2 multi-user
+  disclosure + minimum-N (ADR §6) before a re-distilled core promotes; **assessor-version freeze per
+  campaign** (ADR §7).
+
+---
+
+## 12. Risks & mitigations
 
 | Risk | Mitigation |
 |---|---|
-| **Theater** (clone-the-field gains nothing) | **Phase B** continual re-distillation on real assessor traffic is committed, not deferred — the core is *trained to beat the field* |
-| Split-brain (telemetry vs prompt) | fix #1 wrapper `.engine` + contract test |
-| Per-tick `step()`-chain desync | fix #2 full per-step corpus + decide single-vs-readout replacement |
-| `a_*` double-apply | fix #3 skip-guard + test |
-| Recurrent int8 divergence over long sessions | f32 runtime state + clamp + contraction reg + circuit-breaker + long-horizon CI |
-| coherence/void/active_voids desync | fix #4 field-computed in Ring 1, asserted tolerance |
-| Expression timing flips while base MAE tiny | fix #6 expression-divergence shadow gate |
-| Mid-session fallback hands field stale void/scar state | keep field void/scar bookkeeping live in shadow/canary; documented decision |
-| Two spine classes (`ResonanceSpine`/`ComputationSpine`) | wrapper + corpus target whichever is `_DEFAULT_SPINE`; assert at build |
-| Uncorrected dims (tension/curiosity/boundary) drift online | only the 3 assessor-driven dims get online correction; others anchored to the distilled prior + contraction reg; bound residual |
-| No teacher `.pt` | `λ_kd=0`; field-distill + assessor are sufficient |
+| **Theater** (clone gains nothing) | Phase B continual re-distillation; **the real-data gate (ADR-0001) blocks P0 until value is shown on non-field data** |
+| **Spike's synthetic win doesn't transfer** | gate on real data; Probe 2 must beat persistence + steelmanned field+nudge on the autocorrelated slice |
+| **Deleting the field source ⇒ irreversible white-train** | demote, never delete; frozen `reference_teacher` w/ custody (§8/§9) |
+| **Stability swap to a weaker guarantee** | architectural boundedness + spectrally-normed `Wrec`, static proof on served int8 (§5.1, K3) |
+| **int8 PTQ flips the cert (torch→numpy)** | pinned quant recipe + golden-vector CI + load-time exact-norm recheck (U1/V4) |
+| **Concurrency races (shared core / hot-swap / `b_res`)** | read-only core, session-local residual, atomic swap, `<1e-9` isolation test (U2) |
+| **Bad `.npz` bricks every fresh install** | layered fallback + analytic floor + fault-injection CI (K2) |
+| **Prove core+field-fallback but ship core+npz-fallback** | K5 validation window with field import disabled |
+| **Second spine (撒娇/生气) un-killed** | K4 both-spine kill-list + signed-off behavior decision |
+| **No model_version/migration / mixed-schema rot** | manifest + contract-hash + gated auto-retrain + forward-only columns (§9) |
+| **PII / re-identification (`base_pre_nudge`+`a_*`)** | D14 salt fix first + consent gate + HDC-inversion test + retention/tombstone (R1/M1, harness §2) |
+| **`ρ_floor` cost-DoS** | global token-bucket (R2) |
+| Split-brain / step-chain desync / a_* double-apply / coherence desync / expr flips | ledger §6 fixes |
+| No teacher `.pt` | `λ_kd` deleted (C8); field-distill + assessor sufficient |
 
 ---
 
-## 11. Open decisions for the owner
+## 13. Open decisions for the owner
 
-- **D-1 RESOLVED**: broad scope, **Ring 1** (emotion core), **brain loop committed** (Phase B).
-- **D-7 (assessor extension):** to ground more than 3/8 dims online, extend the assessor
-  output schema (add e.g. curiosity/intimacy/boundary continuous fields). Backward-compatible
-  prompt change. **Recommend yes** (it directly widens what the brain can learn) — your call.
-- **D-8 (Phase M aggressiveness):** how hard to confidence-gate the assessor (cost↓ vs affect
-  fidelity). A cost/quality dial only you set.
-- **D-9 (online residual reach):** keep online correction to the 3 driven dims, or let it
-  touch more once D-7 lands?
-- **D-10 (governance):** retention window; opt-in disclosure for the CORE2 real-traffic stream
-  (multi-user data); minimum-N before a re-distilled core may promote.
-- **D-11 (Ring 2 trigger):** what proof from Ring 1 + Phase B greenlights learning the
-  resonance block (skipping the Kuramoto/Hopfield loop for more latency win)?
+- **D-1 RESOLVED**: broad scope, Ring 1, brain loop committed.
+- **D-retire RESOLVED (v3)**: field out of the runtime (Phase K), source demoted to a frozen
+  `reference_teacher`.
+- **Gate RESOLVED (v4 / ADR-0001)**: do not enter P0 on the spike; collect real data, re-run Probe 2.
+- **Owner forks (ledger §6):** **U1** scar-mod producer post-Phase-K (rec: scoped `ScarModulator` stub,
+  no seed=42 MLP) · **U2** leakage-free target (rec: `d_t` + independent `a_{t+1}` readout; **only U2
+  touches the spike**) · **U3** `ρ_floor` magnitude (bind `N_min` to D-8) · **U4** coupling magnitude in
+  `x_t` (rec: reactive — add only if P1 MAE fails) · **U5** input-only vs state-gated cell (rec:
+  input-only, closed-form Jacobian).
+- **D-7 (assessor extension):** more numeric affect dims (curiosity/intimacy/boundary). Backward-
+  compatible; lifts the D-12 bottleneck. **Recommend yes.**
+- **D-8 (Phase M aggressiveness)** · **D-9 (online residual reach)** · **D-10 (CORE2 governance:
+  retention, disclosure, minimum-N)** · **D-11 (Ring 2 trigger)** · **D-12 (message bandwidth — widen
+  via D-7, never embeddings; recommend widen)** · **D-13 (log `dt` now — recommend yes)**.
 
 ---
 
@@ -350,21 +575,25 @@ rollback.
 
 SDK: `+report_reach_outcome(session_id, originating_tick, outcome, *, dispatch_ts=None,
 observed_ts=None, latency_turns=-1, apply_online=False) -> bool`; `+Par2Sink`
-(`reach_outcomes.jsonl`, `PAR2_SCHEMA_VERSION=1`, row `{schema_version, session_hash,
-originating_tick, outcome, dispatch_ts, observed_ts, latency_turns}`); `+SylanneConfig
-reach_outcome_sink/reach_outcome_path`; `+host_payload originating_tick/guard_allowed`
-(additive read-only); `+SYLANNE_CAPABILITIES`. Plugin: `awaiting_par2_outcome` store
-(persisted, restart-safe), arm on `bridge.dispatch()=={dispatched:True}` ∧ `guard_allowed` ∧
-`decision.action=='reach_out'`, classify from the reply tick's assessment, `ignored` on a
-default-4h timeout sweep. Reward stays discrete; never wound-delta; never into emotion loss.
+(`reach_outcomes.jsonl`, `PAR2_SCHEMA_VERSION=1`); `+SylanneConfig reach_outcome_sink/path`;
+`+host_payload originating_tick/guard_allowed` (additive read-only); `+SYLANNE_CAPABILITIES`. Plugin:
+`awaiting_par2_outcome` store (persisted, restart-safe), arm on `bridge.dispatch()=={dispatched:True}`
+∧ `guard_allowed` ∧ `decision.action=='reach_out'`, classify from the reply tick's assessment,
+`ignored` on a default-4h timeout sweep. Reward stays discrete; never wound-delta; never into emotion
+loss.
 
 ## Appendix A2 — key file pointers
 
-SDK: `scar_algebra.py:218-306` (`seed=42` `_evolve_base`), `void_scar_engine.py:182,186`
-(per-tick `step()` chain) `:211-233` (`observe`), `resonance_integration.py:343-511`
-(`process`) `:588-647` (`_apply_assessment_to_engine`) `:886-939` (`_build_result`)
-`:985` (`MetaLearner` serialize), `kernel.py:265` (`process` call) `:612`
-(`_computation_emotion_overlay` → `.engine.observe()`), `telemetry/sink.py:37`
-(`AFFECT_CONTEXT_FIELDS`), `meta_learner.py:198` (`update`), `config.py:183`.
-Plugin: `engine_adapter.py:129` (`EngineFacade`), `proactive_bridge.py:301` (`dispatch`),
-`main.py:1106` (`on_message`), `state_persistence.py` (`_VALID_SUBSYSTEMS`).
+SDK: `scar_algebra.py:276` (`_evolve_base` **def**, boundedness = final `tanh` `:304`), `:402`
+(`_evolve_base` **call** in `step()`), `:231-232` (`max_sigma=0.7`), `:352-363` (`modulate`);
+`void_scar_engine.py:182,186` (per-tick `step()` chain) `:211-233` (`observe`);
+`resonance_integration.py:343-511` (`process`, HDC→ssm at `:413-423`) `:588-647`
+(`_apply_assessment_to_engine`, clamped writes `:627/629/631`) `:886-939` (`_build_result`);
+`computation_spine.py:511-565` (`apply_assessment`, **撒娇/生气**); `kernel.py:47-53` (`_DEFAULT_SPINE`
+fallback) `:265-270` (`process` call) `:298` (`_capture_telemetry` call) `:605-612`
+(`_computation_emotion_overlay` → `.engine.observe()`) `:927-986` (`_capture_telemetry`);
+`telemetry/sink.py:33` (`FEATURE_SCHEMA_VERSION`) `:37-64` (`AFFECT_CONTEXT_FIELDS`) `:74`
+(`anonymize_session`); `meta_learner.py:198-260` (`update`); `config.py:215-217` (`training_data_*`).
+**Plugin (`G:/Sylanne-next`, out of SDK scope):** `engine_adapter.py:129` (`EngineFacade`),
+`llm_request_pipeline.py:1601` (emotion read — V1 verified GREEN), `state_persistence.py`
+(`_VALID_SUBSYSTEMS`), `proactive_bridge.py:301` (`dispatch`), `main.py:1106` (`on_message`).
