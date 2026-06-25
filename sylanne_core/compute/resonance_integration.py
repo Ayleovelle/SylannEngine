@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from .autopoiesis import AutopoieticBoundary
 from .bounded_dict import BoundedDict
+from .deterministic_fusion import create_deterministic_fusion
 from .emergence import EmergenceTracker
 from .expression_policy import ExpressionPolicy
 from .hgt import HeterogeneousGraphTransformer
@@ -47,7 +48,6 @@ from .personality import (
 from .phase_transition import PhaseTransitionExpression
 from .predictive_coding import PredictiveCodingGate
 from .relational_sheaf import ScarSheaf
-from .resonance_field import create_resonance_field
 from .void_scar_engine import VoidScarEngine
 
 if TYPE_CHECKING:
@@ -128,7 +128,7 @@ class ResonanceSpine:
         self._tier = profile.mode
 
         # Resonance field + emergence
-        self._field = create_resonance_field(n_modules=7, tier=self._tier)
+        self._field = create_deterministic_fusion(n_modules=7, tier=self._tier)
         self._emergence = EmergenceTracker(window=50)
 
         # Real computation modules (same as ComputationSpine)
@@ -570,21 +570,64 @@ class ResonanceSpine:
         return result
 
     def _apply_assessment_to_engine(self, assessment: dict[str, Any]) -> None:
-        wound_risk = float(assessment.get("wound_risk", 0.0))
-        valence = float(assessment.get("valence", 0.0))
+        """Drive the emotion core from the LLM's semantic read.
+
+        The SDK cannot judge meaning on its own, so the assessor (external LLM) is
+        the only source of real affect. Runs after the main VoidScar step but before
+        ``observe()``, so the LLM's read moves *this* tick's emotion output. All
+        nudges are gated on the assessor actually reporting non-zero affect — with no
+        assessment (e.g. direct spine tests) this method is never reached.
+        """
+        n = self._engine.scar_state.n_dims
+        wound_risk = max(0.0, min(1.0, float(assessment.get("wound_risk", 0.0))))
+        valence = max(-1.0, min(1.0, float(assessment.get("valence", 0.0))))
+        arousal = max(0.0, min(1.0, float(assessment.get("arousal", 0.0))))
+        # Confidence scales how much the read drives the core: an unsure LLM nudges
+        # gently, a confident one drives hard. Floor keeps a low-confidence read from
+        # vanishing entirely. (Trauma/void paths below use raw thresholds — an extreme
+        # wound_risk should land even at middling confidence.)
+        gain = (0.4 + 0.6 * max(0.0, min(1.0, float(assessment.get("confidence", 0.5))))) * 0.3
+
+        # Strong hurt: irreversible trauma injection (tension + repair_pressure).
+        # Done FIRST: step() re-evolves the whole base through the MLP, so the affect
+        # bias below must land afterwards or it would be scrambled by the wound step.
         if wound_risk > 0.7:
-            wound_vec = [0.0] * self._engine.scar_state.n_dims
-            if len(wound_vec) > 3:
+            wound_vec = [0.0] * n
+            if n > 3:
                 wound_vec[3] = wound_risk * 0.8
-            if len(wound_vec) > 5:
+            if n > 5:
                 wound_vec[5] = wound_risk * 0.5
             self._engine.scar_state.step(wound_vec, 0.0, heal=False)
+
+        # Continuous nudge: let mild/moderate semantic affect reach the core, not
+        # only the extreme thresholds. observe() returns scar_state.base[d] directly,
+        # while step() routes input through a random-seeded MLP that mixes dimensions
+        # and does not preserve per-dim sign — so a transient affect read is biased
+        # onto the observed base dims directly (the interpretable channel), stamped on
+        # top of any wound step so it always shows in this tick's observation.
+        # dim order: warmth0 arousal1 valence2 tension3 curiosity4 ...
+        base = self._engine.scar_state.base
+        if n > 2 and abs(valence) > 1e-6:
+            base[2] = max(-1.0, min(1.0, base[2] + valence * gain))
+        if n > 1 and arousal > 1e-6:
+            base[1] = max(-1.0, min(1.0, base[1] + arousal * gain))
+        if n > 0 and valence > 0.0:
+            base[0] = max(
+                -1.0, min(1.0, base[0] + valence * gain * 0.67)
+            )  # warmth tracks positive valence
+
+        # Negative valence raises void pressure; strong positive valence relieves it.
         if valence < -0.5:
             for void in self._engine.void_space.voids[:2]:
                 void.pressure = min(1.0, void.pressure + abs(valence) * 0.2)
         if valence > 0.5:
             for void in self._engine.void_space.voids[:3]:
                 void.pressure *= max(0.5, 1.0 - valence * 0.3)
+
+        # ``process()`` already populated VoidScarEngine's observe() cache; the
+        # mutations above (scar base + void pressure) happen after that, so the
+        # cache must be dropped for the upcoming ``observe()`` to see the LLM read.
+        self._engine._cached_observe = None
 
     def _emotion_to_boundary_force(self, emotion: dict[str, float]) -> list[float]:
         values = (
@@ -669,15 +712,15 @@ class ResonanceSpine:
         ticks_since_expr = self._tick_count  # approximate; reset on expression
         ticks_since_user = 1.0  # we just got a message
         policy_context = [
-            self._expression_drive,                          # expression_drive
-            self._expression_threshold,                      # expression_threshold
-            emergence.get("phi", 0.0),                       # phi
-            resonance_meta.get("sync_order", 0.0),           # sync_order
-            resonance_meta.get("energy", 0.0),               # energy
-            min(1.0, ticks_since_expr / 50.0),               # ticks_since_last_expression (normalized)
-            min(1.0, ticks_since_user / 10.0),               # ticks_since_last_user_message (normalized)
-            self._expression_policy.recent_accept_rate,      # recent_accept_rate
-            self._expression_policy.recent_reject_rate,      # recent_reject_rate
+            self._expression_drive,  # expression_drive
+            self._expression_threshold,  # expression_threshold
+            emergence.get("phi", 0.0),  # phi
+            resonance_meta.get("sync_order", 0.0),  # sync_order
+            resonance_meta.get("energy", 0.0),  # energy
+            min(1.0, ticks_since_expr / 50.0),  # ticks_since_last_expression (normalized)
+            min(1.0, ticks_since_user / 10.0),  # ticks_since_last_user_message (normalized)
+            self._expression_policy.recent_accept_rate,  # recent_accept_rate
+            self._expression_policy.recent_reject_rate,  # recent_reject_rate
             float(self._personality.get("extraversion", 0.5)),  # personality_extraversion
         ]
 
