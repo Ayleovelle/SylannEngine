@@ -880,6 +880,7 @@ class ComputationSpine:
             }
             if dialogue_quality is not None:
                 result["dialogue_quality"] = dialogue_quality
+                result["_consume_dialogue_quality"] = True  # one-shot bypass of drift rate-limit
             self._drift_embodiment(result)
             self._result_cache[cache_key] = result
             return result
@@ -978,6 +979,7 @@ class ComputationSpine:
         }
         if dialogue_quality is not None:
             result["dialogue_quality"] = dialogue_quality
+            result["_consume_dialogue_quality"] = True  # one-shot bypass of drift rate-limit
         self._drift_embodiment(result)
         self._result_cache[cache_key] = result
         return result
@@ -988,10 +990,15 @@ class ComputationSpine:
         只有当某个特质变化超过 0.01 时才重新应用人格参数。
         有速率限制：两次漂移之间最少间隔 _drift_min_interval 秒。
         """
-        # Drift rate limiting: skip if too soon since last drift
+        # Drift rate limiting: skip if too soon since last drift.
+        # Exception: an explicit dialogue_quality feedback bypasses the interval gate
+        # so fast-chat turns don't silently drop quality signals. Consume-once: the
+        # marker is popped here, and _last_drift_time still advances on a bypass, so
+        # repeated fast turns are dt-scaled down rather than blowing the 30s budget.
         timestamp = self._last_process_time
         dt = timestamp - self._last_drift_time
-        if dt < self._drift_min_interval:
+        has_explicit_feedback = result.pop("_consume_dialogue_quality", False)
+        if dt < self._drift_min_interval and not has_explicit_feedback:
             self._drift_tick += 1
             return
         self._last_drift_time = timestamp
