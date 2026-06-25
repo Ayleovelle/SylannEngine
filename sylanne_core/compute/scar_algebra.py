@@ -17,6 +17,15 @@ from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
 
+from .pel_core import N as _PEL_N
+from .pel_core import PELCore
+
+# D-3/D-7: wound/feedback steps never advance the PEL latent ``mu``. When PEL is
+# active they apply a cheap, bounded affine bias on ``base`` instead of the
+# legacy MLP, so scar side-effects stay alive while ``mu`` evolves from the main
+# step alone. Small gain keeps ``tanh(base + gain*modulated) in [-1, 1]``.
+_PEL_AFFINE_GAIN: float = 0.3
+
 
 class HealingStage(IntEnum):
     """伤痕愈合阶段枚举。
@@ -136,9 +145,20 @@ class ScarredState:
         # 每维度 modifier 缓存（避免 observe/modulate 重复遍历伤痕列表）
         "_modifier_cache",
         "_modifier_cache_valid",
+        # PEL-Core (v2.5): optional predictive-coding latent core, gated by config.
+        # ``_pel is None`` => legacy MLP path runs and behaviour is byte-identical.
+        "_pel",
+        "_pel_enabled",
     )
 
-    def __init__(self, n_dims: int = 8, wound_threshold: float = 0.6, mlp_passes: int = 1):
+    def __init__(
+        self,
+        n_dims: int = 8,
+        wound_threshold: float = 0.6,
+        mlp_passes: int = 1,
+        *,
+        pel_enabled: bool = False,
+    ):
         self.n_dims = n_dims
         self.wound_threshold = wound_threshold
         self.base = [0.0] * n_dims
@@ -167,6 +187,10 @@ class ScarredState:
         # 任何伤痕变动（新增/愈合/移除）都会使缓存失效
         self._modifier_cache: dict[int, float] = {}
         self._modifier_cache_valid: bool = False
+        # PEL-Core: enabled flag + (lazily set) latent core. The core is only
+        # built by ``set_pel_priors`` and only for the frozen 8-dim emotion space.
+        self._pel_enabled: bool = pel_enabled
+        self._pel: PELCore | None = None
 
     def set_healing_rates(
         self, t_raw: int, t_closing: int, t_scarred: int, neuroticism: float = 0.5
@@ -187,6 +211,24 @@ class ScarredState:
         self._neuroticism = float(neuroticism)
         # 神经质值影响 modifier 饱和上限，需要使缓存失效
         self._invalidate_modifier_cache()
+
+    def pel_active(self) -> bool:
+        """True iff the PEL-Core latent path drives the main step (vs legacy MLP)."""
+        return self._pel is not None
+
+    def set_pel_priors(self, personality: dict[str, float]) -> None:
+        """Initialise the PEL-Core latent micro-circuit from Big-Five personality.
+
+        Sets the attractor prior ``pi``, the generative matrix ``W_gen``, the
+        precisions and ``mu0`` from the personality traits (techspec §4.3). This
+        is a no-op unless PEL is enabled *and* this is the frozen 8-dim emotion
+        core — PEL targets the 8 canonical emotion dimensions only, so pro/max
+        (16/128-dim) cores keep running the legacy MLP. Idempotent; re-applying
+        personality (per-relationship overlays, tier switches) rebuilds the core.
+        """
+        if not self._pel_enabled or self.n_dims != _PEL_N:
+            return
+        self._pel = PELCore.from_personality(personality, base=list(self.base))
 
     def healing_duration(
         self,
@@ -363,13 +405,18 @@ class ScarredState:
         return result
 
     def step(
-        self, event: list[float], timestamp: float = 0.0, *, heal: bool = True
+        self,
+        event: list[float],
+        timestamp: float = 0.0,
+        *,
+        heal: bool = True,
+        pel_ctx: tuple[list[float], float] | None = None,
     ) -> dict[str, Any]:
         """应用 ⊳ 算子：完整状态转移。
 
         四步流程：
           1. 伤痕调制输入
-          2. MLP 演化基向量
+          2. 基向量演化（PEL 潜核 或 遗留 MLP）
           3. 条件性伤痕形成（受会话上限和断路器保护）
           4. 已有伤痕愈合推进
 
@@ -377,6 +424,10 @@ class ScarredState:
             event: 8 维输入事件向量
             timestamp: 事件时间戳（用于时间感知愈合）
             heal: 是否执行愈合步骤（Γ 耦合创伤事件设为 False）
+            pel_ctx: 可选的 PEL 主步上下文 ``(x_t, surprise)``。仅在主 step 传入。
+                当 PEL 激活且 ``pel_ctx`` 在场 ⇒ 潜核推进 ``mu`` 并写 ``base``；
+                PEL 激活但 ``pel_ctx is None``（wound/feedback 步）⇒ 走廉价 affine
+                bias（D-3/D-7，不推进 ``mu``）；PEL 未激活 ⇒ 遗留 MLP（字节一致）。
 
         Returns:
             诊断字典，包含调制后输入、新伤痕、愈合维度等信息
@@ -396,10 +447,25 @@ class ScarredState:
         # Step 1: Scar-modulated input
         modulated = self.modulate(event)
 
-        # Step 2: Base state evolution (2-layer MLP with spectral normalization)
-        # Multi-pass refinement: pro/max modes run multiple passes for deeper processing
-        for _pass in range(self._mlp_passes):
-            self.base = self._evolve_base(self.base, modulated)
+        # Step 2: Base state evolution.
+        if self._pel is not None:
+            if pel_ctx is not None:
+                # Main step: PEL latent free-energy descent + read-out -> base.
+                # PEL's K is internal and fixed; it ignores ``_mlp_passes`` (G3).
+                x_t, surprise = pel_ctx
+                z, _free_energy = self._pel.step(x_t, surprise)
+                self.base = z
+            else:
+                # wound/feedback step: cheap bounded affine bias on base (D-3/D-7).
+                self.base = [
+                    math.tanh(self.base[d] + _PEL_AFFINE_GAIN * modulated[d])
+                    for d in range(self.n_dims)
+                ]
+        else:
+            # Legacy path: 2-layer MLP with spectral normalization.
+            # Multi-pass refinement: pro/max modes run multiple passes.
+            for _pass in range(self._mlp_passes):
+                self.base = self._evolve_base(self.base, modulated)
 
         # Step 3: Scar formation (conditional, with session cap)
         existing_count = len(self.scars)
@@ -569,7 +635,7 @@ class ScarredState:
         return None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "base": list(self.base),
             "scars": [s.to_dict() for s in self.scars],
             "n_dims": self.n_dims,
@@ -588,6 +654,11 @@ class ScarredState:
             # Time-aware healing
             "last_step_time": self._last_step_time,
         }
+        # PEL-Core: additive sub-key, only present when the latent core is live.
+        # Absent entirely when PEL is off => byte-identical legacy snapshots.
+        if self._pel is not None:
+            out["pel"] = self._pel.to_dict()
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ScarredState:
@@ -607,4 +678,12 @@ class ScarredState:
         state._recent_scar_ticks = data.get("recent_scar_ticks", [])
         # Time-aware healing
         state._last_step_time = data.get("last_step_time", 0.0)
+        # PEL-Core: migration-safe restore. Old snapshots have no "pel" key and
+        # stay on the legacy path; if a downstream wants PEL on a migrated state
+        # it re-inits via ``set_pel_priors``. A present "pel" key restores the
+        # full plastic core and marks PEL active.
+        pel = data.get("pel")
+        if pel is not None:
+            state._pel = PELCore.from_dict(pel)
+            state._pel_enabled = True
         return state

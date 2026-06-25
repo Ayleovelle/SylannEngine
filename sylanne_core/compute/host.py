@@ -85,6 +85,7 @@ class SylanneAlphaHost:
     legacy: dict[str, Any] | None = None
     profile: DimensionProfile | None = None
     telemetry_sink: DistillationSink | None = None
+    pel_enabled: bool = False
     runtime: AlphaRuntime = field(init=False)
     kernel: AlphaKernel = field(init=False)
     _dirty: bool = field(init=False, default=False)
@@ -93,7 +94,9 @@ class SylanneAlphaHost:
     _pending_snapshot: dict[str, Any] | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
-        self.runtime = AlphaRuntime(Path(self.root), profile=self.profile)
+        self.runtime = AlphaRuntime(
+            Path(self.root), profile=self.profile, pel_enabled=self.pel_enabled
+        )
         self.kernel = self.runtime.load(self.session_key, legacy=self.legacy)
         self.kernel.set_telemetry(self.telemetry_sink)
         self._last_flush_time = time.time()

@@ -117,15 +117,20 @@ class ResonanceSpine:
         "_pad_projector_cache",
         # Meta-learner (online hyperparameter adaptation)
         "_meta_learner",
+        # PEL-Core enable flag (config-gated; default off)
+        "_pel_enabled",
     )
 
-    def __init__(self, profile: DimensionProfile | None = None):
+    def __init__(
+        self, profile: DimensionProfile | None = None, *, pel_enabled: bool = False
+    ):
         if profile is None:
             from ..config import build_profile
 
             profile = build_profile("lite")
         self._profile = profile
         self._tier = profile.mode
+        self._pel_enabled = pel_enabled
 
         # Resonance field + emergence
         self._field = create_deterministic_fusion(n_modules=7, tier=self._tier)
@@ -140,6 +145,7 @@ class ResonanceSpine:
             n_dims=profile.emotion_dim,
             similarity_fn=self._hdc_similarity,
             scar_mlp_passes=profile.scar_mlp_passes,
+            pel_enabled=pel_enabled,
         )
         self._sheaf = ScarSheaf(n0=profile.stalk_dim)
         self._hgt = HeterogeneousGraphTransformer(
@@ -269,6 +275,9 @@ class ResonanceSpine:
         # === Module-level personality (same as ComputationSpine) ===
         self._expression.threshold = 0.9 - extraversion * 0.6
         self._engine.scar_state.wound_threshold = 0.3 + extraversion * 0.6
+        # PEL-Core: derive the latent attractor prior pi / W_gen / precisions from
+        # personality (no-op unless PEL enabled on the 8-dim core).
+        self._engine.scar_state.set_pel_priors(personality)
         self._engine.void_space._detection_threshold = 0.6 - neuroticism * 0.5
         self._engine.void_space.set_cooldown(openness)
         self._gate.precision = 0.3 + neuroticism * 0.5
@@ -321,6 +330,19 @@ class ResonanceSpine:
             self._field._identity_inertia = meta["identity_inertia"]
             self._field._coupling.kuramoto._k1 = meta["kuramoto_k1"]
             self._field._coupling.broadcast._threshold = meta["broadcast_threshold"]
+
+    def _restore_pel_after_scar(self) -> None:
+        """Reconcile a freshly-restored ScarredState with the spine's PEL flag.
+
+        A snapshot that carried a ``"pel"`` sub-key already rebuilt the latent
+        core (and marked it active). A legacy snapshot (no ``"pel"``) lands with
+        PEL off; if this spine is configured for PEL, re-init the core from the
+        current personality (migration-safe, techspec §4 ``data.get`` pattern).
+        """
+        scar = self._engine.scar_state
+        if self._pel_enabled and not scar.pel_active():
+            scar._pel_enabled = True
+            scar.set_pel_priors(self._personality)
 
     def set_diagnostics(self, enabled: bool) -> None:
         self._diagnostics_enabled = enabled
@@ -998,6 +1020,7 @@ class ResonanceSpine:
 
             if "scar" in engine_data:
                 self._engine.scar_state = ScarredState.from_dict(engine_data["scar"])
+                self._restore_pel_after_scar()
             if "void" in engine_data:
                 self._engine.void_space.from_dict(engine_data["void"])
         if "boundary" in data:
