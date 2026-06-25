@@ -1,0 +1,228 @@
+"""P0 maths-locking tests for :mod:`sylanne_core.compute.pel_core`.
+
+These cover the zero-real-data techspec gates (§5): #1 F-descent, #3 personality
+separability, #4 input sensitivity, #6 boundedness fuzz, #7 contraction fuzz.
+They lock the brain maths before any SDK coupling exists.
+"""
+
+from __future__ import annotations
+
+import copy
+import math
+import random
+
+from sylanne_core.compute.pel_core import (
+    ALPHA,
+    BETA,
+    DELTA,
+    PI_MAX,
+    PI_MIN,
+    N,
+    PELCore,
+    PELState,
+    descent_step,
+    readout_step,
+    spectral_clamp,
+)
+
+# A tsundere-ish Big-Five profile (Sylanne) and a contrasting warm one.
+TSUNDERE = {
+    "openness": 0.7,
+    "neuroticism": 0.7,
+    "extraversion": 0.4,
+    "agreeableness": 0.3,
+    "conscientiousness": 0.6,
+    "sovereignty_guard": 0.8,
+}
+WARM = {
+    "openness": 0.4,
+    "neuroticism": 0.2,
+    "extraversion": 0.8,
+    "agreeableness": 0.85,
+    "conscientiousness": 0.5,
+    "sovereignty_guard": 0.2,
+}
+
+
+def _spectral_norm(mat: list[list[float]], iters: int = 200) -> float:
+    """Largest singular value of a square matrix via power iteration on MᵀM."""
+    n = len(mat)
+    v = [1.0 / math.sqrt(n)] * n
+    sigma = 0.0
+    for _ in range(iters):
+        # w = M v
+        w = [sum(mat[i][j] * v[j] for j in range(n)) for i in range(n)]
+        # u = Mᵀ w  == (MᵀM) v
+        u = [sum(mat[i][k] * w[i] for i in range(n)) for k in range(n)]
+        norm = math.sqrt(sum(x * x for x in u))
+        if norm < 1e-18:
+            return 0.0
+        v = [x / norm for x in u]
+        sigma = math.sqrt(norm)
+    return sigma
+
+
+def _finite_diff_jacobian_mu(
+    mu: list[float],
+    x_t: list[float],
+    w_gen: list[list[float]],
+    pi_obs: list[float],
+    pi_top: list[float],
+    pi: list[float],
+    h: float = 1e-6,
+) -> list[list[float]]:
+    """Central-difference Jacobian of one real ``descent_step`` w.r.t. ``mu``."""
+    jac = [[0.0] * N for _ in range(N)]
+    for j in range(N):
+        mp = list(mu)
+        mm = list(mu)
+        mp[j] += h
+        mm[j] -= h
+        fp = descent_step(mp, x_t, w_gen, pi_obs, pi_top, pi)
+        fm = descent_step(mm, x_t, w_gen, pi_obs, pi_top, pi)
+        for i in range(N):
+            jac[i][j] = (fp[i] - fm[i]) / (2.0 * h)
+    return jac
+
+
+# --------------------------------------------------------------------------- #
+# Test #1 — free-energy descent                                               #
+# --------------------------------------------------------------------------- #
+def test_free_energy_descends_on_repeated_input() -> None:
+    core = PELCore.from_personality(TSUNDERE)
+    x = [0.3, -0.2, 0.5, 0.1, -0.4, 0.2, 0.0, -0.1]
+    surprise = 0.5
+    energies: list[float] = []
+    for _ in range(20):
+        _z, f = core.step(x, surprise)
+        energies.append(f)
+    assert energies[-1] < energies[0] - 1e-3, energies
+
+
+# --------------------------------------------------------------------------- #
+# Test #3 — personality separability                                          #
+# --------------------------------------------------------------------------- #
+def test_personality_separability() -> None:
+    core_a = PELCore.from_personality(TSUNDERE)
+    core_b = PELCore.from_personality(WARM)
+    x = [0.2, 0.1, -0.3, 0.0, 0.4, -0.1, 0.2, 0.1]
+    za: list[float] = [0.0] * N
+    zb: list[float] = [0.0] * N
+    for _ in range(15):
+        za, _fa = core_a.step(x, 0.3)
+        zb, _fb = core_b.step(x, 0.3)
+    diffs = [abs(za[i] - zb[i]) for i in range(N)]
+    separated_dims = sum(1 for d in diffs if d > 1e-3)
+    assert separated_dims >= 2, diffs
+    assert math.sqrt(sum(d * d for d in diffs)) > 1e-2, diffs
+
+
+# --------------------------------------------------------------------------- #
+# Test #4 — input sensitivity (no saturation / content-blind collapse)        #
+# --------------------------------------------------------------------------- #
+def test_input_sensitivity_per_dimension() -> None:
+    core = PELCore.from_personality(TSUNDERE)
+    x = [0.1, -0.1, 0.2, 0.0, 0.3, -0.2, 0.1, 0.0]
+    # warm up to a non-trivial interior state.
+    for _ in range(5):
+        core.step(x, 0.4)
+
+    delta = 0.05
+    for i in range(N):
+        base_core = copy.deepcopy(core)
+        pert_core = copy.deepcopy(core)
+        x_pert = list(x)
+        x_pert[i] += delta
+        z_base, _ = base_core.step(x, 0.4)
+        z_pert, _ = pert_core.step(x_pert, 0.4)
+        # the perturbed dimension must move the read-out for that dimension.
+        assert abs(z_pert[i] - z_base[i]) > 1e-6, (i, z_base[i], z_pert[i])
+
+
+# --------------------------------------------------------------------------- #
+# Test #6 — boundedness fuzz (1000 trials)                                     #
+# --------------------------------------------------------------------------- #
+def _random_admissible_state(rng: random.Random) -> PELState:
+    raw = [[rng.uniform(-1.0, 1.0) for _ in range(N)] for _ in range(N)]
+    w_gen = spectral_clamp(raw, 0.9)
+    pi_obs = [rng.uniform(PI_MIN, PI_MAX) for _ in range(N)]
+    pi_top = [rng.uniform(PI_MIN, PI_MAX) for _ in range(N)]
+    pi = [rng.uniform(-0.999, 0.999) for _ in range(N)]
+    mu = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+    z = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+    return PELState(
+        mu=mu,
+        z=z,
+        w_gen=w_gen,
+        pi_obs=pi_obs,
+        pi_top=pi_top,
+        pi=pi,
+        z_ema=list(z),
+        eta_w=0.002,
+    )
+
+
+def test_boundedness_fuzz() -> None:
+    rng = random.Random(20250626)
+    for _ in range(1000):
+        core = PELCore(state=_random_admissible_state(rng))
+        x = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+        surprise = rng.uniform(0.0, 1.0)
+        for _step in range(3):
+            z, _f = core.step(x, surprise)
+            for v in core.state.mu:
+                assert -1.0 <= v <= 1.0, v
+            for v in z:
+                assert -1.0 <= v <= 1.0, v
+
+
+# --------------------------------------------------------------------------- #
+# Test #7 — contraction fuzz: ||J_mu|| <= 1 - alpha*delta (incl. kappa*H),     #
+#           and ||J_z|| == 1 - beta                                            #
+# --------------------------------------------------------------------------- #
+def test_latent_jacobian_is_strictly_contractive() -> None:
+    rng = random.Random(424242)
+    bound = 1.0 - ALPHA * DELTA  # 0.985
+    worst = 0.0
+    for _ in range(400):
+        raw = [[rng.uniform(-1.0, 1.0) for _ in range(N)] for _ in range(N)]
+        w_gen = spectral_clamp(raw, 0.9)
+        pi_obs = [rng.uniform(PI_MIN, PI_MAX) for _ in range(N)]
+        pi_top = [rng.uniform(PI_MIN, PI_MAX) for _ in range(N)]
+        pi = [rng.uniform(-0.999, 0.999) for _ in range(N)]
+        mu = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+        x = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+        jac = _finite_diff_jacobian_mu(mu, x, w_gen, pi_obs, pi_top, pi)
+        sigma = _spectral_norm(jac)
+        worst = max(worst, sigma)
+        assert sigma <= bound + 1e-6, (sigma, bound)
+    # the bound should be genuinely exercised, not vacuous.
+    assert worst > 0.5, worst
+
+
+def test_readout_jacobian_is_pure_leak() -> None:
+    rng = random.Random(13)
+    for _ in range(50):
+        w_gen = spectral_clamp(
+            [[rng.uniform(-1.0, 1.0) for _ in range(N)] for _ in range(N)], 0.9
+        )
+        mu = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+        x = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+        z0 = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+        h = 1e-6
+        jac = [[0.0] * N for _ in range(N)]
+        for j in range(N):
+            zp = list(z0)
+            zm = list(z0)
+            zp[j] += h
+            zm[j] -= h
+            fp = readout_step(zp, mu, x, w_gen)
+            fm = readout_step(zm, mu, x, w_gen)
+            for i in range(N):
+                jac[i][j] = (fp[i] - fm[i]) / (2.0 * h)
+        # J_z must equal (1 - beta) * I exactly (up to FD noise).
+        for i in range(N):
+            for j in range(N):
+                expected = (1.0 - BETA) if i == j else 0.0
+                assert abs(jac[i][j] - expected) < 1e-6, (i, j, jac[i][j])
+        assert abs(_spectral_norm(jac) - (1.0 - BETA)) < 1e-6
