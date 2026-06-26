@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 from dataclasses import dataclass
 from typing import Literal
 
@@ -163,7 +164,21 @@ def build_profile(
         force_backend: If set, override auto-detection with this backend.
     """
     params = _PROFILES[mode]
-    backend = force_backend if force_backend is not None else get_backend()
+    if force_backend is not None:
+        backend = force_backend
+    elif mode == "max":
+        # Only the max GPU tier needs real backend detection (which may import torch).
+        backend = get_backend()
+    else:
+        # lite / pro never use a GPU backend; decide numpy-vs-python WITHOUT importing
+        # torch. The eager ``import torch`` in get_backend()/_detect_backend balloons
+        # the 2c2g deploy path by ~458 MB RSS for a result both tiers immediately
+        # discard below — ``importlib.util.find_spec`` locates the module without
+        # importing it, so a stray torch install can no longer inflate the lite path.
+        has_numeric = any(
+            importlib.util.find_spec(m) is not None for m in ("numpy", "cupy", "torch")
+        )
+        backend = "numpy" if has_numeric else "python"
     # lite always uses python/numpy regardless of GPU availability
     if mode == "lite":
         backend = "numpy" if backend in ("numpy", "cupy", "torch") else "python"
