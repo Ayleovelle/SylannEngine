@@ -1,0 +1,226 @@
+# v2.5 重新设计 — 类脑计算引擎 (Neuromorphic Compute Engine)
+
+> 目标(用户指令,原话):**重新设计 2.5 — 做计算引擎,但是类脑计算,设计哲学与大脑无异,真模型训练放到 v3。**
+>
+> 即:把 v2.5 从现在的过渡补丁,重设计成一个**连贯的类脑计算引擎**,整套架构的计算哲学按大脑来,
+> 全靠**手设计的神经科学结构 + 在线局部可塑**实现,**零离线训练**(真模型训练是 v3 的事)。
+> 引擎是"感官(LLM)下游的脑-身体",不冒充它给不了的语义智能。
+
+## §0 状态
+
+设计进行中。架构方案由设计擂台 workflow(`wczx2cmjg` / run `wf_d32eec3f-82f`)产出:4 路侦察 →
+4 种组织哲学各出一版架构 → 每版对抗评审猎 theater → 综合。本文件 §1/§2/§8 是基于直读当前代码的
+承重地基(确定);§3–§7/§9–§10 待擂台结论填入。
+
+## §1 为什么要重设计 —— 当前 v2.5 的不连贯(直读代码实锤)
+
+v2.5 现状是"杀了共振场 + 临时替身 + PEL 藏 flag 后"的补丁拼接,不是一个连贯的脑:
+
+- **融合核是占位替身**:`resonance_integration.py:138` `self._field = create_deterministic_fusion(...)`——
+  共振场已被 `DeterministicFusion`(单次确定性聚合)顶替,但它只是"对已删机制保契约"的兜底,不是
+  按脑设计的核(见 [[v25-design]] 记忆轨迹)。
+- **类脑核 PEL 被藏在 default-off flag 后**:`pel_core.py` 的 PEL-Core 更脑 v2(预测编码 + 除法精度 +
+  BCM 元可塑 + 锚定 allostatic π,有界可证)是目前唯一真按脑设计的件,却 gated 在 `pel_core_enabled=False`,
+  且只 lite 8 维专属、藏在 VoidScarEngine 里写 `scar_state.base`,不是引擎主干。
+- **API 还在用已死的共振场词汇说话**:`apply_personality`(`resonance_integration.py:251-277`)仍把 Big Five
+  映射成 `_coupling.kuramoto._k1/_k2/_k3`、`free_energy._precision`、`broadcast._threshold`、`_hopfield_strength`、
+  `_max_attractors`、`_dissipation`、`_residual_decay`、`_identity_inertia`——这些全打进 DeterministicFusion 的
+  惰性桩,人格→引擎的映射停留在 Kuramoto/Hopfield 这套与脑无关的振子词汇。
+- **stale 范式文档**:`process()` docstring(`:381-386`)还在描述"各模块注入 → 场迭代耦合到收敛 → 表达从
+  收敛态涌现"——可 DeterministicFusion 是单次前向,没有迭代收敛。叙述与实现脱节。
+- **死代码仍在树里**:`resonance_field.py` / `resonance_field_numpy.py` / `resonance_field_torch.py` 三变体
+  spine 已不用(仅自身直测在用);`coupling_dynamics.py`、`emergence.py`、`social_field.py`、`autopoiesis.py`、
+  `phase_transition.py` 等是否仍真正输入敏感、还是装饰/常量,待 theater-audit 钉死。
+- **模块多源拼接**:活路径 HDC→PredictiveCodingGate(surprise)→VoidScarEngine(情绪源,PEL 在内)→
+  assessor_advisable→DeterministicFusion→EmergenceTracker→PhaseTransitionExpression→embodiment drift,
+  来自不同设计年代、各说各话,没有一个统一的脑组织原则把它们串成一个身体。
+
+重设计要做的:用**一个**类脑组织原则把这些重新长成一个连贯的脑-身体,该合的合、该删的删、人格映射
+改用脑参数语汇,PEL 类脑核从"藏 flag 后的旁路"提升到主干,默认行为就是类脑(仍保 flag/契约/字节兜底)。
+
+## §2 北极星与硬约束(任何方案必须过)
+
+反 theater 北极星(本项目的立身之本,共振场就是因为犯了它被杀):
+- 每个机制必须有明确**计算职责/目标函数**,**独立可消融**且有 CI 红线证明它不是 no-op,**真正提升**
+  输入敏感性(而非冲洗成与内容无关的定点),并映射到**真实、可引的脑原理**——是脑**机制**不是脑**cosplay**
+  (例:为美观模拟脉冲却什么都不买,禁止)。"更脑"永远指更多脑机制,绝不是更多脑外观。
+- 诚实优先于表演:不声称语义盲感官(LLM)封顶之外的能力。
+
+硬约束(违一条即出局):
+- 部署 2 vCPU / 2 GB 无 GPU VPS。lite 纯 Python;numpy 仅可选加速;**serving 不准 torch/onnx**。
+- **<10ms/拍,且按尾巴算预算**:红队实测现有 spine 在快 dev 机上 mean ~3.9ms / p50 3.16ms / **p99 12.6ms** /
+  max 22ms;真 2c2g(×2–4)p99 才是绑定数。重设计必须**更轻、尾巴更受控**,不是更重。
+- 两个活 footgun 必须修/避:`config.build_profile()→get_backend()` eager `import torch`(+458MB RSS);
+  jieba 词典 +67MB。lite 必须 torch-free 且轻。
+- 公共 API 冻死;快照/恢复安全;有风险的默认 off flag;**有界 + 闭式收缩可证**(引擎不可发散)。
+- **LLM/assessor = 唯一语义器官**(远程 API,不在盒子上);HDC 是语义盲哈希。引擎是感官下游的脑-身体。
+- **v3 边界**:真训练/真本地语义学习是 v3,且 ADR-0001 已判"学习版核在真实数据上尚未打过 trivial
+  persistence"——重设计**不得偷渡 v3 的训练/学习**,只做手设计结构 + 在线可塑。
+
+## §3 无需训练即可体现的脑原理正典(保留 vs 陷阱)
+
+可在零训练下用手设计结构 + 在线局部可塑落地的脑原理(每条带真引文,引文按红队纪律,未重验标 [verify]):
+
+- 层级预测编码(Rao & Ballard 1999 Nat Neurosci; Friston 2005)——底向/顶向精度加权误差最小化。**PEL 已是。**
+- 精度加权=注意力 / 除法归一化(Heeger 1992; Carandini & Heeger 2012)——M1 已是。
+- 多时标突触可塑:三因子 Hebbian / BCM 元可塑(Bienenstock+1982)/ 稳态突触缩放(Turrigiano 2008)——
+  M2 已有 Hebbian+BCM。
+- 神经调质作元参数(Doya 2002;Yu & Dayan 2005 ACh/NE = 预期 vs 意外不确定性;DA = RPE/精度)——
+  把感官映成"怎么推断"的旋钮,**是本次最大的新增脑机制**(见 §6)。
+- Allostasis / 预测性调节(Sterling 2012)——M3 锚定 π 已是。
+- 内感受推断 / 情感作身体状态估计(Barrett 2017; Seth 2013)——8 维 z 读出 = 内感受情感,**这是项目真论点**。
+- 典范皮层微环路 = 预测编码(Bastos+2012 на Douglas-Martin)——作**组织原则**,让 PEL 成"非任意的核"。
+
+陷阱(= 被杀的共振场之罪,必须保持死亡或诚实改写,**不得**作卖点):
+- 朴素 Kuramoto / 全局相位、Hopfield 自采吸引子、simulated spikes(LIF)纯美观——**全删,见 §8**。
+- **临界性 / edge-of-chaos 作目标**——与"可证收缩"自相矛盾(可证收缩系统按定义**不在**临界点):
+  ρ(W_gen)=0.9、‖J_μ‖≤0.985<1、唯一稳定不动点,这是**正当的稳定裕度,不是 criticality**。CMC-8 因为
+  把 ρ=0.9 包装成"近临界"被红队判残余 theater;本设计**丢掉 criticality 这个词**,只讲收缩裕度。
+- **k-WTA 稀疏编码 @ N=8**——Olshausen-Field 是"上万里取几个"的过完备去冗余;8 个命名的非冗余情感维清零
+  第 3 强 = 丢信号不是去冗余,引文不转移。**砍**。
+- **字面 Tsodyks-Markram STP**——是 ms 级脉冲间突触滤波;这里一"拍"是分钟级对话消息、无脉冲。直接套是
+  "novelty 标量贴 STP 标签",4 个量级时标错配。**要么诚实改写**(作用在**输入支**上的历史依赖 novelty 增益,
+  不冒充字面突触 STP,且带实质红线)**要么砍**。
+
+## §4 选定架构 —— 综合赢家(单皮层预测编码柱 + 神经调质总线 + 主动推断动作门)
+
+擂台四版近乎平手(AIB 38 / CMC-8 38 / LIMBUS 37 / PEC 35),且四位评审收敛到**同一套**可嫁接内核。
+故不取单一胜者,取**综合**:以 CMC-8 的"典范微环路=预测编码统一"为组织骨架、AIB 的"主动推断动作门
+(falsify-or-cut)"为表达侧、LIMBUS 的"神经调质总线 + assessor 作精度"为感官接入、PEC 的"一目标 F 被 4
+读者消费 + 生产见证"为连贯纪律。命名:**PEL-Core 长成皮层柱 —— 一柱一遍(one column, one pass)**。
+
+组织哲学(取代共振场的"无动机多机制一锅"):整个引擎 = **一个**广义生成模型在最小化**一个**自由能 F;
+每个模块要么是这柱的一个**层(level)**、一条**精度通道**、一个**神经调质**、或一个**消费 F 的读者**,
+否则删除。一拍一次确定性前向(无迭代收敛、无场)。
+
+**根因修复(整个擂台最值钱、对活代码验过的结构洞见,四版都列头号 graft):**
+现状 `x_t = c·a_vec + (1-c)·s·h_t`(`void_scar_engine.py:231-235`)让输入 echo assessor——高 confidence 时
+μ 直接 echo a_vec、`e0 = x_t − W_gen·μ → 0`,这就是 M1 除法精度在真路径死饱和(`precision_live=False`)的**真因**。
+修:**x_t 改去预测活的 HDC 传入**(`x_t = s·h_t`),让 e0 成真预测误差(教科书 Rao-Ballard);**assessor 改作
+精度加权的观测/经验先验**进来——`Π_a = PI_MIN + (PI_MAX−PI_MIN)·confidence`,即 LLM 教**先验**、不再 trivialize
+误差。这一改同时把当前的 assessor **双写**(`resonance_integration.py:668-676` 直写 base[2] + `:706` 延迟
+store_pel_affect)塌成**一个**精度加权入口,并暴露干净的 v3 接缝(学习版 predictor 日后落这个 e2 先验,不动
+L0/L1/L2 动力学、不动收缩证明、不动公共 API)。
+
+每拍前向(综合后的连贯柱):
+HDC 感知(h)→ PredictiveCodingGate(surprise=预测误差,折入柱的顶层)→ 单 PEL 柱:K=2 自由能下降
+(x_t=s·h_t 驱动 + assessor 作精度加权先验 e2)→ 在线多时标可塑(§6)→ 8 维内感受读出 z→scar_state.base →
+主动推断动作门(表达/沉默/主动开口,§5)→ embodiment 漂移。神经调质总线(§6)在下降前按感官设好各旋钮。
+
+## §5 模块级脑映射(每个功能 → 脑机制 + 在线/闭式规则,零训练)
+
+| 引擎功能 | 脑机制(引文) | 实现(无训练) |
+|---|---|---|
+| HDC 感知 | 外感受初级编码(语义盲) | 现有 hash,**唯一外感受语义入口仍是 LLM**;HDC 后处理两投影塌成一个 8 维投影 |
+| 预测编码柱 | 层级预测编码(Rao-Ballard'99/Friston'05);皮层柱(Bastos'12) | PEL `descent_step`(K=2),x_t=s·h_t,e0 为真误差 |
+| 精度/注意力 | 除法归一化(Heeger'92) | M1,**x_t 修复后才真活**(见 §10 红线,这是赌注不是既成) |
+| assessor 接入 | 精度加权经验先验(预测编码顶向先验) | e2 先验 + `Π_a=c·PI_MAX`;塌掉双写 |
+| 慢可塑 | 三因子 Hebbian / BCM 元可塑(Bienenstock'82) | M2 已有,红线改测**实质幅度**(§10) |
+| 身份调节 | Allostasis(Sterling'12) | M3 锚定 π 已有 |
+| 结构疤痕 | 用依赖性敏化/钝化(慢结构可塑) | ScarredState scar 代数(`scar_algebra.py`),作最慢一档先验/精度偏置 |
+| 缺失/期望违背 | allostatic load 类比 | VoidSpace 压力(`void_calculus.py`),**保留但需 ablation 红线** |
+| 内感受情感 | 情感=身体状态估计(Barrett'17/Seth'13) | 8 维 z 读出 |
+| 动作门 | 主动推断 action-as-inference(Friston'10) | 表达/沉默/主动开口 = 最小化期望自由能的单步 myopic action;**falsify-or-cut**(§10) |
+| 时机偏置 | 情绪债 allostatic 偏置(已实现) | `_affect_debt`(kernel),保 |
+| 在线强化 | DA/RPE 强化(Schultz'97 [verify]) | ExpressionPolicy REINFORCE(会话内,无离线权重),保 |
+
+## §6 多时标可塑栈 + 神经调质总线
+
+时标栈(脑保真的判别器——这是对共振场"一坨无差别动力学"的精确反命题;每档独立可消融、各自闭式局部规则):
+**瞬时推断(K=2 下降)< Hebbian < BCM 元可塑 < 稳态/allostatic < 结构疤痕。**
+- STP **不作字面突触 STP**;若上,只作输入支 `W_in` 上的历史依赖 novelty 增益(重复自抑、新颖易化),且必须
+  过"重复降/新颖升"的实质红线,否则**砍**(默认不上)。
+- Turrigiano 稳态缩放:与既有 unconditional `spectral_clamp` + BCM 高度冗余,**默认砍**;除非实测能抬高输入
+  敏感见证,才以"在终末 spectral_clamp 前的乘性行缩放"形态上(免费收缩安全)。
+
+神经调质总线 NeuromodulatorBus(本次最大新增脑机制;Doya 2002 落地为:感官 → 各路有界标量,各标量的**张力
+基线 = 它的消融值**;调"怎么推断"不调"推断什么)。诚实约束(红队实锤):"四调质"实为 ~两底层信号穿 costume
+(NE/ACh 都来自 surprise;DA/5-HT 都来自 feedback/assessor),且共门旋钮(DA+ACh 都抬 eta)会损害干净可归因。
+故分两批:
+- **无条件嫁接(两路有据、目标互斥)**:DA = feedback RPE → ExpressionPolicy 强化/巩固;5-HT = assessor
+  valence → 慢 allostatic 设定点偏置(M3 的 π0 微调)。
+- **隔离待证(NE/ACh)**:NE=relu(surprise−s̄) 调学习率/精度重置、ACh=s̄ 调精度——二者都建在**已知压平**的
+  surprise 信号上([0.45,0.52]),**默认 off**,等"surprise 动态范围/floor 修复"证明后再开,且必须分配**严格
+  互斥**的元参数目标(或证明共门下红线仍成立),否则保持 off。
+
+## §7 有界性 / 收缩(沿用 PEL §3.6 方法学,补两通道静态界)
+
+- 容许集不变:Π 逐元钳 [0.1,5];`spectral_clamp` 无条件、最后、在 Hebbian+缩放之后;M3 凸 π 更新前向不变。
+- 神经调质增益只缩放**已在容许集内**的量,不改 KAPPA/PI_MAX/谱钳 ⇒ 不破收缩。
+- **必须补的静态界(AIB kill-shot,不得 glib 略过)**:x_t=s·h_t 的感官驱动 + e2 的 assessor 先验若都作底向
+  通道经同一 W_gen,有效底向精度可加性至多 2·PI_MAX=10;现有 0.985 裕度已薄(fuzz 最坏 0.977),**必须给出
+  两通道下降的真静态界**(用 ‖W‖²=0.81 缓冲重算 κ·λ_max(H),证 ρ(J)<1),而非口头"不变"。STP 增益乘的是
+  外生 W_in 输入支、不进状态雅可比 ⇒ 对收缩免疫(可单独证)。
+- 红线:有界 fuzz 加两通道情形;收缩 fuzz 覆盖新精度运行域;真 spine clip 见证每拍 Π≤PI_MAX。
+
+## §8 保留 / 合并 / 删除 迁移(擂台验证后定稿;减法优先)
+
+**确定删/清(死代码、no-op、或已死词汇——纯无行为变更步骤,先做):**
+- 死 resonance 栈:`resonance_field.py` / `_numpy` / `_torch` / `coupling_dynamics.py` / `topology_gate.py`
+  ——零活 importer(仅互引 + dev 实验),`_torch` 还拖 torch。从 serving 树删(留 archive)。
+- `DeterministicFusion` 的 mean-field 平均器 + 全部惰性耦合桩(`_Kuramoto/_FreeEnergy/_Broadcast/_Plasticity/
+  _Coupling/_Complex`,`deterministic_fusion.py:50-110`)+ 喂它们的 ~30 行 `apply_personality`(`:249-277,304-312`)
+  + ~12 行 feedback(`:898-924`)——这些"调 Kuramoto/Hebbian/topology"实则什么都不调,**删桩 + 删死写**。
+- `social_field` 的 `apply_social_signals` 字面 `pass`(`:1168-1171`)——no-op,删。
+- 装饰性表达触发:`novelty_drive`/`ignition_drive` 喂的是 resonate() 硬编码 `near_attractor=inf`/`max_sync_delta=0`
+  (`deterministic_fusion.py:204-206`)——纯装饰,删或改接真预测误差/精度信号。
+- 双情绪核分支:legacy seed-42 随机 MLP `_evolve_base`(`scar_algebra.py:311-399,502-519`)与 PEL 潜核**合并**
+  成一个预测编码情绪核——"flag off = 一个静态随机权重的不同脑"是 cosplay(固定未学权重冒充动力学)。
+  注:`set_pel_priors` 在 `n_dims!=8` 提前返回(`:280`),故 pro(16)/max(128)仍跑 MLP——"一核"目前 **lite-8 维
+  专属**,pro/max 的核合并是独立未决项(见 §10 残余),别声称跨档"一核"。
+- 两个 footgun:`config.py:166` `get_backend()` 的 eager `import torch`(+458–464MB RSS)改 `importlib.util.find_spec`
+  且 lite/pro 在 get_backend 前短路;CN 分词弃 jieba(+67MB)改离线蒸馏 BPE / 轻量。
+- `process()` stale 的"场迭代收敛"docstring(`:381-386`)→ 改写为单遍预测编码柱前向。
+
+**确定保(已真类脑 + 输入敏感):** PEL-Core 更脑 v2(`pel_core.py`,提升为主干)、PredictiveCodingGate
+(surprise=真预测误差,折入柱顶)、ScarredState scar 代数(真在线结构可塑,作最慢档先验)、ExpressionPolicy
++ embodiment TraitMemory 漂移(会话内真在线强化/气质适应)、`_affect_debt` 时机偏置。
+
+**待 ablation 红线定 KEEP/MERGE/CUT(从 lite 热路径起):** HGT(3 段 FFN+attn+MoE)、ScarSheaf(~1100 LOC)、
+32 维 AutopoieticBoundary、EmergenceTracker(phi 算在已被平均器同质化的 post-fusion 态上,IIT/Haken 框架多半
+装饰)、VoidSpace。**诚实对冲(AIB)**:HGT 是 HDC 之后最大的内容搬运者**也是**头号尾巴大户——删它赢尾巴是
+**赌**"现在输入敏感的 z 替代它的内容";pro/max 保一条瘦线性层兜底,真删前过"z 携带 HGT 信号"的真实流量红线。
+
+**迁移纪律(LIMBUS,减法优先):** 先做"删死文件 + 修 footgun"等无行为变更步骤 → 再在 flag 后建新核 → 仅当
+每通道红线 + 生产见证 + 钉死 2 核 p99 + 收缩 fuzz **全绿**才 flip 默认。
+
+## §9 v3 边界(干净接缝,不偷渡)
+
+留 v3,**不得**渗进本设计:真离线训练 / 真本地语义学习 / 文本 encoder 顶 HDC(均受 ADR-0001 真实数据门——
+该 ADR 已判"学习版核在真实自相关数据上尚未打过 trivial persistence",故本设计**不声称任何任务指标增益**)。
+v2.5 只交付**类脑动力学身体**。干净接缝两处:(1)NeuromodulatorBus——现为闭式 sense→标量,日后学习版控制器
+可在**同一有界标量接口**后热插,不动收缩证明/公共 API;(2)assessor 的 e2 精度加权先验——日后学习版 predictor
+落这个先验槽,L0/L1/L2 动力学不变。这是项目里最干净的 v3 边界。
+
+## §10 反 theater 声明 + 诚实残余(已验证 vs 赌注,逐项预登记红线)
+
+每个机制必带:职责 + 消融布尔 + CI 红线(消融**实质性**坍掉某下游信号——不是"非零",见下)+ 生产输入敏感
+见证 + 引文;并预登记 **falsify-or-cut**:到期红线不过就**删该机制**,绝不留着当卖点。
+
+**已验证(对活代码确认,可直接做):** x_t echo assessor 是 precision 死因(代码确认);死代码/no-op 删除是真
+RAM+输入敏感增益;torch footgun 修是真 -464MB;塌双写是真。这些是**净赚**,先落。
+
+**赌注(必须过红线才能 flip,不得当既成吹):**
+- **DEAD→LIVE 精度复活**是赌:多数拍无新 assessor 读(D-10 不每拍叫 LLM),a_vec 陈旧/为零,`e0=s·h_t−W_gen·μ`
+  可能仍坍回扁平 HDC density(recon:mean|e0| 0.039–0.097、跨维 pstd 0.0089)。**红线**:在**未评估拍**的真实
+  流量上测 `precision_live`/`pi_obs_pstd`,过不了就按预登记**砍 M1**。
+- **assessor→z 保真不可回归**:把 assessor 从直写 base 改成 e2 先验,可能损害那条 ~10× 的命根子信号。**红线**:
+  测 assessor→z 保真不回归(改前/改后对比),回归就保留更快的混合路径(或保 wound trauma 直注)。
+- **动作门真有计算后果**:主导未评估区里 EFE 会退化成现有 bandit+沉默斜坡。**红线**:动作目标必须在语料上
+  **移动** SPEAK/SILENT 决策,否则删到恰好 bandit+ramp。"F 必须有真读者,绝不报 show 用标量。"
+- **红线测实质幅度不是非零**(PEC 最阴的一刀):recon 测 W_gen Hebbian 漂移 ~1.6% Frobenius/150 拍 = 冰川;
+  整个多时标栈能过每条"非零"红线却功能上不动。**所有红线改测实质幅度阈值**,堵"技术上活但纹丝不动"的细 theater。
+- **尾巴是赌**:删模块降均值,但 recon 说 p99 尾巴是 HDC big-int 分配的 GC;**合并前必在钉死 2 核上实测 p99**
+  (现 PEL-on p99 9.0/max 12.0),证 bytearray 复用真杀尾,别只看 p50。
+
+**明确不声称(语义盲身体的天花板,诚实锚):** 情感方差 ~10× 来自 assessor 读(z 无 assessor 时自治方差近 0,
+sd~0.002–0.01);引擎是**情感身体**不是语义智能;negation/词序/反讽超出语义盲身体,仍兜回 LLM;无任务指标
+增益(ADR-0001)。本设计的价值是**连贯的类脑动力学 + liveness + 可归因 + 更轻**,不是"更会算情绪"。
+
+---
+
+## 下一步
+
+本文件 = 设计定稿。落地按 §8 迁移纪律(减法优先 → flag 后建核 → 红线全绿才 flip),关联
+[[v25-pel-core-v2-upgrade-spec]](PEL 主干现状)、[[adr-0001-v3-core-go-no-go]](v3 门)、[[tooling-codegraph]]。
+擂台存档:workflow `wczx2cmjg`(run `wf_d32eec3f-82f`,12 agent / 142 万 token,4 recon + 4 设计×对抗评审)。
