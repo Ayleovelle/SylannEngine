@@ -15,6 +15,7 @@ import math
 from collections.abc import Callable
 from typing import Any
 
+from . import pel_core as _pel_core  # module ref so SEMANTIC_PRIOR stays monkeypatchable
 from .pel_core import N as _PEL_N
 from .scar_algebra import ScarredState
 from .void_calculus import VoidSpace
@@ -215,25 +216,34 @@ class VoidScarEngine:
 
     def _build_pel_ctx(
         self, ssm_input: list[float], surprise: float
-    ) -> tuple[list[float], float] | None:
-        """Assemble the PEL main-step input ``x_t`` (design §3.1), or ``None``.
+    ) -> tuple[list[float], float, list[float] | None, float] | None:
+        """Assemble the PEL main-step context, or ``None`` when PEL is inactive.
 
-        Returns ``None`` when PEL is inactive (the engine then runs the legacy
-        MLP path, byte-identical to today). Otherwise builds the 8-dim input
-        ``x_t = c*a_vec + (1-c)*s*h_t`` from the deferred assessor affect
-        (``a_vec``, confidence ``c``) and the surprise-scaled HDC context
-        ``h_t = ssm_input``. ``x_t`` never contains prior latent state.
+        v2.5 redesign (B): ``x_t = s*h_t`` predicts the LIVE surprise-scaled HDC
+        afferent, so ``e0 = x_t - W_gen*mu`` is a genuine prediction error (the fix
+        for dead M1 precision); the deferred assessor affect (``a_vec``, confidence
+        ``c``) is carried SEPARATELY as a precision-weighted semantic prior, NOT
+        blended into ``x_t``. With ``SEMANTIC_PRIOR`` off this falls back to the
+        legacy value-blend ``x_t = c*a_vec + (1-c)*s*h_t`` (no prior). ``x_t`` never
+        contains prior latent state. Returns ``None`` => legacy MLP path (byte-
+        identical to today).
         """
         if not self.scar_state.pel_active():
             return None
         c = self._pel_confidence
         a_vec = self._pel_affect
+        if _pel_core.SEMANTIC_PRIOR:
+            x_t = [
+                surprise * (ssm_input[i] if i < len(ssm_input) else 0.0)
+                for i in range(_PEL_N)
+            ]
+            return x_t, surprise, list(a_vec), c
         x_t = [
             c * (a_vec[i] if i < len(a_vec) else 0.0)
             + (1.0 - c) * surprise * (ssm_input[i] if i < len(ssm_input) else 0.0)
             for i in range(_PEL_N)
         ]
-        return x_t, surprise
+        return x_t, surprise, None, 0.0
 
     def store_pel_affect(self, affect_vec: list[float], confidence: float) -> None:
         """Stash the assessor's affect read for the NEXT main tick's PEL input.

@@ -301,3 +301,38 @@ def test_schema_v1_dict_migrates_with_fallbacks() -> None:
     assert back.state.pi0 == core.state.pi  # must-fix #2: anchors to (drifted) pi
     assert back.state.theta == [THETA_INIT] * N
     assert back.state.s_bar == 0.0
+
+
+# --------------------------------------------------------------------------- #
+# v2.5 (B) — the e2 semantic prior keeps the descent strictly contractive      #
+# (the term adds only diag(pi_a) to H; shipped OFF but must be bounded if on)   #
+# --------------------------------------------------------------------------- #
+def test_semantic_prior_descent_stays_contractive() -> None:
+    rng = random.Random(99)
+    bound = 1.0 - ALPHA * DELTA  # 0.985
+    worst = 0.0
+    for _ in range(300):
+        w_gen = spectral_clamp(
+            [[rng.uniform(-1.0, 1.0) for _ in range(N)] for _ in range(N)], 0.9
+        )
+        pi_obs = [rng.uniform(PI_MIN, PI_MAX) for _ in range(N)]
+        pi_top = [rng.uniform(PI_MIN, PI_MAX) for _ in range(N)]
+        pi = [rng.uniform(-0.999, 0.999) for _ in range(N)]
+        pi_a = [rng.uniform(0.0, PI_MAX) for _ in range(N)]  # assessor precision channel
+        a_vec = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+        mu = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+        x = [rng.uniform(-1.0, 1.0) for _ in range(N)]
+        h = 1e-6
+        jac = [[0.0] * N for _ in range(N)]
+        for j in range(N):
+            mp, mm = list(mu), list(mu)
+            mp[j] += h
+            mm[j] -= h
+            fp = descent_step(mp, x, w_gen, pi_obs, pi_top, pi, a_vec, pi_a)
+            fm = descent_step(mm, x, w_gen, pi_obs, pi_top, pi, a_vec, pi_a)
+            for i in range(N):
+                jac[i][j] = (fp[i] - fm[i]) / (2.0 * h)
+        sigma = _spectral_norm(jac)
+        worst = max(worst, sigma)
+        assert sigma <= bound + 1e-6, (sigma, bound)
+    assert worst > 0.5, worst  # the bound is genuinely exercised

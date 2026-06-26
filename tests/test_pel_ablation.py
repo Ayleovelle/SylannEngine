@@ -228,6 +228,28 @@ def test_anchor_retains_identity_vs_washout(monkeypatch: MonkeyPatch) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# v2.5 (B) — the e2 semantic prior is shipped OFF (empirically refuted) but the #
+# machinery, when forced on, must stay bounded                                  #
+# --------------------------------------------------------------------------- #
+def test_semantic_prior_default_off() -> None:
+    # B was REFUTED on this build (precision did not revive — 更脑 v2's divisive M1
+    # already de-saturated it; and routing the assessor through the e2 prior collapsed
+    # assessor->z fidelity ~200x). So it ships OFF and the proven 更脑 v2 path is default.
+    assert pel_core.SEMANTIC_PRIOR is False
+
+
+def test_semantic_prior_on_stays_bounded(monkeypatch: MonkeyPatch) -> None:
+    # If the option is ever enabled, the e2 prior must keep mu/z/pi in [-1,1]^8.
+    monkeypatch.setattr(pel_core, "SEMANTIC_PRIOR", True)
+    core = PELCore.from_personality(TSUNDERE)
+    a_vec = [0.9, -0.8, 0.7, 0.6, -0.5, 0.4, 0.3, -0.2]
+    for t in range(100):
+        core.step(_varying_input(t), 0.6, a_vec=a_vec, confidence=0.9)
+        for v in list(core.state.mu) + list(core.state.z) + list(core.state.pi):
+            assert -1.0 <= v <= 1.0, v
+
+
+# --------------------------------------------------------------------------- #
 # Test #17b — T-GATE: the M3 surprise-gate sub-knob (shipped OFF, E-5)         #
 # --------------------------------------------------------------------------- #
 def test_surprise_gate_scales_drift_and_stays_bounded(monkeypatch: MonkeyPatch) -> None:
