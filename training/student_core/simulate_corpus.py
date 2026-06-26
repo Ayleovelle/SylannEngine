@@ -119,14 +119,18 @@ def mood_message(m: float, rng: np.random.Generator) -> str:
     return " ".join(toks + filler)
 
 
-def run(n_sessions: int, len_lo: int, len_hi: int, iid_frac: float, seed: int, out_path: str) -> None:
+def run(
+    n_sessions: int, len_lo: int, len_hi: int, iid_frac: float, seed: int, out_path: str
+) -> None:
     rng = np.random.default_rng(seed)
     enc = HDCEncoder(build_profile("lite").hdc_dim)
     n_iid = int(n_sessions * iid_frac)
     rows: list[dict] = []
 
     for s in range(n_sessions):
-        rho = 0.0 if s >= (n_sessions - n_iid) else 0.85  # last iid_frac sessions are near-iid controls
+        rho = (
+            0.0 if s >= (n_sessions - n_iid) else 0.85
+        )  # last iid_frac sessions are near-iid controls
         is_iid = rho == 0.0
         length = int(rng.integers(len_lo, len_hi + 1))
         moods = gen_moods(rng, length, rho)

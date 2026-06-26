@@ -22,8 +22,16 @@ from torch.utils.data import DataLoader, Dataset
 # Dataset
 # ---------------------------------------------------------------------------
 
-EMOTION_KEYS = ["valence", "arousal", "dominance", "warmth",
-                "vulnerability", "hostility", "engagement", "surprise"]
+EMOTION_KEYS = [
+    "valence",
+    "arousal",
+    "dominance",
+    "warmth",
+    "vulnerability",
+    "hostility",
+    "engagement",
+    "surprise",
+]
 
 
 class EmotionDataset(Dataset):
@@ -48,7 +56,7 @@ class EmotionDataset(Dataset):
     def __getitem__(self, idx):
         sample = self.samples[idx]
         # Byte-level tokenization
-        raw = sample["text"].encode("utf-8")[:self.max_len]
+        raw = sample["text"].encode("utf-8")[: self.max_len]
         tokens = torch.zeros(self.max_len, dtype=torch.long)
         for i, b in enumerate(raw):
             tokens[i] = b + 1  # 0=pad, 1-256=bytes
@@ -70,8 +78,9 @@ class EmotionDataset(Dataset):
 class PerceptionTransformer(nn.Module):
     """Lightweight Transformer: text bytes → emotion vector."""
 
-    def __init__(self, d_model=128, n_heads=4, n_layers=4,
-                 max_len=128, vocab_size=257, output_dim=128):
+    def __init__(
+        self, d_model=128, n_heads=4, n_layers=4, max_len=128, vocab_size=257, output_dim=128
+    ):
         super().__init__()
         self.d_model = d_model
         self.max_len = max_len
@@ -169,9 +178,7 @@ def train(args):
     # Target projection (8-dim emotion → 128-dim target)
     # Use a fixed random projection so the model learns a rich representation
     rng = np.random.RandomState(42)
-    proj_matrix = torch.tensor(
-        rng.randn(8, 128).astype(np.float32) * 0.1, device=device
-    )
+    proj_matrix = torch.tensor(rng.randn(8, 128).astype(np.float32) * 0.1, device=device)
 
     best_val_loss = float("inf")
 
@@ -218,7 +225,9 @@ def train(args):
 
         avg_val = val_loss / max(n_val, 1)
         lr = scheduler.get_last_lr()[0]
-        print(f"  Epoch {epoch+1}/{args.epochs} | train={avg_train:.4f} val={avg_val:.4f} lr={lr:.6f}")
+        print(
+            f"  Epoch {epoch + 1}/{args.epochs} | train={avg_train:.4f} val={avg_val:.4f} lr={lr:.6f}"
+        )
 
         if avg_val < best_val_loss:
             best_val_loss = avg_val

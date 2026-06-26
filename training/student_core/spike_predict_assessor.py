@@ -109,7 +109,6 @@ def score(pred, Y, M, items):
     }
 
 
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", default="training/student_core/spike_corpus.parquet")
@@ -131,7 +130,9 @@ def main():
         sessions.append(
             {
                 "is_iid": bool(g.is_iid.iloc[0]),
-                "a": g[["a_valence", "a_arousal", "a_wound_risk", "a_confidence"]].to_numpy(np.float32),
+                "a": g[["a_valence", "a_arousal", "a_wound_risk", "a_confidence"]].to_numpy(
+                    np.float32
+                ),
                 "surprise": g.surprise.to_numpy(np.float32)[:, None],
                 "z_prev_full": np.array(g.z_prev.tolist(), np.float32),
                 "base_pre_nudge": np.array(g.base_pre_nudge.tolist(), np.float32),
@@ -162,7 +163,7 @@ def main():
     print("\n=== Predict-assessor (a_t from message+state, NO a_t input); lower MAE better ===")
     print(
         f"  field-blind (pre-nudge base) MAE={eb.mean():.4f} ac={eb[~iids].mean():.4f} "
-        f"skippable={(eb.max(1) < 0.1).mean()*100:.1f}%"
+        f"skippable={(eb.max(1) < 0.1).mean() * 100:.1f}%"
     )
     # persistence a_{t-1}
     P, T, iids = [], [], []
@@ -181,12 +182,14 @@ def main():
         r = train(items_tr, items_te, in_dim, args.epochs, args.seed)
         print(
             f"  student {cond:5s} (reads msg)    MAE={r['mae']:.4f} ac={r['mae_ac']:.4f} "
-            f"skippable={r['skippable']*100:.1f}%"
+            f"skippable={r['skippable'] * 100:.1f}%"
         )
 
     print("\n  Read: if student Vfull/V4 << field-blind, a learned core can predict the assessor's")
     print("  read from the message (Phase-M call-skipping is mechanically possible). HDC width gap")
-    print("  (Vfull vs V4) sizes the D-12 question. Synthetic caveat: real-message sufficiency unproven.")
+    print(
+        "  (Vfull vs V4) sizes the D-12 question. Synthetic caveat: real-message sufficiency unproven."
+    )
 
 
 if __name__ == "__main__":

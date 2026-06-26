@@ -243,9 +243,7 @@ def test_latent_jacobian_is_strictly_contractive() -> None:
 def test_readout_jacobian_is_pure_leak() -> None:
     rng = random.Random(13)
     for _ in range(50):
-        w_gen = spectral_clamp(
-            [[rng.uniform(-1.0, 1.0) for _ in range(N)] for _ in range(N)], 0.9
-        )
+        w_gen = spectral_clamp([[rng.uniform(-1.0, 1.0) for _ in range(N)] for _ in range(N)], 0.9)
         mu = [rng.uniform(-1.0, 1.0) for _ in range(N)]
         x = [rng.uniform(-1.0, 1.0) for _ in range(N)]
         z0 = [rng.uniform(-1.0, 1.0) for _ in range(N)]
@@ -312,9 +310,7 @@ def test_semantic_prior_descent_stays_contractive() -> None:
     bound = 1.0 - ALPHA * DELTA  # 0.985
     worst = 0.0
     for _ in range(300):
-        w_gen = spectral_clamp(
-            [[rng.uniform(-1.0, 1.0) for _ in range(N)] for _ in range(N)], 0.9
-        )
+        w_gen = spectral_clamp([[rng.uniform(-1.0, 1.0) for _ in range(N)] for _ in range(N)], 0.9)
         pi_obs = [rng.uniform(PI_MIN, PI_MAX) for _ in range(N)]
         pi_top = [rng.uniform(PI_MIN, PI_MAX) for _ in range(N)]
         pi = [rng.uniform(-0.999, 0.999) for _ in range(N)]

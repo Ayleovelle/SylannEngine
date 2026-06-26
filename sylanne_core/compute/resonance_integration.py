@@ -122,9 +122,7 @@ class ResonanceSpine:
         "_last_assessor_advisable",
     )
 
-    def __init__(
-        self, profile: DimensionProfile | None = None, *, pel_enabled: bool = False
-    ):
+    def __init__(self, profile: DimensionProfile | None = None, *, pel_enabled: bool = False):
         if profile is None:
             from ..config import build_profile
 
@@ -662,9 +660,7 @@ class ResonanceSpine:
         # precision-weighted entry. The fast direct nudge is kept only for the legacy
         # path (PEL off, or SEMANTIC_PRIOR off). Wound injection + void pressure stay
         # live on both paths. (assessor->z fidelity under the e2 path is a ship red-line.)
-        direct_affect = not (
-            _pel_core.SEMANTIC_PRIOR and self._engine.scar_state.pel_active()
-        )
+        direct_affect = not (_pel_core.SEMANTIC_PRIOR and self._engine.scar_state.pel_active())
         if direct_affect:
             base = self._engine.scar_state.base
             if n > 2 and abs(valence) > 1e-6:

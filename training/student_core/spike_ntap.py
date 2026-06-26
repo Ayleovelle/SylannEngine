@@ -253,12 +253,14 @@ def main() -> None:
     pers = baseline_persistence(test_s)
     fr = baseline_field(train_s, test_s, "ridge")
     fg = baseline_field(train_s, test_s, "gbm")
-    students = {c: train_student(train_s, test_s, c, args.epochs, args.seed) for c in ("V0", "V4", "Vfull")}
+    students = {
+        c: train_student(train_s, test_s, c, args.epochs, args.seed) for c in ("V0", "V4", "Vfull")
+    }
 
     def row(name, d):
         print(
             f"  {name:18s} MAE={d['mae']:.4f} (val={d['mae_val']:.4f} aro={d['mae_aro']:.4f}) "
-            f"ac={d['mae_ac']:.4f} iid={d['mae_iid']:.4f} skippable={d['skippable']*100:5.1f}%"
+            f"ac={d['mae_ac']:.4f} iid={d['mae_iid']:.4f} skippable={d['skippable'] * 100:5.1f}%"
         )
 
     print("\n=== NTAP results (lower MAE is better; ac=autocorrelated, iid=control) ===")
@@ -279,15 +281,27 @@ def main() -> None:
 
     print("\n=== VERDICT ===")
     print(f"  best baseline MAE={best_base:.4f}; best student (Vfull) MAE={student['mae']:.4f}")
-    print(f"  student vs best baseline: {rel*100:+.1f}% rel, {absimp:+.4f} abs; on autocorrelated: {rel_ac*100:+.1f}% rel")
-    print(f"  HDC ablation: V4 over V0 = {v4_over_v0*100:+.1f}%; Vfull over V4 = {vfull_over_v4*100:+.1f}%")
+    print(
+        f"  student vs best baseline: {rel * 100:+.1f}% rel, {absimp:+.4f} abs; on autocorrelated: {rel_ac * 100:+.1f}% rel"
+    )
+    print(
+        f"  HDC ablation: V4 over V0 = {v4_over_v0 * 100:+.1f}%; Vfull over V4 = {vfull_over_v4 * 100:+.1f}%"
+    )
     passed = rel >= 0.15 and absimp >= 0.02 and rel_ac >= 0.15
-    print(f"  memory-increment gate (>=15% rel AND >=0.02 abs, holds on autocorrelated): {'PASS' if passed else 'FAIL'}")
+    print(
+        f"  memory-increment gate (>=15% rel AND >=0.02 abs, holds on autocorrelated): {'PASS' if passed else 'FAIL'}"
+    )
     if students["V0"]["mae"] > 0 and (v4_over_v0 > 0.10 or vfull_over_v4 > 0.10):
-        print("  HDC verdict: message bandwidth HELPS -> the compression carries the latent (D-12 relevant)")
+        print(
+            "  HDC verdict: message bandwidth HELPS -> the compression carries the latent (D-12 relevant)"
+        )
     else:
-        print("  HDC verdict: message bandwidth adds little here -> increment (if any) is mostly cross-tick MEMORY")
-    print(f"\n  >>> SPIKE {'PASS — proceed to P0' if passed else 'FAIL — do NOT enter P0 (would be theater)'} <<<")
+        print(
+            "  HDC verdict: message bandwidth adds little here -> increment (if any) is mostly cross-tick MEMORY"
+        )
+    print(
+        f"\n  >>> SPIKE {'PASS — proceed to P0' if passed else 'FAIL — do NOT enter P0 (would be theater)'} <<<"
+    )
 
 
 if __name__ == "__main__":

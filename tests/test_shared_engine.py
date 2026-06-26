@@ -281,9 +281,7 @@ class TestConcurrentInit:
         m = _llm()
         # Many tasks race on the very first acquire; exactly one engine must be
         # built and all callers must receive that same instance.
-        results = await asyncio.gather(
-            *(SylanneEngine.shared(tmp_path, llm=m) for _ in range(20))
-        )
+        results = await asyncio.gather(*(SylanneEngine.shared(tmp_path, llm=m) for _ in range(20)))
         assert all(e is results[0] for e in results)
         assert results[0].status == "running"
         assert len(SylanneEngine.list_shared()) == 1
