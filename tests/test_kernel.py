@@ -166,3 +166,102 @@ class TestKernelSurface:
         kernel = AlphaKernel.boot("my_session")
         surface = kernel.surface()
         assert surface["session_key"] == "my_session"
+
+
+class TestAffectDebtProactiveTiming:
+    """Emotion-driven reach_out timing (allostatic threshold bias).
+
+    The LLM's affective read feeds an asymmetric-leak ``_affect_debt`` that lowers
+    reach_out's need_contact threshold — so a bruising exchange brings her back
+    sooner than flat silence would. need_contact alone is content-blind; this is
+    the dimension it structurally cannot carry. Safety gates (_guard) stay fully in
+    front, and at zero debt behaviour is byte-identical to the original literals.
+    """
+
+    # --- D: zero-debt baseline is unchanged (no regression) -------------------
+    def test_zero_debt_threshold_matches_original_literals(self):
+        k = AlphaKernel.boot("s1")
+        k._affect_debt = 0.0
+        assert k._reach_threshold(proactive=True) == 0.1
+        assert k._reach_threshold(proactive=False) == 0.2
+
+    def test_zero_debt_preserves_reach_out_boundary(self):
+        k = AlphaKernel.boot("s1")
+        k.last_event = {"flags": ["proactive"]}
+        k._affect_debt = 0.0
+        k.body.needs["need_contact"] = 0.1
+        assert k._decide()["action"] == "reach_out"  # >= 0.1 still triggers
+        k.body.needs["need_contact"] = 0.09
+        assert k._decide()["action"] != "reach_out"
+
+    # --- A: not a third wheel — emotion shifts timing at fixed need_contact ----
+    def test_emotion_shifts_timing_at_fixed_need_contact(self):
+        calm = AlphaKernel.boot("s1")
+        calm.last_event = {"flags": ["proactive"]}
+        calm.body.needs["need_contact"] = 0.06
+        calm._affect_debt = 0.0
+        assert calm._decide()["action"] != "reach_out"  # holds back when untroubled
+
+        bruised = AlphaKernel.boot("s2")
+        bruised.last_event = {"flags": ["proactive"]}
+        bruised.body.needs["need_contact"] = 0.06  # identical need_contact
+        bruised._affect_debt = 0.6
+        assert bruised._decide()["action"] == "reach_out"  # comes back sooner
+
+    def test_asymmetric_leak_holds_slow_soothes_fast(self):
+        k = AlphaKernel.boot("s1")
+        k._update_affect_debt({"valence": -0.8, "wound_risk": 0.7})
+        hurt = k._affect_debt
+        assert hurt > 0.3  # a bruising read spikes it
+        for _ in range(3):  # idle ticks decay it only slowly
+            k._update_affect_debt(None)
+        assert k._affect_debt > hurt * 0.5  # still carrying most of the hurt
+        k._update_affect_debt({"valence": 0.9, "wound_risk": 0.0})  # being soothed
+        assert k._affect_debt < hurt * 0.5  # clears fast — the asymmetry
+
+    def test_idle_only_leaks_never_rises(self):
+        k = AlphaKernel.boot("s1")
+        k._affect_debt = 0.5
+        k._update_affect_debt(None)  # no assessment -> leak only
+        assert k._affect_debt < 0.5
+
+    # --- B: safety gates are never bypassed by emotion ------------------------
+    def test_max_debt_never_bypasses_guard(self):
+        k = AlphaKernel.boot("s1")
+        k.last_event = {"flags": ["proactive"]}
+        k.body.needs["need_contact"] = 0.06
+        k._affect_debt = 1.0
+        decision = k._decide()
+        assert decision["action"] == "reach_out"  # emotion drove the urge
+        k.body.immunity.paused = True  # but a single gate blocks it
+        guard = k._guard(decision)
+        assert guard["allowed"] is False
+        assert "user_pause" in guard["flags"]
+
+    def test_proactive_threshold_has_floor(self):
+        k = AlphaKernel.boot("s1")
+        k._affect_debt = 1.0
+        assert k._reach_threshold(proactive=True) >= 0.04  # never collapses to 0
+
+    # --- C: successful reach-out spends the debt (no delayed-talkative) --------
+    def test_discharge_relaxes_threshold_back(self):
+        k = AlphaKernel.boot("s1")
+        k._affect_debt = 0.7
+        lowered = k._reach_threshold(proactive=True)
+        k.discharge_affect_debt()  # she reached out; debt spent
+        assert k._affect_debt < 0.7
+        assert k._reach_threshold(proactive=True) > lowered  # relaxes -> no re-fire spam
+
+    # --- persistence round-trips the debt -------------------------------------
+    def test_affect_debt_survives_snapshot(self):
+        k = AlphaKernel.boot("s1")
+        k._affect_debt = 0.42
+        restored = AlphaKernel.restore(k.snapshot())
+        assert restored._affect_debt == 0.42
+
+    def test_old_snapshot_without_debt_defaults_zero(self):
+        k = AlphaKernel.boot("s1")
+        snap = k.snapshot()
+        del snap["_affect_debt"]  # simulate a pre-feature archive
+        restored = AlphaKernel.restore(snap)
+        assert restored._affect_debt == 0.0

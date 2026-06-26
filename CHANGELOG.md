@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### ♻️ v2.5 类脑引擎重设计 —— 实测落地(2.3.0)
+
+按"实现 → 测量 → 按证据诚实处置"走完,不 force-ship。全文 `docs/design/v25-neuromorphic-redesign.md`。
+
+- **删除死的 simplicial resonance-field 栈(~4.5k LOC)**:`resonance_field`/`_numpy`/`_torch` +
+  `coupling_dynamics` + `topology_gate`(serving 路径自 v2.5 起已是 DeterministicFusion + PEL-Core,这些零活
+  引用、仅互引 + 自身测试)。行为中性;活测试迁入 `tests/test_spine_integration.py`。这是"连贯类脑引擎"的真交付。
+- **修 torch footgun**:`config.build_profile()` 的 lite/pro 改用 `importlib.util.find_spec` 定 backend,部署
+  路径不再 eager `import torch`(实测 RSS −458MB);backend 字符串不变;加守卫测试 `tests/test_config_backend.py`。
+- **B 根因修复(x_t 改预测 HDC + assessor 作精度加权先验 e2 + 塌双写)实测否决,CUT 到默认 off**:双红线全挂
+  (精度 0.50→0.29 更差、assessor→z ~200× 衰减),独立审查复现确认,连 salvage 变体也被更脑 v2 严格支配。
+  `SEMANTIC_PRIOR=False` 默认 = 已验证的更脑 v2;e2 机件留作有界、off 时无行为变更、可消融选项(收缩界已证)。
+- 擂台招牌(神经调质总线 / criticality / k-WTA / 字面 STP / 多余 Turrigiano)经审查判 theater/冗余/relabel,
+  **不建**(设计记录留存)。诚实结论:更脑 v2 已交付类脑核;本轮净增 = footgun + 删死码 + e2 选项 + 否决发现。
+
 ### 💥 Breaking Changes
 
 - 移除 AstrBot 前置插件形态。SylannEngine 现在是纯 SDK，直接 `SylanneEngine(...)` 实例化并传入自己的 LLM 回调
@@ -14,6 +29,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### ✨ Added
 
+- **PEL-Core（v2.5 预测编码情绪核，default-off）**：新增两层预测编码微电路
+  `sylanne_core/compute/pel_core.py`——演化 8 维潜信念 `μ` 与情绪读出 `z`（下游写入
+  `scar_state.base`），纯 Python（`math` + list-of-lists，无 numpy，lite 可用）、全 mypy-strict。
+  K=2 自由能下降 + 三因子 surprise 门控的 `W_gen` 在线 Hebbian 可塑 + 在线精度 + 谱钳 ≤0.9；
+  有界性与收缩为结构性保证（`μ,z∈[−1,1]^8` 前向不变，`‖J_μ‖₂≤1−αδ`）。
+  - 新增 `SylanneConfig.pel_core_enabled` 开关，**默认 `False`**——关时引擎走遗留 `_evolve_base`，
+    行为与此前逐字节一致（既有套件全绿、未改）；开时才跑 PEL，由其自有测试置位
+  - **加性 `free_energy` 键（D-1）**：PEL 开启时 `result["resonance"]` 多一个有限的 `free_energy`
+    诊断键；关闭时结果形状完全不变（无契约改动）
+  - **非语义 `assessor_advisable` 门信号（D-10）**：经 `diagnostics()["pel"]` 暴露
+    （低 surprise 且无创伤 => False，否则 True），连同 surprise/精度一并提供。SDK 只产出信号，
+    不接任何下游 call-skip
+  - 快照两条路径（`ResonanceSpine` / `ComputationSpine`）均往返 PEL 子键；旧档缺键时从人格重初始化
+  - P3 消融扫测试（`tests/test_pel_ablation.py`）：`Pi_top→0` / `eta_W→0` / `ρ_p→0` 各产生可测变化，
+    证明无机制是 no-op
+  - **更脑 v2（在真流量上让脑机件活起来，仍 default-off）**：三个在线可塑机制，全在 `pel_core_enabled`
+    之后、v2 默认 on-path、各自独立可消融，schema v1→v2（加 `pi0`/`theta`/`s_bar`，带 v1 回退）：
+    - **M1 除法归一化精度**（Heeger 1992）：固定预算的竞争再分配（均值 1.0），解掉真 spine 上精度
+      钉死 `[5.0]×8`（跨维 std≈0）的注意力死饱和——实测跨维 spread 0→~0.46。`PRECISION_DIVISIVE=False`
+      与 committed 精度更新**逐位一致**；eta_w ×5 复原设计均值
+    - **M2 BCM 式滑动阈元可塑增益**（Bienenstock+1982）：`m_i∈[0,2]` 按各维误差超阈与否调 Hebbian
+      速率（不改方向），`θ_i=EMA(e0²)` ~100 拍自调；门见证用 m-spread + path-length
+    - **M3 锚定 allostatic π**（Sterling 2012）：朝 ⟨z⟩ 漂的同时拉回冻结 trait 先验 `π0`，止住身份侵蚀
+      （渐近保留 ~80% π0），凸更新前向不变
+    - **生产见证**：`pel_diagnostics()` 暴露跨维精度 spread / 乘积 spread / `precision_live` / `pi_anchor_drift`，
+      真流量上可窗口化告警——把"语料上活"变成"生产上死了能被发现"
+    - 收缩/有界性闭式可证且红队实测复核（最坏 `‖J_μ‖₂=0.977<0.985`）；新增 merge-blocking 门 #13–#19
+      （T-DIV / T-DIV-OFF / T-BCM / T-PROD / T-ANCHOR / T-SCHEMA / proof 守卫）+ surprise-gate 覆盖；
+      `pel_core_enabled=False` 仍逐字节一致；快照恢复按 host flag gate（关时不偷开 PEL）
 - `SylanneEngine.shared(data_dir, llm, ...)`：进程内按解析后的 data_dir 去重的共享实例机制，替代已删除的插件版 `get_engine()`。同一目录只由一个引擎拥有，避免状态分裂与 flush 丢更新；返回已 start 的引擎
 - `SylanneEngine.release_shared(data_dir)`：关闭并释放共享实例（应用关闭时调用，会 flush 落盘）
 - `SylanneEngine.is_shared(data_dir)` / `SylanneEngine.list_shared()`：内省接口，查当前进程里有哪些共享引擎在跑
