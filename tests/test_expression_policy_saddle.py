@@ -135,9 +135,7 @@ class TestSpineOverrideSameSource:
 
     def test_spine_gate_personalised_by_derive_params(self):
         spine = ResonanceSpine()
-        spine.apply_personality(
-            {"expression_drive_trait": 1.0, "sovereignty_guard": 1.0}
-        )
+        spine.apply_personality({"expression_drive_trait": 1.0, "sovereignty_guard": 1.0})
         assert spine._expression_policy.force_express_threshold == pytest.approx(0.85)
         assert spine._expression_policy.force_hold_threshold == pytest.approx(0.18)
 
@@ -175,9 +173,7 @@ class TestActualActionCreditAssignment:
             assert p.weights[i] == pytest.approx(
                 max(-5.0, min(5.0, w_before[i] + lr * expected_scale * ctx[i]))
             )
-        assert p.bias == pytest.approx(
-            max(-3.0, min(3.0, b_before + lr * expected_scale))
-        )
+        assert p.bias == pytest.approx(max(-3.0, min(3.0, b_before + lr * expected_scale)))
 
     def test_none_actual_action_preserves_legacy(self):
         # Two policies fed identical feedback; one omits actual_action, the
@@ -304,4 +300,3 @@ class TestPersistenceRoundTrip:
         pol = EP.from_dict(blob["expression_policy"])
         assert pol.force_express_threshold == pytest.approx(fe)
         assert pol.force_hold_threshold == pytest.approx(fh)
-

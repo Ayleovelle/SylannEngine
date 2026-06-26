@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sylanne-core"
-version = "2.0.0"
+version = "2.3.0"
 description = "Affective computation engine SDK for AstrBot"
 readme = "README.md"
 license = "AGPL-3.0-only"
@@ -51,10 +51,6 @@ ignore = ["B007", "B905", "SIM102", "SIM103", "SIM105", "SIM108", "SIM109", "UP0
 python_version = "3.10"
 strict = true
 packages = ["sylanne_core"]
-
-[[tool.mypy.overrides]]
-module = "jieba"
-ignore_missing_imports = true
 
 # 可选加速依赖(numpy / torch)的 import-fallback shim：
 # `try: import X / except: X = None  # type: ignore[assignment]`
