@@ -67,7 +67,7 @@ def test_resonance_roundtrip_with_pel() -> None:
     assert spine._engine.scar_state.pel_active()
     d1 = spine.to_dict()
     assert "pel" in d1["engine"]["scar"]
-    assert d1["engine"]["scar"]["pel"]["v"] == 1
+    assert d1["engine"]["scar"]["pel"]["v"] == 2  # 更脑 v2 schema (was 1)
 
     restored = ResonanceSpine(profile=build_profile("lite"), pel_enabled=True)
     restored.apply_personality(TSUNDERE)
@@ -130,15 +130,34 @@ def test_computation_legacy_migration_reinits_pel() -> None:
     assert all(-1.0 <= v <= 1.0 for v in spine_on.engine.scar_state.base)
 
 
-def test_pel_disabled_snapshot_loads_into_pel_off_spine() -> None:
-    # Bidirectional safety: a PEL-on snapshot read by a PEL-off spine restores
-    # PEL (round-trip fidelity); a legacy snapshot read by a PEL-off spine stays
-    # legacy. Here: legacy snapshot -> PEL-off spine -> still no pel.
+def test_pel_on_snapshot_does_not_smuggle_into_pel_off_spine() -> None:
+    # must-fix #3 (end-to-end, BOTH spine restore paths): a PEL-ON snapshot loaded
+    # into a PEL-OFF host must NOT re-enable PEL — the snapshot's "pel" key is
+    # ignored, preserving "flag off => byte-identical legacy". (Earlier this test
+    # asserted the OPPOSITE round-trip-fidelity behaviour, which must-fix #3 forbids.)
+    # A legacy (no-pel) snapshot read by a PEL-off spine also stays legacy.
     legacy = _drive_resonance(pel=False).to_dict()
     off = ResonanceSpine(profile=build_profile("lite"), pel_enabled=False)
     off.from_dict(legacy)
     assert not off._engine.scar_state.pel_active()
     assert "pel" not in off.to_dict()["engine"]["scar"]
+
+    # The smuggle case: a real PEL-ON snapshot (carries a "pel" key) loaded into a
+    # PEL-off ResonanceSpine must stay legacy (no PEL, no "pel" key on re-snapshot).
+    pel_on = _drive_resonance(pel=True).to_dict()
+    assert "pel" in pel_on["engine"]["scar"]
+    r_off = ResonanceSpine(profile=build_profile("lite"), pel_enabled=False)
+    r_off.from_dict(pel_on)
+    assert not r_off._engine.scar_state.pel_active()
+    assert "pel" not in r_off.to_dict()["engine"]["scar"]
+
+    # Same for ComputationSpine's restore path.
+    c_pel_on = _drive_computation(pel=True).to_dict()
+    assert "pel" in c_pel_on["engine"]["scar"]
+    c_off = ComputationSpine(profile=build_profile("lite"), pel_enabled=False)
+    c_off.from_dict(c_pel_on)
+    assert not c_off.engine.scar_state.pel_active()
+    assert "pel" not in c_off.to_dict()["engine"]["scar"]
 
 
 # --------------------------------------------------------------------------- #

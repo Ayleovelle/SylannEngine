@@ -1219,7 +1219,9 @@ class ComputationSpine:
             from .scar_algebra import ScarredState
 
             if "scar" in engine_data:
-                self.engine.scar_state = ScarredState.from_dict(engine_data["scar"])
+                self.engine.scar_state = ScarredState.from_dict(
+                    engine_data["scar"], pel_enabled=self._pel_enabled
+                )
                 if self._pel_enabled and not self.engine.scar_state.pel_active():
                     # Legacy snapshot (no "pel"): re-init the latent core from
                     # personality so a PEL-configured spine stays consistent.

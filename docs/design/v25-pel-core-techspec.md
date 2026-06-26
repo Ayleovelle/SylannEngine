@@ -87,7 +87,7 @@ J_μ   = (1−α)·I + α·diag(tanh'(·))·( I − κ·H )
 ‖J_μ‖₂ ≤ (1−α) + α·max( 1, |1 − κ·λ_max(H)| )
 ```
 
-界 `λ_max(H) ≤ ‖W_gen‖₂²·Π_max + Π_max ≤ 0.81·Π_max + Π_max = 1.81·Π_max`（用 `‖W_gen‖₂≤0.9`）。取 **`κ·Π_max ≤ 0.5`** ⇒ `κ·λ_max(H) ≤ 0.905 < 1` ⇒ `I−κH ⪰ 0.095·I ≻ 0` 且 `‖I−κH‖₂ ≤ 1`，故 `‖J_μ‖₂ ≤ (1−α)+α·1 = 1`（非扩张），且在 `tanh'<1` 处严格 `<1`。
+界 `λ_max(H) ≤ ‖W_gen‖₂²·Π_max + Π_max ≤ 0.81·Π_max + Π_max = 1.81·Π_max`（用 `‖W_gen‖₂≤0.9`）。取 **`κ·Π_max ≤ 0.5`** ⇒ `κ·λ_max(H) ≤ 0.905 < 1` ⇒ `I−κH ⪰ 0.095·I ≻ 0` 且 `‖I−κH‖₂ ≤ 1`，故 `‖J_μ‖₂ ≤ (1−α)+α·1 = 1`（非扩张），且在 `tanh'<1` 处严格 `<1`。（**诚实注**：`spectral_clamp` 是下界估计、不严格保 `‖W‖₂≤0.9`，对抗 fuzz 下 ‖W‖₂ 可达 ~1.31，故 0.905 是乐观值；实测最坏 `‖J_μ‖₂=0.977<0.985`、`κ·λ<2`，收缩仍成立，余量见 §3.6。）
 **严格一致界**：给梯度支加泄漏 `(1−δ)` ⇒ `‖J_μ‖₂ ≤ (1−α)+α(1−δ) = 1−αδ`。
 **容许集（非空、显式）**：`Π_max=5, κ=0.1`（`κ·Π_max=0.5`），`δ=0.05` ⇒ **`‖J_μ‖₂ ≤ 0.985 < 1`，每拍、对一切 `‖W_gen‖₂≤0.9` 成立。**
 
@@ -101,6 +101,29 @@ J_μ   = (1−α)·I + α·diag(tanh'(·))·( I − κ·H )
 ### 3.4 输入敏感（无饱和）
 
 不动点 `z* = tanh(W_gen·μ* + W_in·x_t)`，显式含 `x_t`，`∂z*/∂x = β·diag(1−tanh²)·W_in`，对角严格正（`W_in=diag(0.6)`）。无 all-to-all 相位变量可锁 ⇒ 结构上不可能塌成与内容无关点（修罪 1）。异 `x` ⇒ 异 `z*`，可扰动测试。
+
+---
+
+## 3.5 更脑 v2 三机制（真流量上让脑机件活起来）
+
+> 权威全文：`v25-pel-core-v2-upgrade-spec.md`（逐行替换 + E-1..E-7）；上线前硬修：`v25-pel-core-v2-critic.md`；实测病理：`v25-pel-core-v2-recon.md`。全部在 master flag `pel_core_enabled` 之后；flag 关时 `_field` 字节一致，PEL 模块不实例化。v2 默认 on-path（E-4），每机制独立可消融。
+
+病理（recon 钉死）：真 spine 上精度 Π 全钉 `[5.0]×8`（跨维 std≈0，注意力死）、W_gen 漂移弱、π 往 ⟨z⟩≈0.08 漂蚀身份、无元可塑。
+
+- M1 除法归一化精度（Heeger 1992）：`target_i = PI_MIN + _PI_GAIN·r_i/Σr`，`r_i=1/(e_i²+EPS)`，`_PI_GAIN=PI_BUDGET−N·PI_MIN=7.2`。固定预算的竞争再分配（均值 1.0=ones-init），解饱和。RHO_P EMA + `[PI_MIN,PI_MAX]` 钳不变；`PRECISION_DIVISIVE=False` 与原式代数等价（字节一致）。eta_w 乘 `ETA_W_DIVISIVE_GAIN=PI_MAX/(PI_BUDGET/N)=5.0` 复原设计均值。
+- M2 BCM 式滑动阈元可塑增益（Bienenstock+1982；Abraham 2008）：`m_i=1+LAMBDA_BCM·tanh(GAMMA_BCM·(e0²−θ_i)/(θ_i+THETA_FLOOR))∈[0,2]`，`θ_i=EMA(e0²)`（RHO_THETA=0.01，~100 拍）。θ 先读后更；只调 Hebbian 速率不改 `+e0·μ` 方向（不复活无目的 Hebb）。
+- M3 锚定 allostatic π（Sterling 2012；离散 OU/AR(1)）：`π_i ← clip(π_i + drift·(z_ema_i−π_i) − RHO_ANCHOR·(π_i−π0_i), −1, 1)`，`RHO_ANCHOR=4e-3`，π0=冻结 trait 先验。渐近保留 `a/(d+a)≈80%` π0。surprise-gate 出厂关（E-5；平 surprise 下恒等缩放=theater）。
+
+schema v1→v2：`PELState` 加 `pi0`/`theta`/`s_bar`（均带默认，dataclass 排序安全）；`last_m` 诊断不持久化。`to_dict`/`from_dict` 加键带 v1 回退（`pi0:=pi`、`theta:=THETA_INIT`、`s_bar:=0`）。**迁移语义坑（must-fix #2）**：v1 档无 `pi0`，回退 `pi0:=pi` 会把**已漂走的身份**当锚点冻住（不恢复真 trait 先验），无 washout 保证只是"冻结侵蚀"而非"恢复"。长跑 v1 会话迁移后，host 应在首次加载时重调 `set_pel_priors`（它有人格）恢复真 π0；spine 的自动重 prior 只对**缺 "pel" 键**的 legacy 档触发（`not pel_active()` 门控），v1-带-pel 档恢复后已 active、不会自动重 prior。
+
+## 3.6 重导有界性 + 收缩（M1+M2+M3 后逐拍成立）
+
+容许集 `A` 不变。三个逐拍执行器仍保 state∈A：`spectral_clamp`（无条件、最后、不变）、双精度逐元 `_clip`、M3 凸 π 更新。
+
+- 关键不变量：`λ_max(H) ≤ ‖W‖₂²·max_i Π_obs[i] + max_i Π_top[i]`，**只经每维 max 进雅可比，与 budget/Σ 无关**。除法归一化在 `[PI_MIN,PI_MAX]` 内重分配、钳保留。**诚实余量（红队实测修正）**：`spectral_clamp` 的 10 次幂迭代只**下界**估 σ，并不严格把 ‖W‖₂ 压到 0.9——对抗 fuzz 初值（`spectral_clamp(uniform[-1,1],0.9)`，即 #6/#7 用的构造）下 ‖W‖₂ 实测可达 ~1.31。故最坏界不是早稿写的 0.905，而是 `κ·λ_max(H) ≤ κ(1.4²·5+5) ≈ 1.48 ≤ 2`；`‖J_μ‖₂` 20000 次 fuzz 实测最坏 **0.977 < 0.985**（`κ·λ` 最坏 ≈1.36<2）——收缩**成立**但余量比早稿薄。真 init/生产（‖W‖₂≈0.52）`κ·λ_max(H)@Π=5=0.635`，远在安全区。（`spectral_clamp` 的下界性是既有 v1 行为，非 v2 引入；收紧它是独立项。）
+- M3 引理：`π_i'=π_i(1−d−a)+d·z_ema_i+a·π0_i`，三系数≥0 且和为 1 当 `d+a≤1`（`d≤RHO_PI=1e-3`、`a=4e-3` ⇒ 5e-3≤1）⇒ π∈[−1,1]^8 前向不变（比 legacy a=0 更强）；π 的值不入 `‖J_μ‖` 界（只经 `tanh'`≤1）⇒ 不影响收缩。无 washout：`|π_eq−π0|=(d/(d+a))·|z_ema−π0|<|z_ema−π0|`。
+- M2/eta_w：m_i∈[0,2] 与 eta_w×5 只缩 pre-clamp ΔW，`spectral_clamp` 无条件兜底 ⇒ A 不变。真 max η=0.002·1.5·5=**0.015**，`|ΔW|≤0.015·1·5·3.5·2·1=0.525` 有限。
+- 收缩-fuzz #7 采样 Π∈[PI_MIN,PI_MAX] 已覆盖除法运行域，钳保留 ⇒ **无需改 #7**。
 
 ---
 
@@ -156,8 +179,19 @@ def set_pel_priors(self, personality: dict[str, float]) -> None:
 | 10 | API 保全 | `_field` 字节未碰断言；`observe`/`resonate` 键集、`active_channels==42`、`route`/`assessment_source` 字面量不变 | 否 | P1 |
 | 11 | tier-sweep | lite/pro/max（`_mlp_passes` 1/2/3）PEL 行为一致（K 内部固定、忽略 `_mlp_passes`） | 否 | P1 |
 | 12 | 成本 | **真跑** 500-tick benchmark，断言 `<10ms/tick`（非断言式估算） | 否 | P2 |
+| 13 | **T-DIV 真路径精度活** | 真 `ResonanceSpine` 跑 CORPUS 160 拍稀疏 assessor，弃 30 warm-up；跨维 `pstd(pi_obs)>0.15`（实测 ~0.46）、`pstd(pi_top)>0.10`（~0.25）；over-time var>1e-3（~0.048）；clip 见证 `pi_obs/pi_top≤PI_MAX` 恒，稳态峰<PI_MAX | 否 | v2 |
+| 14 | T-DIV-OFF 消融 | 同真路径 `PRECISION_DIVISIVE=False`：`on.pstd>2×off.pstd`（0.46 vs 0.10），off 有维钉 PI_MAX（饱和签名），on 峰<PI_MAX−0.5 | 否 | v2 |
+| 15 | T-BCM 元可塑 | (a) `LAMBDA_BCM=0`⇒`last_m≡1`（代数退化遗留三因子）；(b) `LAMBDA_BCM=1`⇒m-spread 均值>1e-2（实测 1.24）；(c) path-length `Σ‖ΔW‖_F` λ=1 vs λ=0 相对差>0.05。**注 critic must-fix #1：删 θ 方差阈值（1e-4/1e-6 会误杀正常 BCM，实测 6.1e-6/1.8e-6），改用 m-spread+path-length** | 否 | v2 |
+| 16 | T-PROD 乘积不抵消 | 真路径有效门 `g_i=pi_obs_i·m_i`：跨维 `pstd>0.05`（~0.27）且 over-time var>1e-3（~0.074）——竞争×时序两正交轴不塌成标量 | 否 | v2 |
+| 17 | T-ANCHOR 身份保留 | 1500 拍 z→0 高蚀压：`‖π−π0‖`@4e-3 < 0.5×@0 washout（0.14 vs 0.55，保留 74.5%）；anchor-live `‖π−π0‖>1e-3`（π 真动非钉死） | 否 | v2 |
+| 18 | T-SCHEMA v1→v2 | PELCore 往返 pi0/theta/s_bar；v1 档回退（pi0:=pi、theta:=THETA_INIT、s_bar:=0）；**ScarredState 快照按 host flag gate 恢复（must-fix #3：flag 关时 "pel" 键被忽略，不偷开 PEL）** | 否 | v2 |
+| 19 | proof 守卫 | #6 有界 fuzz 加 `π∈[−1,1]^8` 断言；#13 含真 spine clip 见证 | 否 | v2 |
 
 任一条 1–5 或 8 失败 = 核塌回 EMA+查表，构建中断。**不断言**"胜过 DeterministicFusion 的离线情绪指标"（证不了）。
+
+**#1 重释（更脑 v2）**：原 #1 断言 full `F=½ΣΠe²−½Σlog Π` 在重复输入上降。v2 除法精度下 full F 不再单调——竞争精度故意给高相对误差维低精度（高熵、大 −½log Π）。更关键：legacy full-F 的"降"本身是精度**饱和**的产物（Π 钉 PI_MAX 使 −½Σlog Π 暴跌，掩盖加权误差实际**上升**）——即测的是 recon 要除掉的死饱和病理，非学习。故 #1 改断言真正幸存且更诚实的属性：**底向误差能量 `‖e0‖²` 在重复输入上降**（legacy 0.93→0.65、v2 0.93→0.63，路径无关单调），并断言 F 有限。这是修正错代理，非弱化。
+
+**生产见证（must-fix #4，头号风险）**：除法精度活性数据依赖；`pel_diagnostics()` 暴露 `pi_obs_pstd`/`pi_top_pstd`/`prod_spread`/`precision_live`，真流量上窗口化、稳态 spread 跌破 T-DIV tol（0.15）即告警——把"语料上活"变成"生产上死了能被发现"。
 
 ---
 

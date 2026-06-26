@@ -15,8 +15,10 @@ from sylanne_core.compute.pel_core import (
     ALPHA,
     BETA,
     DELTA,
+    PEL_SCHEMA_VERSION,
     PI_MAX,
     PI_MIN,
+    THETA_INIT,
     N,
     PELCore,
     PELState,
@@ -89,14 +91,48 @@ def _finite_diff_jacobian_mu(
 # Test #1 — free-energy descent                                               #
 # --------------------------------------------------------------------------- #
 def test_free_energy_descends_on_repeated_input() -> None:
-    core = PELCore.from_personality(TSUNDERE)
-    x = [0.3, -0.2, 0.5, 0.1, -0.4, 0.2, 0.0, -0.1]
-    surprise = 0.5
-    energies: list[float] = []
-    for _ in range(20):
-        _z, f = core.step(x, surprise)
-        energies.append(f)
-    assert energies[-1] < energies[0] - 1e-3, energies
+    """On a repeated input the predictive-coding loop settles to predict it, so the
+    bottom-up error ENERGY ``||e0||^2`` descends; AND online plasticity (the W_gen
+    Hebbian) makes it descend strictly MORE than pure inference, witnessing genuine
+    generative learning — not merely the inference loop settling.
+
+    NB (更脑 v2): the assertion is on the *error energy*, not the full textbook
+    free energy ``F = 1/2 Σ Π e^2 - 1/2 Σ log Π``. Under v2's divisive precision
+    ``F`` is no longer monotone — competitive normalization deliberately assigns
+    LOW precision (= high entropy, large ``-1/2 log Π``) to high-relative-error
+    dims, so the entropy term rises. Critically, the *legacy* full-``F`` descent
+    was itself an artifact of precision SATURATION: as Π pinned at PI_MAX the
+    ``-1/2 Σ log Π`` term plummeted while the precision-weighted error actually
+    *rose*. So full-``F`` monotonicity measured the dead-precision pathology v2
+    removes, not learning. ``||e0||^2`` descends monotonically under BOTH paths
+    (legacy 0.93→0.65, v2 0.93→0.63), so this is the honest, path-independent gate;
+    ``F`` is asserted finite. The eta_w-live-vs-frozen differential keeps this test
+    distinct from #5 (a bare error-drop check) by exercising the GENERATIVE weights.
+    """
+
+    def err_endpoints(freeze_plasticity: bool) -> tuple[float, float]:
+        core = PELCore.from_personality(TSUNDERE)
+        if freeze_plasticity:
+            core.state.eta_w = 0.0  # inference only — no generative W_gen learning
+        x = [0.3, -0.2, 0.5, 0.1, -0.4, 0.2, 0.0, -0.1]
+        energies: list[float] = []
+        for _ in range(20):
+            _z, f = core.step(x, 0.5)
+            assert math.isfinite(f), f
+            energies.append(sum(v * v for v in core.last_e0))
+        return energies[0], energies[-1]
+
+    first_live, last_live = err_endpoints(freeze_plasticity=False)
+    first_frozen, last_frozen = err_endpoints(freeze_plasticity=True)
+    # (1) the error energy descends as the loop settles to predict the repeated input.
+    assert last_live < first_live - 1e-3, (first_live, last_live)
+    # (2) generative LEARNING contributes: the drop with plasticity on strictly
+    # exceeds the inference-only (eta_w=0) drop (measured live 0.299 vs frozen 0.267 —
+    # W_gen plasticity adds ~0.03 of error reduction beyond inference settling).
+    assert (first_live - last_live) - (first_frozen - last_frozen) > 1e-2, (
+        first_live - last_live,
+        first_frozen - last_frozen,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -174,6 +210,10 @@ def test_boundedness_fuzz() -> None:
                 assert -1.0 <= v <= 1.0, v
             for v in z:
                 assert -1.0 <= v <= 1.0, v
+            # 更脑 v2 (#19): the anchored allostatic pi is a convex update
+            # (drift + RHO_ANCHOR <= 1), so pi is forward-invariant on [-1,1]^8.
+            for v in core.state.pi:
+                assert -1.0 <= v <= 1.0, v
 
 
 # --------------------------------------------------------------------------- #
@@ -226,3 +266,38 @@ def test_readout_jacobian_is_pure_leak() -> None:
                 expected = (1.0 - BETA) if i == j else 0.0
                 assert abs(jac[i][j] - expected) < 1e-6, (i, j, jac[i][j])
         assert abs(_spectral_norm(jac) - (1.0 - BETA)) < 1e-6
+
+
+# --------------------------------------------------------------------------- #
+# Test #18 — schema v1->v2 round-trip with back-compat fallbacks               #
+# --------------------------------------------------------------------------- #
+def test_schema_v2_roundtrips_all_plastic_state() -> None:
+    core = PELCore.from_personality(TSUNDERE)
+    # evolve so pi0 != pi and theta != THETA_INIT (genuinely distinct state).
+    x = [0.4, -0.3, 0.5, 0.1, -0.2, 0.3, 0.0, -0.1]
+    for _ in range(30):
+        core.step(x, 0.6)
+    d = core.to_dict()
+    assert d["v"] == PEL_SCHEMA_VERSION == 2
+    assert "pi0" in d and "theta" in d and "s_bar" in d
+    back = PELCore.from_dict(d)
+    assert back.state.pi0 == core.state.pi0
+    assert back.state.theta == core.state.theta
+    assert back.state.s_bar == core.state.s_bar
+    # the frozen trait anchor must NOT equal the drifted pi (proves it is real state).
+    assert any(abs(core.state.pi0[i] - core.state.pi[i]) > 1e-4 for i in range(N))
+
+
+def test_schema_v1_dict_migrates_with_fallbacks() -> None:
+    # An old v1 snapshot has no pi0/theta/s_bar. Migration must apply the documented
+    # fallbacks (pi0 := pi, theta := THETA_INIT, s_bar := 0.0) rather than KeyError.
+    core = PELCore.from_personality(TSUNDERE)
+    for _ in range(10):
+        core.step([0.2, -0.1, 0.3, 0.0, 0.1, -0.2, 0.1, 0.0], 0.5)
+    v1 = core.to_dict()
+    del v1["pi0"], v1["theta"], v1["s_bar"]
+    v1["v"] = 1
+    back = PELCore.from_dict(v1)
+    assert back.state.pi0 == core.state.pi  # must-fix #2: anchors to (drifted) pi
+    assert back.state.theta == [THETA_INIT] * N
+    assert back.state.s_bar == 0.0

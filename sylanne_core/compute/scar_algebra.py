@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import math
+import statistics
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
@@ -25,6 +26,11 @@ from .pel_core import PELCore
 # legacy MLP, so scar side-effects stay alive while ``mu`` evolves from the main
 # step alone. Small gain keeps ``tanh(base + gain*modulated) in [-1, 1]``.
 _PEL_AFFINE_GAIN: float = 0.3
+
+# 更脑 v2 (must-fix #4): steady-window cross-dim precision spread below this and the
+# divisive "attention" has gone dead (flat traffic re-saturates it). Mirrors the
+# T-DIV acceptance tol so the production witness uses the same bar as CI.
+_PEL_PRECISION_LIVE_TOL: float = 0.15
 
 
 class HealingStage(IntEnum):
@@ -228,10 +234,35 @@ class ScarredState:
             return None
         st = self._pel.state
         n = len(self._pel.last_e0)
+        pi_obs = list(st.pi_obs)
+        pi_top = list(st.pi_top)
+        # 更脑 v2 production liveness witness (must-fix #4): divisive precision's
+        # liveness is DATA-CONTINGENT — if real traffic ever drove near-equal errors
+        # the cross-dim spread would collapse and "attention" would silently go dead
+        # again while every CORPUS-fed CI gate stayed green. Surface the cross-dim
+        # precision spread + the BCM*precision product spread so a downstream monitor
+        # can window them on REAL traffic and alert when steady-state spread falls
+        # below the same tol CI uses. This makes the DEAD->LIVE claim falsifiable
+        # post-deploy instead of only on the curated fixture.
+        prod = [pi_obs[i] * self._pel.last_m[i] for i in range(n)] if n else []
+        pi_obs_pstd = statistics.pstdev(pi_obs) if len(pi_obs) > 1 else 0.0
+        pi_top_pstd = statistics.pstdev(pi_top) if len(pi_top) > 1 else 0.0
+        prod_spread = statistics.pvariance(prod) if len(prod) > 1 else 0.0
+        # 更脑 v2 (M3) identity witness: distance of the live setpoint pi from its
+        # frozen trait prior pi0. Symmetric with the M1 witness — surfaces anchor
+        # erosion on REAL traffic (the anchor retains ~80% of pi0 in theory; if pi
+        # ran away to <z> on real input this drift would climb toward ||pi0||~O(1)
+        # and a downstream monitor could alert), not just on the synthetic fixture.
+        pi_anchor_drift = math.sqrt(sum((st.pi[i] - st.pi0[i]) ** 2 for i in range(len(st.pi))))
         return {
             "free_energy": st.free_energy,
-            "pi_obs": list(st.pi_obs),
-            "pi_top": list(st.pi_top),
+            "pi_obs": pi_obs,
+            "pi_top": pi_top,
+            "pi_obs_pstd": pi_obs_pstd,
+            "pi_top_pstd": pi_top_pstd,
+            "prod_spread": prod_spread,
+            "precision_live": pi_obs_pstd > _PEL_PRECISION_LIVE_TOL,
+            "pi_anchor_drift": pi_anchor_drift,
             "mean_abs_e0": sum(abs(v) for v in self._pel.last_e0) / n if n else 0.0,
             "mean_abs_e1": sum(abs(v) for v in self._pel.last_e1) / n if n else 0.0,
         }
@@ -681,8 +712,14 @@ class ScarredState:
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> ScarredState:
-        state = cls(n_dims=data["n_dims"], wound_threshold=data["wound_threshold"])
+    def from_dict(
+        cls, data: dict[str, Any], *, pel_enabled: bool = False
+    ) -> ScarredState:
+        state = cls(
+            n_dims=data["n_dims"],
+            wound_threshold=data["wound_threshold"],
+            pel_enabled=pel_enabled,
+        )
         state.base = list(data["base"])
         state.scars = [Scar.from_dict(s) for s in data.get("scars", [])]
         state._tick = data.get("tick", 0)
@@ -698,12 +735,15 @@ class ScarredState:
         state._recent_scar_ticks = data.get("recent_scar_ticks", [])
         # Time-aware healing
         state._last_step_time = data.get("last_step_time", 0.0)
-        # PEL-Core: migration-safe restore. Old snapshots have no "pel" key and
-        # stay on the legacy path; if a downstream wants PEL on a migrated state
-        # it re-inits via ``set_pel_priors``. A present "pel" key restores the
-        # full plastic core and marks PEL active.
+        # PEL-Core: migration-safe restore, GATED ON THE HOST'S CONFIG FLAG
+        # (``pel_enabled``), never on snapshot contents (must-fix #3). A present
+        # "pel" sub-key alone must NOT re-enable PEL when the caller has the flag
+        # off — otherwise a snapshot could smuggle PEL on and break the
+        # "flag off => byte-identical legacy" invariant. Old snapshots (no "pel")
+        # always stay on the legacy path. NOTE (must-fix #2): a restored v1 "pel"
+        # (no ``pi0``) anchors to the already-drifted ``pi``, not the true trait
+        # prior; recover real identity by re-calling ``set_pel_priors`` on load.
         pel = data.get("pel")
-        if pel is not None:
+        if pel is not None and pel_enabled:
             state._pel = PELCore.from_dict(pel)
-            state._pel_enabled = True
         return state
