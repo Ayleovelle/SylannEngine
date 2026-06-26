@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### ♻️ v2.5 类脑引擎重设计 —— 实测落地(2.3.0)
+
+按"实现 → 测量 → 按证据诚实处置"走完,不 force-ship。全文 `docs/design/v25-neuromorphic-redesign.md`。
+
+- **删除死的 simplicial resonance-field 栈(~4.5k LOC)**:`resonance_field`/`_numpy`/`_torch` +
+  `coupling_dynamics` + `topology_gate`(serving 路径自 v2.5 起已是 DeterministicFusion + PEL-Core,这些零活
+  引用、仅互引 + 自身测试)。行为中性;活测试迁入 `tests/test_spine_integration.py`。这是"连贯类脑引擎"的真交付。
+- **修 torch footgun**:`config.build_profile()` 的 lite/pro 改用 `importlib.util.find_spec` 定 backend,部署
+  路径不再 eager `import torch`(实测 RSS −458MB);backend 字符串不变;加守卫测试 `tests/test_config_backend.py`。
+- **B 根因修复(x_t 改预测 HDC + assessor 作精度加权先验 e2 + 塌双写)实测否决,CUT 到默认 off**:双红线全挂
+  (精度 0.50→0.29 更差、assessor→z ~200× 衰减),独立审查复现确认,连 salvage 变体也被更脑 v2 严格支配。
+  `SEMANTIC_PRIOR=False` 默认 = 已验证的更脑 v2;e2 机件留作有界、off 时无行为变更、可消融选项(收缩界已证)。
+- 擂台招牌(神经调质总线 / criticality / k-WTA / 字面 STP / 多余 Turrigiano)经审查判 theater/冗余/relabel,
+  **不建**(设计记录留存)。诚实结论:更脑 v2 已交付类脑核;本轮净增 = footgun + 删死码 + e2 选项 + 否决发现。
+
 ### 💥 Breaking Changes
 
 - 移除 AstrBot 前置插件形态。SylannEngine 现在是纯 SDK，直接 `SylanneEngine(...)` 实例化并传入自己的 LLM 回调
