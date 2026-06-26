@@ -76,9 +76,7 @@ CORPUS: list[str] = [
 
 
 def _frobenius(a: list[list[float]], b: list[list[float]]) -> float:
-    return math.sqrt(
-        sum((a[i][j] - b[i][j]) ** 2 for i in range(len(a)) for j in range(len(a[0])))
-    )
+    return math.sqrt(sum((a[i][j] - b[i][j]) ** 2 for i in range(len(a)) for j in range(len(a[0]))))
 
 
 # --------------------------------------------------------------------------- #

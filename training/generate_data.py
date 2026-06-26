@@ -157,7 +157,7 @@ async def call_llm(
             continue
         except Exception as e:
             if attempt < max_retries - 1:
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2**attempt)
             else:
                 print(f"  [{model}] Failed: {e}")
     return None
@@ -186,8 +186,12 @@ async def generate_batch(
                 scenario = weighted_scenario_choice()
                 user_prompt = SYNTH_USER_PROMPTS[scenario]
                 result = await call_llm(
-                    p["_client"], p["model"], SYNTH_SYSTEM_PROMPT, user_prompt,
-                    temperature=p["temperature"], top_p=p["top_p"],
+                    p["_client"],
+                    p["model"],
+                    SYNTH_SYSTEM_PROMPT,
+                    user_prompt,
+                    temperature=p["temperature"],
+                    top_p=p["top_p"],
                 )
                 if result and "text" in result and "emotion_raw" in result:
                     result["_scenario_key"] = scenario
@@ -202,7 +206,9 @@ async def generate_batch(
 
 
 async def main():
-    parser = argparse.ArgumentParser(description="Generate training data for embedded perception model")
+    parser = argparse.ArgumentParser(
+        description="Generate training data for embedded perception model"
+    )
     parser.add_argument("--n", type=int, default=10000, help="Number of samples to generate")
     parser.add_argument("--output", type=str, default="data/train.jsonl", help="Output file")
     parser.add_argument("--batch-size", type=int, default=60, help="Batch size per round")
@@ -214,11 +220,13 @@ async def main():
     clients = []
     for p in PROVIDERS:
         client_obj = AsyncOpenAI(api_key=p["api_key"], base_url=p["base_url"])
-        clients.append({
-            **p,
-            "_client": client_obj,
-            "_semaphore": asyncio.Semaphore(p["concurrency"]),
-        })
+        clients.append(
+            {
+                **p,
+                "_client": client_obj,
+                "_semaphore": asyncio.Semaphore(p["concurrency"]),
+            }
+        )
     print(f"Providers: {', '.join(p['name'] for p in clients)}")
     print(f"Total concurrency: {sum(p['concurrency'] for p in clients)}")
 

@@ -39,9 +39,7 @@ TSUNDERE: dict[str, float] = {
 
 
 def _frobenius(a: list[list[float]], b: list[list[float]]) -> float:
-    return sum(
-        (a[i][j] - b[i][j]) ** 2 for i in range(len(a)) for j in range(len(a[0]))
-    ) ** 0.5
+    return sum((a[i][j] - b[i][j]) ** 2 for i in range(len(a)) for j in range(len(a[0]))) ** 0.5
 
 
 def _varying_input(t: int) -> list[float]:

@@ -42,8 +42,16 @@ def emotion_dict_to_vector(emotion: dict) -> np.ndarray:
     Remaining 120 dims = learned representation space (target for model).
     For training, we use the 8 raw dims repeated/projected to fill 128.
     """
-    keys = ["valence", "arousal", "dominance", "warmth",
-            "vulnerability", "hostility", "engagement", "surprise"]
+    keys = [
+        "valence",
+        "arousal",
+        "dominance",
+        "warmth",
+        "vulnerability",
+        "hostility",
+        "engagement",
+        "surprise",
+    ]
     raw = np.array([float(emotion.get(k, 0.0)) for k in keys], dtype=np.float32)
 
     # Project 8-dim to 128-dim using a fixed random projection (reproducible)
@@ -85,8 +93,15 @@ class MiniTransformer:
     - CLS pooling → linear → 128-dim output
     """
 
-    def __init__(self, d_model: int = 128, n_heads: int = 4, n_layers: int = 4,
-                 max_len: int = 128, vocab_size: int = 257, output_dim: int = 128):
+    def __init__(
+        self,
+        d_model: int = 128,
+        n_heads: int = 4,
+        n_layers: int = 4,
+        max_len: int = 128,
+        vocab_size: int = 257,
+        output_dim: int = 128,
+    ):
         self.d_model = d_model
         self.n_heads = n_heads
         self.n_layers = n_layers
@@ -114,19 +129,19 @@ class MiniTransformer:
         for _ in range(self.n_layers):
             layer = {
                 # Self-attention
-                "Wq": rng.randn(d, d).astype(np.float32) * (d ** -0.5),
-                "Wk": rng.randn(d, d).astype(np.float32) * (d ** -0.5),
-                "Wv": rng.randn(d, d).astype(np.float32) * (d ** -0.5),
-                "Wo": rng.randn(d, d).astype(np.float32) * (d ** -0.5),
+                "Wq": rng.randn(d, d).astype(np.float32) * (d**-0.5),
+                "Wk": rng.randn(d, d).astype(np.float32) * (d**-0.5),
+                "Wv": rng.randn(d, d).astype(np.float32) * (d**-0.5),
+                "Wo": rng.randn(d, d).astype(np.float32) * (d**-0.5),
                 # Layer norms
                 "ln1_g": np.ones(d, dtype=np.float32),
                 "ln1_b": np.zeros(d, dtype=np.float32),
                 "ln2_g": np.ones(d, dtype=np.float32),
                 "ln2_b": np.zeros(d, dtype=np.float32),
                 # FFN
-                "W1": rng.randn(d, ff).astype(np.float32) * (d ** -0.5),
+                "W1": rng.randn(d, ff).astype(np.float32) * (d**-0.5),
                 "b1": np.zeros(ff, dtype=np.float32),
-                "W2": rng.randn(ff, d).astype(np.float32) * (ff ** -0.5),
+                "W2": rng.randn(ff, d).astype(np.float32) * (ff**-0.5),
                 "b2": np.zeros(d, dtype=np.float32),
             }
             self.layers.append(layer)
@@ -134,7 +149,7 @@ class MiniTransformer:
         # Output head
         self.ln_final_g = np.ones(d, dtype=np.float32)
         self.ln_final_b = np.zeros(d, dtype=np.float32)
-        self.output_proj = rng.randn(d, self.output_dim).astype(np.float32) * (d ** -0.5)
+        self.output_proj = rng.randn(d, self.output_dim).astype(np.float32) * (d**-0.5)
 
     def _sinusoidal_pos(self, max_len: int, d_model: int) -> np.ndarray:
         pos = np.arange(max_len)[:, None]

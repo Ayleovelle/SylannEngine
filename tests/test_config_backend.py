@@ -35,8 +35,6 @@ def test_lite_pro_do_not_import_torch() -> None:
         "assert 'torch' not in sys.modules, 'lite/pro eagerly imported torch';"
         "print('OK')"
     )
-    proc = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
-    )
+    proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, (proc.stdout, proc.stderr)
     assert "OK" in proc.stdout

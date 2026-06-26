@@ -714,9 +714,7 @@ class ScarredState:
         return out
 
     @classmethod
-    def from_dict(
-        cls, data: dict[str, Any], *, pel_enabled: bool = False
-    ) -> ScarredState:
+    def from_dict(cls, data: dict[str, Any], *, pel_enabled: bool = False) -> ScarredState:
         state = cls(
             n_dims=data["n_dims"],
             wound_threshold=data["wound_threshold"],

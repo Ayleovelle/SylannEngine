@@ -121,9 +121,7 @@ class DeterministicFusion:
         self._state_dim = cfg["state_dim"]
         self._tier = tier
         self._epsilon = epsilon
-        self._module_states: list[list[float]] = [
-            [0.0] * self._state_dim for _ in range(n_modules)
-        ]
+        self._module_states: list[list[float]] = [[0.0] * self._state_dim for _ in range(n_modules)]
         n_channels = n_modules * (n_modules - 1)  # directed pairwise (matches legacy lite=42)
         self._coupling = _Coupling(n_channels)
         self._complex = _Complex(n_channels)

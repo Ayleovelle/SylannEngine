@@ -143,9 +143,7 @@ def _divisive_precision(errs: list[float]) -> list[float]:
     return [PI_MIN + _PI_GAIN * (r[i] / s) for i in range(N)]
 
 
-def spectral_clamp(
-    weight: list[list[float]], rho: float = W_SPECTRAL_MAX
-) -> list[list[float]]:
+def spectral_clamp(weight: list[list[float]], rho: float = W_SPECTRAL_MAX) -> list[list[float]]:
     """Return a copy of ``weight`` scaled so its spectral norm is ``<= rho``.
 
     Uses the same 10-iteration power method as the legacy MLP weights
@@ -223,13 +221,9 @@ def descent_step(
             for i in range(N)
         ]
     else:
-        g = [
-            sum(w_gen[j][i] * pe0[j] for j in range(N)) - pi_top[i] * e1[i]
-            for i in range(N)
-        ]
+        g = [sum(w_gen[j][i] * pe0[j] for j in range(N)) - pi_top[i] * e1[i] for i in range(N)]
     return [
-        (1.0 - ALPHA) * mu[i]
-        + ALPHA * math.tanh((1.0 - DELTA) * (mu[i] + KAPPA * g[i]))
+        (1.0 - ALPHA) * mu[i] + ALPHA * math.tanh((1.0 - DELTA) * (mu[i] + KAPPA * g[i]))
         for i in range(N)
     ]
 
@@ -243,10 +237,7 @@ def readout_step(
     ``z_{t-1}``), so ``J_z = (1 - beta) I`` with spectral norm ``1 - beta``.
     """
     z_hat = [_dot(w_gen[i], mu) for i in range(N)]
-    return [
-        (1.0 - BETA) * z_prev[i] + BETA * math.tanh(z_hat[i] + W_IN * x_t[i])
-        for i in range(N)
-    ]
+    return [(1.0 - BETA) * z_prev[i] + BETA * math.tanh(z_hat[i] + W_IN * x_t[i]) for i in range(N)]
 
 
 @dataclass
@@ -270,7 +261,9 @@ class PELState:
     # 更脑 v2 plastic state (defaulted so the bare boundedness-fuzz construction
     # stays valid; production paths set all three explicitly via from_personality).
     pi0: list[float] = field(default_factory=lambda: [0.0] * N)  # frozen trait-prior anchor (M3)
-    theta: list[float] = field(default_factory=lambda: [THETA_INIT] * N)  # BCM sliding thresholds (M2)
+    theta: list[float] = field(
+        default_factory=lambda: [THETA_INIT] * N
+    )  # BCM sliding thresholds (M2)
     s_bar: float = 0.0  # slow surprise EMA (M3 gate only)
 
 
@@ -375,18 +368,14 @@ class PELCore:
         """
         st = self.state
         if SEMANTIC_PRIOR and a_vec is not None and confidence > 0.0:
-            a_prior: list[float] | None = [
-                a_vec[i] if i < len(a_vec) else 0.0 for i in range(N)
-            ]
+            a_prior: list[float] | None = [a_vec[i] if i < len(a_vec) else 0.0 for i in range(N)]
             pi_a: list[float] | None = [confidence * PI_MAX] * N
         else:
             a_prior = None
             pi_a = None
         mu = list(st.mu)
         for _k in range(K):
-            mu = descent_step(
-                mu, x_t, st.w_gen, st.pi_obs, st.pi_top, st.pi, a_prior, pi_a
-            )
+            mu = descent_step(mu, x_t, st.w_gen, st.pi_obs, st.pi_top, st.pi, a_prior, pi_a)
 
         z = readout_step(st.z, mu, x_t, st.w_gen)
 

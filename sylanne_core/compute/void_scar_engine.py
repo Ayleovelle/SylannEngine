@@ -233,10 +233,7 @@ class VoidScarEngine:
         c = self._pel_confidence
         a_vec = self._pel_affect
         if _pel_core.SEMANTIC_PRIOR:
-            x_t = [
-                surprise * (ssm_input[i] if i < len(ssm_input) else 0.0)
-                for i in range(_PEL_N)
-            ]
+            x_t = [surprise * (ssm_input[i] if i < len(ssm_input) else 0.0) for i in range(_PEL_N)]
             return x_t, surprise, list(a_vec), c
         x_t = [
             c * (a_vec[i] if i < len(a_vec) else 0.0)
