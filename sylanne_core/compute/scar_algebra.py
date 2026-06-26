@@ -461,7 +461,7 @@ class ScarredState:
         timestamp: float = 0.0,
         *,
         heal: bool = True,
-        pel_ctx: tuple[list[float], float] | None = None,
+        pel_ctx: tuple[list[float], float, list[float] | None, float] | None = None,
     ) -> dict[str, Any]:
         """应用 ⊳ 算子：完整状态转移。
 
@@ -475,7 +475,7 @@ class ScarredState:
             event: 8 维输入事件向量
             timestamp: 事件时间戳（用于时间感知愈合）
             heal: 是否执行愈合步骤（Γ 耦合创伤事件设为 False）
-            pel_ctx: 可选的 PEL 主步上下文 ``(x_t, surprise)``。仅在主 step 传入。
+            pel_ctx: 可选的 PEL 主步上下文 ``(x_t, surprise, a_vec, confidence)``。仅主 step 传入。
                 当 PEL 激活且 ``pel_ctx`` 在场 ⇒ 潜核推进 ``mu`` 并写 ``base``；
                 PEL 激活但 ``pel_ctx is None``（wound/feedback 步）⇒ 走廉价 affine
                 bias（D-3/D-7，不推进 ``mu``）；PEL 未激活 ⇒ 遗留 MLP（字节一致）。
@@ -503,8 +503,10 @@ class ScarredState:
             if pel_ctx is not None:
                 # Main step: PEL latent free-energy descent + read-out -> base.
                 # PEL's K is internal and fixed; it ignores ``_mlp_passes`` (G3).
-                x_t, surprise = pel_ctx
-                z, _free_energy = self._pel.step(x_t, surprise)
+                # v2.5 (B): a_vec/confidence carry the assessor in as a precision-
+                # weighted semantic prior (inert when absent / confidence 0).
+                x_t, surprise, a_vec, confidence = pel_ctx
+                z, _free_energy = self._pel.step(x_t, surprise, a_vec, confidence)
                 self.base = z
             else:
                 # wound/feedback step: cheap bounded affine bias on base (D-3/D-7).

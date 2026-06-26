@@ -27,6 +27,7 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from . import pel_core as _pel_core  # module ref so SEMANTIC_PRIOR stays monkeypatchable
 from .autopoiesis import AutopoieticBoundary
 from .bounded_dict import BoundedDict
 from .deterministic_fusion import create_deterministic_fusion
@@ -665,15 +666,25 @@ class ResonanceSpine:
         # onto the observed base dims directly (the interpretable channel), stamped on
         # top of any wound step so it always shows in this tick's observation.
         # dim order: warmth0 arousal1 valence2 tension3 curiosity4 ...
-        base = self._engine.scar_state.base
-        if n > 2 and abs(valence) > 1e-6:
-            base[2] = max(-1.0, min(1.0, base[2] + valence * gain))
-        if n > 1 and arousal > 1e-6:
-            base[1] = max(-1.0, min(1.0, base[1] + arousal * gain))
-        if n > 0 and valence > 0.0:
-            base[0] = max(
-                -1.0, min(1.0, base[0] + valence * gain * 0.67)
-            )  # warmth tracks positive valence
+        # v2.5 redesign (B): when PEL runs the semantic-prior path, the assessor
+        # reaches z through the e2 precision-weighted prior (store_pel_affect below),
+        # NOT this direct base stamp — collapsing the assessor dual-write into one
+        # precision-weighted entry. The fast direct nudge is kept only for the legacy
+        # path (PEL off, or SEMANTIC_PRIOR off). Wound injection + void pressure stay
+        # live on both paths. (assessor->z fidelity under the e2 path is a ship red-line.)
+        direct_affect = not (
+            _pel_core.SEMANTIC_PRIOR and self._engine.scar_state.pel_active()
+        )
+        if direct_affect:
+            base = self._engine.scar_state.base
+            if n > 2 and abs(valence) > 1e-6:
+                base[2] = max(-1.0, min(1.0, base[2] + valence * gain))
+            if n > 1 and arousal > 1e-6:
+                base[1] = max(-1.0, min(1.0, base[1] + arousal * gain))
+            if n > 0 and valence > 0.0:
+                base[0] = max(
+                    -1.0, min(1.0, base[0] + valence * gain * 0.67)
+                )  # warmth tracks positive valence
 
         # Negative valence raises void pressure; strong positive valence relieves it.
         if valence < -0.5:

@@ -93,14 +93,25 @@ v2.5 现状是"杀了共振场 + 临时替身 + PEL 藏 flag 后"的补丁拼接
 每个模块要么是这柱的一个**层(level)**、一条**精度通道**、一个**神经调质**、或一个**消费 F 的读者**,
 否则删除。一拍一次确定性前向(无迭代收敛、无场)。
 
-**根因修复(整个擂台最值钱、对活代码验过的结构洞见,四版都列头号 graft):**
-现状 `x_t = c·a_vec + (1-c)·s·h_t`(`void_scar_engine.py:231-235`)让输入 echo assessor——高 confidence 时
-μ 直接 echo a_vec、`e0 = x_t − W_gen·μ → 0`,这就是 M1 除法精度在真路径死饱和(`precision_live=False`)的**真因**。
-修:**x_t 改去预测活的 HDC 传入**(`x_t = s·h_t`),让 e0 成真预测误差(教科书 Rao-Ballard);**assessor 改作
-精度加权的观测/经验先验**进来——`Π_a = PI_MIN + (PI_MAX−PI_MIN)·confidence`,即 LLM 教**先验**、不再 trivialize
-误差。这一改同时把当前的 assessor **双写**(`resonance_integration.py:668-676` 直写 base[2] + `:706` 延迟
-store_pel_affect)塌成**一个**精度加权入口,并暴露干净的 v3 接缝(学习版 predictor 日后落这个 e2 先验,不动
-L0/L1/L2 动力学、不动收缩证明、不动公共 API)。
+**根因修复(擂台招牌洞见)—— ⚠ 实现后被实证否决,已 CUT 到默认 off(falsify-or-cut):**
+擂台诊断:现状 `x_t = c·a_vec + (1-c)·s·h_t`(`void_scar_engine.py:231-235`)让输入 echo assessor——高
+confidence 时 μ echo a_vec、`e0 → 0`,被判为 M1 精度死饱和的真因。提议:`x_t = s·h_t` + assessor 作精度加权
+顶向先验 e2(`Π_a = confidence·PI_MAX`,顶向不走 W_gen,Hessian 只加 diag(Π_a),收缩 `κ·λ_max(H) ≤
+κ(‖W‖²·PI_MAX + 2·PI_MAX) < 2`,已实现并 fuzz 证),并塌掉 assessor 双写。
+
+**但实现后两条预登记红线全挂(`scratchpad/measure_B.py` 实测,这是本次最重要的发现):**
+1. **精度没复活、反而更差。** 真路径 `pi_obs_pstd`:旧 value-blend **0.50**(live 0.89)→ 新 `x_t=s·h_t` **0.29**
+   (live 0.78)。原因:更脑 v2 的除法精度 M1 **早把精度从死饱和救活了**(诊断里的"死 [5.0]×8"是 v2 之前的
+   legacy 规则),而 a_vec 的混入其实在给 e0 加跨维异质性、帮精度;抽掉换成扁平 HDC afferent 反而塌。擂台
+   "x_t echo 杀精度"的前提是对 legacy 规则成立、对 v2 的 divisive 规则**不成立**(PEC kill-shot 说中)。
+2. **assessor→z 命根子信号崩。** 强 +0.9 valence 读,z[2] 位移:旧直写 **d1=+0.26 / d2=+0.63**(强、即时)→
+   新 e2 先验 **d1=+0.001 / d2=+0.044**(~200× 衰减)。把那条 ~10× 的 assessor→z 信号换成经 e2/μ 的慢路径=
+   拿命根子换没有的精度增益(LIMBUS kill-shot 说中)。
+
+**处置:** `SEMANTIC_PRIOR` 默认 **False**(默认行为退回已验证的更脑 v2:value-blend x_t + 直写 + 无 e2);e2
+先验机件作**有界、off 时逐字一致、可消融**的选项留存(收缩界已证),**不上**。这印证了一个更深的诚实结论:
+更脑 v2 已把精度/可塑/allostasis 的重活做完,擂台招牌"重设计"在很大程度上是在重打 v2 已解决的仗——本身就是
+北极星要警惕的 theater。下面 §5–§7 的预测编码柱**仍以更脑 v2 为既成核**,但 B 这条 assessor 接入的改写不采纳。
 
 每拍前向(综合后的连贯柱):
 HDC 感知(h)→ PredictiveCodingGate(surprise=预测误差,折入柱的顶层)→ 单 PEL 柱:K=2 自由能下降
@@ -200,12 +211,13 @@ v2.5 只交付**类脑动力学身体**。干净接缝两处:(1)NeuromodulatorBu
 **已验证(对活代码确认,可直接做):** x_t echo assessor 是 precision 死因(代码确认);死代码/no-op 删除是真
 RAM+输入敏感增益;torch footgun 修是真 -464MB;塌双写是真。这些是**净赚**,先落。
 
-**赌注(必须过红线才能 flip,不得当既成吹):**
-- **DEAD→LIVE 精度复活**是赌:多数拍无新 assessor 读(D-10 不每拍叫 LLM),a_vec 陈旧/为零,`e0=s·h_t−W_gen·μ`
-  可能仍坍回扁平 HDC density(recon:mean|e0| 0.039–0.097、跨维 pstd 0.0089)。**红线**:在**未评估拍**的真实
-  流量上测 `precision_live`/`pi_obs_pstd`,过不了就按预登记**砍 M1**。
-- **assessor→z 保真不可回归**:把 assessor 从直写 base 改成 e2 先验,可能损害那条 ~10× 的命根子信号。**红线**:
-  测 assessor→z 保真不回归(改前/改后对比),回归就保留更快的混合路径(或保 wound trauma 直注)。
+**已实测·失败(B 招牌修复,falsify-or-cut 已执行 → CUT 到默认 off):**
+- **DEAD→LIVE 精度复活 = 失败。** 实测 `pi_obs_pstd` 新 0.29 < 旧 0.50:更脑 v2 的 divisive M1 早把精度救活,
+  `x_t=s·h_t` 反而抽掉 a_vec 的异质性让精度更差。**砍**(`SEMANTIC_PRIOR=False`)。
+- **assessor→z 保真 = 失败(回归)。** 实测 z[2] 位移新 d1=+0.001 vs 旧 +0.26(~200× 衰减):e2 先验把那条
+  ~10× 命根子信号砸了。**砍**,保留更脑 v2 的直写快路径。
+
+**仍为赌注(C/后续阶段适用,过红线才 flip):**
 - **动作门真有计算后果**:主导未评估区里 EFE 会退化成现有 bandit+沉默斜坡。**红线**:动作目标必须在语料上
   **移动** SPEAK/SILENT 决策,否则删到恰好 bandit+ramp。"F 必须有真读者,绝不报 show 用标量。"
 - **红线测实质幅度不是非零**(PEC 最阴的一刀):recon 测 W_gen Hebbian 漂移 ~1.6% Frobenius/150 拍 = 冰川;

@@ -84,6 +84,25 @@ RHO_ANCHOR: float = 4e-3  # trait-prior restoring force; 0.0 => legacy leak-to-<
 SURPRISE_GATE: bool = False  # optional drift gate; default OFF (surprise is flat on real path)
 RHO_S: float = 0.02  # slow surprise EMA rate (only used when SURPRISE_GATE)
 
+# --- v2.5 redesign (B): assessor as a precision-weighted TOP-DOWN semantic prior.
+# The design arena's headline "root-cause fix" was: x_t echoing the assessor
+# (c*a_vec+(1-c)*s*h_t) kills M1 precision, so re-point x_t=s*h_t and route the
+# assessor in as a THIRD top-down error e2 = mu - a_vec (precision pi_a = c*PI_MAX,
+# ON mu not through W_gen, so the Hessian only gains diag(pi_a) — contraction stays
+# kappa*lambda_max(H) <= kappa*(||W||^2*PI_MAX + 2*PI_MAX) < 2).
+#
+# SHIPPED OFF (default False) — the fix was EMPIRICALLY REFUTED on this build (the
+# falsify-or-cut red-lines both failed, measure_B.py): (1) precision did NOT revive —
+# 更脑 v2's divisive M1 had already de-saturated it (pstd ~0.50), and the a_vec blend
+# was actually ADDING cross-dim heterogeneity, so x_t=s*h_t made precision WORSE
+# (pstd 0.50 -> 0.29); (2) routing the assessor through the e2 prior instead of the
+# direct base write collapsed assessor->z[2] fidelity from d~+0.26 to d~+0.001 (~200x)
+# — trading the ~10x load-bearing signal for no precision gain. So the value-blend x_t
+# + direct assessor write (更脑 v2) stay the default. The e2 machinery is kept as a
+# bounded, byte-identical-when-off, ablatable OPTION, not shipped. (Arena PEC/LIMBUS
+# kill-shots called this exactly.)
+SEMANTIC_PRIOR: bool = False  # REFUTED on this build; off => 更脑 v2 default (proven)
+
 # Big-Five canonical keys with their legacy Embodiment-Five aliases. P0 reads
 # personality robustly from whichever naming the caller supplies.
 _TRAIT_ALIASES: dict[str, str] = {
@@ -169,6 +188,8 @@ def descent_step(
     pi_obs: list[float],
     pi_top: list[float],
     pi: list[float],
+    a_vec: list[float] | None = None,
+    pi_a: list[float] | None = None,
 ) -> list[float]:
     """One inner free-energy descent step on the latent belief ``mu``.
 
@@ -179,6 +200,13 @@ def descent_step(
 
         mu <- (1 - alpha) mu + alpha * tanh( (1 - delta) * (mu + kappa * g) ).
 
+    v2.5 redesign (B): when ``a_vec``/``pi_a`` are supplied, a THIRD top-down term
+    ``e2 = mu - a_vec`` (the precision-weighted assessor semantic prior) is added,
+    ``g -= Pi_a ⊙ e2``. It enters ON ``mu`` (not through ``W_gen``), so the Hessian
+    gains only ``diag(Pi_a)`` and the contraction bound stays
+    ``kappa*lambda_max(H) <= kappa*(||W||^2*PI_MAX + 2*PI_MAX) < 2``. ``a_vec=None``
+    reproduces the 更脑 v2 step byte-for-byte.
+
     The ``(1 - delta)`` leak on the descent branch is what makes the latent
     Jacobian uniformly strictly contractive (``||J_mu|| <= 1 - alpha*delta``)
     even at ``tanh' = 1``; see techspec §3.2. Exposed at module scope so tests
@@ -187,10 +215,18 @@ def descent_step(
     e0 = [x_t[i] - _dot(w_gen[i], mu) for i in range(N)]
     e1 = [mu[i] - pi[i] for i in range(N)]
     pe0 = [pi_obs[i] * e0[i] for i in range(N)]
-    g = [
-        sum(w_gen[j][i] * pe0[j] for j in range(N)) - pi_top[i] * e1[i]
-        for i in range(N)
-    ]
+    if a_vec is not None and pi_a is not None:
+        g = [
+            sum(w_gen[j][i] * pe0[j] for j in range(N))
+            - pi_top[i] * e1[i]
+            - pi_a[i] * (mu[i] - a_vec[i])
+            for i in range(N)
+        ]
+    else:
+        g = [
+            sum(w_gen[j][i] * pe0[j] for j in range(N)) - pi_top[i] * e1[i]
+            for i in range(N)
+        ]
     return [
         (1.0 - ALPHA) * mu[i]
         + ALPHA * math.tanh((1.0 - DELTA) * (mu[i] + KAPPA * g[i]))
@@ -318,17 +354,39 @@ class PELCore:
         return spectral_clamp(w, W_SPECTRAL_MAX)
 
     # -- per-tick update -------------------------------------------------------
-    def step(self, x_t: list[float], surprise: float) -> tuple[list[float], float]:
+    def step(
+        self,
+        x_t: list[float],
+        surprise: float,
+        a_vec: list[float] | None = None,
+        confidence: float = 0.0,
+    ) -> tuple[list[float], float]:
         """Advance one main tick: K-step latent descent, read-out, plasticity.
 
         Returns ``(z, F)`` where ``z`` is the new bounded emotion read-out and
         ``F`` is the (diagnostic) free energy. ``surprise`` in ``[0, 1]`` gates
         the three-factor ``W_gen`` Hebbian update.
+
+        v2.5 redesign (B): ``a_vec`` (the assessor's affect read) + ``confidence``
+        in ``[0, 1]`` add a precision-weighted top-down semantic prior to the
+        descent (``pi_a = confidence * PI_MAX``). Inert when ``SEMANTIC_PRIOR`` is
+        off, ``a_vec is None``, or ``confidence == 0`` — so legacy/no-read ticks
+        reproduce the 更脑 v2 step exactly.
         """
         st = self.state
+        if SEMANTIC_PRIOR and a_vec is not None and confidence > 0.0:
+            a_prior: list[float] | None = [
+                a_vec[i] if i < len(a_vec) else 0.0 for i in range(N)
+            ]
+            pi_a: list[float] | None = [confidence * PI_MAX] * N
+        else:
+            a_prior = None
+            pi_a = None
         mu = list(st.mu)
         for _k in range(K):
-            mu = descent_step(mu, x_t, st.w_gen, st.pi_obs, st.pi_top, st.pi)
+            mu = descent_step(
+                mu, x_t, st.w_gen, st.pi_obs, st.pi_top, st.pi, a_prior, pi_a
+            )
 
         z = readout_step(st.z, mu, x_t, st.w_gen)
 
@@ -388,6 +446,9 @@ class PELCore:
             + 0.5 * sum(st.pi_top[i] * e1f[i] ** 2 for i in range(N))
             - 0.5 * sum(math.log(st.pi_obs[i]) + math.log(st.pi_top[i]) for i in range(N))
         )
+        if a_prior is not None and pi_a is not None:
+            # v2.5 (B): the semantic-prior term the descent also minimized this tick.
+            free_energy += 0.5 * sum(pi_a[i] * (mu[i] - a_prior[i]) ** 2 for i in range(N))
 
         # 更脑 v2 (M3): anchored allostatic pi — mean-reverts toward <z> AND back to
         # the frozen trait prior pi0 (no identity erosion). The update is a convex

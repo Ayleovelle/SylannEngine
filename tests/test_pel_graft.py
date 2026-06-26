@@ -228,7 +228,7 @@ def test_pel_actually_changes_dynamics_vs_legacy() -> None:
 # Test #11 — tier sweep: PEL K is internal, ignores _mlp_passes                #
 # --------------------------------------------------------------------------- #
 def _pel_main_step(state: ScarredState, x_t: list[float], surprise: float) -> None:
-    state.step([0.0] * state.n_dims, 0.0, pel_ctx=(x_t, surprise))
+    state.step([0.0] * state.n_dims, 0.0, pel_ctx=(x_t, surprise, None, 0.0))
 
 
 def test_pel_ignores_mlp_passes() -> None:
