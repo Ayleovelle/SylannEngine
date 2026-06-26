@@ -1,19 +1,17 @@
-"""Resonance Integration — drop-in replacement for ComputationSpine.
+"""Resonance Integration — the default serving spine (kernel.py:48-53).
 
-ResonanceSpine wraps the ResonanceField + CouplingDynamics + EmergenceTracker
-into the same interface as ComputationSpine (process/feedback/express/to_dict/
-from_dict/apply_personality). The sequential pipeline becomes iterative resonance
-while maintaining full API compatibility.
+ResonanceSpine exposes the ComputationSpine interface (process/feedback/express/
+to_dict/from_dict/apply_personality). The name is historical: the iterate-to-
+convergence "resonance field" it once wrapped is RETIRED (v2.5). The field is now
+``DeterministicFusion`` (a single deterministic coherence pass), and the emotion
+core is the predictive-coding ``PEL-Core`` (behind ``pel_core_enabled``). The 7
+modules each compute once and contribute to a single-pass result; nothing iterates
+to a fixed point. The result-dict contract is preserved for API compatibility.
 
-Design principle: the 7 modules still exist as individual computation units,
-but instead of L1→L2→...→L7, they all inject into the resonance field and
-the field converges through coupled dynamics. Expression emerges from the
-field's phase transition rather than being computed sequentially.
-
-Module mapping (vertex index → computation unit):
+Module mapping (injection index → computation unit):
   0: HDCEncoder (perception)
   1: PredictiveCodingGate (surprise/gating)
-  2: VoidScarEngine (emotional core)
+  2: VoidScarEngine (emotional core; PEL-Core when enabled)
   3: ScarSheaf (relational propagation)
   4: HGT (decision fusion)
   5: AutopoieticBoundary (self-repair)
@@ -301,17 +299,6 @@ class ResonanceSpine:
             min_threshold_floor=0.15 + sovereignty * 0.2,
         )
 
-        # === Topology gate: initialize priors from personality ===
-        from .topology_gate import personality_to_gate_prior
-
-        topo_gate = self._field._coupling.topology_gate
-        if topo_gate is not None:
-            priors = personality_to_gate_prior(personality, topo_gate.n_channels)
-            topo_gate._logits = priors
-            topo_gate._openness_lr_mod = 0.5 + openness
-            topo_gate._conscientiousness_decay_mod = 1.0 - conscientiousness * 0.7
-            topo_gate._enforce_min_connectivity()
-
         # === Expression policy: update personality modulation + A7 saddle ===
         # Hard-gate bounds become personality explicit functions. Anchor the
         # trait defaults at 0.5 (NOT derive_params' historical 0.68 for
@@ -377,14 +364,17 @@ class ResonanceSpine:
         dialogue_quality: float | None = None,
         expression_outcome: bool | None = None,
     ) -> dict[str, Any]:
-        """Process text through resonance field with real module injection.
+        """Process one input message through the modules and produce a result dict.
 
-        Unlike ComputationSpine's sequential L1→...→L7, here:
-        1. Each module computes independently on the input
-        2. Module outputs are injected into the resonance field as signals
-        3. Field resonates (iterative coupling) until convergence
-        4. Expression decision emerges from the converged field state
-        5. Emergence metrics feed back into coupling dynamics (criticality gain)
+        v2.5: the old "modules inject into a shared field that iterates to convergence"
+        paradigm is retired — the field is now ``DeterministicFusion`` (a single
+        deterministic coherence pass, no loop/attractors), and the emotion core is the
+        predictive-coding ``PEL-Core`` (behind ``pel_core_enabled``). The per-tick flow
+        is a single pass: HDC perception → PredictiveCodingGate (surprise) → VoidScar
+        engine (emotion core, PEL when enabled) → assessor fold → DeterministicFusion
+        coherence pass → emergence read → expression decision → embodiment drift. The
+        result-dict contract (route/assessment_source literals, key sets, active_channels)
+        is preserved.
 
         Args:
             text: 输入消息文本
