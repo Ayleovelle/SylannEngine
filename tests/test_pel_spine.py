@@ -26,9 +26,11 @@ import statistics
 import time
 from typing import TYPE_CHECKING
 
-from sylanne_core.compute.pel_core import PELCore
+from sylanne_core.compute import pel_core
+from sylanne_core.compute.pel_core import PI_MAX, PELCore
 from sylanne_core.compute.predictive_coding import PredictiveCodingGate
 from sylanne_core.compute.resonance_integration import ResonanceSpine
+from sylanne_core.compute.scar_algebra import ScarredState
 from sylanne_core.config import build_profile
 
 if TYPE_CHECKING:
@@ -268,3 +270,156 @@ def test_assessor_advisable_off_when_pel_disabled() -> None:
     spine.apply_personality(TSUNDERE)
     spine.process("anything", timestamp=1.0)
     assert "pel" not in spine.diagnostics()
+
+
+# --------------------------------------------------------------------------- #
+# 更脑 v2 real-path replay helper: drive the REAL ResonanceSpine over CORPUS    #
+# with the sparse-assessor cadence and read the live precision/gain each tick.  #
+# --------------------------------------------------------------------------- #
+def _replay_precision(divisive: bool, monkeypatch: MonkeyPatch) -> dict[str, float]:
+    monkeypatch.setattr(pel_core, "PRECISION_DIVISIVE", divisive)
+    spine = ResonanceSpine(profile=build_profile("lite"), pel_enabled=True)
+    spine.apply_personality(TSUNDERE)
+    scar = spine._engine.scar_state
+    assert scar._pel is not None
+    n = 8
+    warm = 30
+    obs_pstd: list[float] = []
+    top_pstd: list[float] = []
+    prod_pstd: list[float] = []
+    steady_max: list[float] = []
+    obs_series: list[list[float]] = [[] for _ in range(n)]
+    prod_series: list[list[float]] = [[] for _ in range(n)]
+    m_contrib: list[float] = []
+    clip_max = 0.0
+    for t in range(160):
+        a = (
+            {"valence": 0.3, "arousal": 0.5, "wound_risk": 0.1, "confidence": 0.7}
+            if t % 5 == 0
+            else None
+        )
+        spine.process(CORPUS[t % len(CORPUS)], timestamp=float(t + 1), assessment=a)
+        st = scar._pel.state
+        gain = scar._pel.last_m
+        clip_max = max(clip_max, max(st.pi_obs), max(st.pi_top))
+        if t >= warm:
+            obs_pstd.append(statistics.pstdev(st.pi_obs))
+            top_pstd.append(statistics.pstdev(st.pi_top))
+            prod = [st.pi_obs[i] * gain[i] for i in range(n)]
+            prod_pstd.append(statistics.pstdev(prod))
+            # how much m's per-dim modulation shapes the product, vs pi_obs alone
+            # (flat-m baseline). Goes to 0 iff m is flat (M2 dead) — see #16.
+            mean_m = statistics.mean(gain)
+            prod_flat_m = [st.pi_obs[i] * mean_m for i in range(n)]
+            m_contrib.append(abs(statistics.pstdev(prod) - statistics.pstdev(prod_flat_m)))
+            steady_max.append(max(st.pi_obs))
+            for i in range(n):
+                obs_series[i].append(st.pi_obs[i])
+                prod_series[i].append(prod[i])
+    return {
+        "obs_pstd": statistics.mean(obs_pstd),
+        "top_pstd": statistics.mean(top_pstd),
+        "prod_pstd": statistics.mean(prod_pstd),
+        "prod_m_contrib": statistics.mean(m_contrib),
+        "obs_overtime_var": statistics.mean(statistics.pvariance(s) for s in obs_series),
+        "prod_overtime_var": statistics.mean(statistics.pvariance(s) for s in prod_series),
+        "clip_max": clip_max,
+        "steady_max": max(steady_max),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Test #13 — T-DIV: divisive precision is LIVE on the real spine (更脑 v2 / M1)  #
+#            (the acceptance gate the committed build LACKED)                   #
+# --------------------------------------------------------------------------- #
+def test_t_div_precision_is_live_on_real_path(monkeypatch: MonkeyPatch) -> None:
+    m = _replay_precision(True, monkeypatch)
+    # PRIMARY (warm-up-insensitive): cross-dim precision spread is alive. Measured
+    # obs ~0.46, top ~0.25. (Contrast: the divisive-OFF path on this same replay
+    # collapses obs spread to ~0.10 — see #14 — and to ~0.0 in the fully-saturated
+    # no-assessor regime recon measured; either way the toggle is no no-op.)
+    assert m["obs_pstd"] > 0.15, m["obs_pstd"]
+    assert m["top_pstd"] > 0.10, m["top_pstd"]
+    # SECONDARY: precision also moves over time per dim (not a frozen allocation).
+    # Measured ~0.048; robustly above the dead path's ~0.
+    assert m["obs_overtime_var"] > 1e-3, m["obs_overtime_var"]
+    # CLIP WITNESS (#19): runtime precision never exceeds PI_MAX (contraction safety),
+    # and divisive does not even NEED the clip in steady state (peak ~2.42 << PI_MAX)
+    # — the clip is a pure proof safety-net here, not load-bearing.
+    assert m["clip_max"] <= PI_MAX + 1e-9, m["clip_max"]
+    assert m["steady_max"] < PI_MAX, m["steady_max"]
+
+
+# --------------------------------------------------------------------------- #
+# Test #14 — T-DIV-OFF: the ablation collapses precision (toggle is no no-op)   #
+# --------------------------------------------------------------------------- #
+def test_t_div_off_collapses_precision(monkeypatch: MonkeyPatch) -> None:
+    on = _replay_precision(True, monkeypatch)
+    off = _replay_precision(False, monkeypatch)
+    # Turning divisive OFF collapses the cross-dim spread (measured 0.46 -> 0.10)...
+    assert on["obs_pstd"] > 2.0 * off["obs_pstd"], (on["obs_pstd"], off["obs_pstd"])
+    # ...and re-introduces saturation: the legacy inverse-variance target pins a dim
+    # at PI_MAX (the recon pathology) where divisive keeps the peak well below it.
+    assert off["clip_max"] >= PI_MAX - 1e-6, off["clip_max"]
+    assert on["steady_max"] < PI_MAX - 0.5, on["steady_max"]
+
+
+# --------------------------------------------------------------------------- #
+# Test #16 — T-PROD: BCM x divisive product does not silently cancel (#9)       #
+# --------------------------------------------------------------------------- #
+def test_t_prod_bcm_precision_product_stays_live(monkeypatch: MonkeyPatch) -> None:
+    m = _replay_precision(True, monkeypatch)
+    # (1) Cancellation guard (must-fix #9 literal): the effective Hebbian gate
+    # g_i = pi_obs_i * m_i must not collapse to a content-independent scalar — even
+    # if pi_obs and m anti-correlated, the product spread would vanish. Measured
+    # prod cross-dim pstd ~0.27, over-time var ~0.074.
+    assert m["prod_pstd"] > 0.05, m["prod_pstd"]
+    assert m["prod_overtime_var"] > 1e-3, m["prod_overtime_var"]
+    # (2) JOINT-structure guard: var(prod)>tol alone is satisfied by EITHER factor
+    # (so it can't see M2 dying), so additionally assert m's per-dim modulation
+    # genuinely shapes the product — the product spread departs from the flat-m
+    # (pi_obs-only) baseline. This goes to 0 iff m is flat (M2 dead); measured ~0.29.
+    # Combined with #13 (catches M1 dead), #16 now bites on EITHER mechanism dying.
+    assert m["prod_m_contrib"] > 0.05, m["prod_m_contrib"]
+
+
+# --------------------------------------------------------------------------- #
+# Test #18 (spine) — snapshot restore honours the host PEL flag (must-fix #3)   #
+# --------------------------------------------------------------------------- #
+def test_scarred_state_snapshot_honours_pel_flag() -> None:
+    spine = ResonanceSpine(profile=build_profile("lite"), pel_enabled=True)
+    spine.apply_personality(TSUNDERE)
+    for t in range(10):
+        spine.process(CORPUS[t], timestamp=float(t + 1))
+    scar = spine._engine.scar_state
+    assert scar.pel_active()
+    snap = scar.to_dict()
+    assert "pel" in snap and snap["pel"]["v"] == 2  # v2 schema persisted
+    # flag ON => the plastic core is restored.
+    assert ScarredState.from_dict(snap, pel_enabled=True).pel_active()
+    # flag OFF (default AND explicit) => the "pel" key is IGNORED. A snapshot must
+    # not smuggle PEL on when the host has it disabled, preserving the
+    # "flag off => byte-identical legacy" invariant (must-fix #3).
+    assert not ScarredState.from_dict(snap).pel_active()
+    assert not ScarredState.from_dict(snap, pel_enabled=False).pel_active()
+
+
+def test_pel_diagnostics_exposes_liveness_witness() -> None:
+    # 更脑 v2 production witness (must-fix #4): the data-contingent liveness of
+    # divisive precision is surfaced so a downstream monitor can alert if it goes
+    # dead on real traffic where the CORPUS-fed CI would stay green.
+    spine = ResonanceSpine(profile=build_profile("lite"), pel_enabled=True)
+    spine.apply_personality(TSUNDERE)
+    for t in range(40):
+        spine.process(CORPUS[t % len(CORPUS)], timestamp=float(t + 1))
+    pel = spine.diagnostics()["pel"]
+    for key in ("precision_live", "pi_obs_pstd", "pi_top_pstd", "prod_spread", "pi_anchor_drift"):
+        assert key in pel, key
+    assert isinstance(pel["precision_live"], bool)
+    # on the live corpus the M1 witness must read alive.
+    assert pel["precision_live"] is True
+    assert pel["pi_obs_pstd"] > 0.15
+    # M3 witness: anchor drift is surfaced on the real path and the anchor holds —
+    # pi stays near pi0 on real traffic (drift << the ~0.5 unanchored washout), so
+    # identity erosion would be observable post-deploy, not just on the synthetic test.
+    assert 0.0 <= pel["pi_anchor_drift"] < 0.5, pel["pi_anchor_drift"]

@@ -34,7 +34,7 @@ from typing import Any
 N: int = 8  # emotion / latent dimensionality (frozen dim order, see design §2)
 
 # --- snapshot schema version (only ever incremented, never reshaped) ----------
-PEL_SCHEMA_VERSION: int = 1
+PEL_SCHEMA_VERSION: int = 2  # v2: +pi0 (trait anchor), +theta (BCM), +s_bar (gate)
 
 # --- working point (D-4 / D-5, techspec §1) -----------------------------------
 ALPHA: float = 0.3  # latent leak / descent step mix
@@ -55,6 +55,34 @@ Z_EMA_RATE: float = 0.05  # EMA rate for <z> feeding the pi drift
 # --- plasticity & spectral clamp ----------------------------------------------
 W_SPECTRAL_MAX: float = 0.9  # ||W_gen||_2 ceiling (must keep kappa*Pi_max <= 0.5)
 _POWER_ITERS: int = 10  # power-iteration count for the spectral clamp
+
+# --- 更脑 v2 (M1): divisive-normalization precision (Heeger 1992; Carandini &
+# Heeger 2012). Budget-conserving competitive attention — de-saturates the dead
+# flat [PI_MAX]*8 the legacy inverse-variance rule pins on the real path.
+PRECISION_DIVISIVE: bool = True  # ablation knob; False => legacy inverse-variance (byte-identical)
+PI_BUDGET: float = float(N)  # conserved total precision; mean target 1.0 == ones-init
+_PI_GAIN: float = PI_BUDGET - N * PI_MIN  # 7.2; affine budget-share multiplier
+ETA_W_DIVISIVE_GAIN: float = PI_MAX / (PI_BUDGET / N)  # 5.0; restores mean Hebbian magnitude
+# NB: _PI_GAIN / ETA_W_DIVISIVE_GAIN are DERIVED at import, so PI_BUDGET / PI_MIN /
+# PI_MAX are compile-time dials (monkeypatching them post-import won't propagate).
+# The runtime-ablatable knobs are the booleans/scalars: PRECISION_DIVISIVE,
+# LAMBDA_BCM, RHO_ANCHOR, SURPRISE_GATE (each read as a live global inside step()).
+
+# --- 更脑 v2 (M2): BCM-inspired sliding-threshold metaplastic gain (Bienenstock+
+# 1982; Abraham 2008). At LAMBDA_BCM=1 the gain m_i in [0, 2] is non-negative (no
+# LTD/sign-flip); it gates the Hebbian *rate* per dim, never the descent direction.
+LAMBDA_BCM: float = 1.0  # gain depth; 0.0 => exact legacy three-factor Hebbian
+GAMMA_BCM: float = 0.5  # relative-surprise sensitivity inside tanh
+RHO_THETA: float = 0.01  # theta EMA rate (~100-tick medium timescale)
+THETA_INIT: float = 0.01  # initial sliding threshold (~ typical e0^2)
+THETA_FLOOR: float = 1e-4  # ratio-denominator numerical floor
+
+# --- 更脑 v2 (M3): anchored allostatic pi (Sterling 2012; discrete OU/AR(1) mean
+# reversion). Drifts toward <z> AND restores toward the frozen trait prior pi0 —
+# stops the identity erosion the legacy leak-to-<z> rule caused (~80% pi0 retained).
+RHO_ANCHOR: float = 4e-3  # trait-prior restoring force; 0.0 => legacy leak-to-<z>
+SURPRISE_GATE: bool = False  # optional drift gate; default OFF (surprise is flat on real path)
+RHO_S: float = 0.02  # slow surprise EMA rate (only used when SURPRISE_GATE)
 
 # Big-Five canonical keys with their legacy Embodiment-Five aliases. P0 reads
 # personality robustly from whichever naming the caller supplies.
@@ -80,6 +108,20 @@ def _trait(personality: dict[str, float], name: str, default: float = 0.5) -> fl
 def _dot(row: list[float], vec: list[float]) -> float:
     """Plain dot product of two equal-length vectors."""
     return sum(row[i] * vec[i] for i in range(len(vec)))
+
+
+def _divisive_precision(errs: list[float]) -> list[float]:
+    """Budget-conserving divisive-normalization target precision (Heeger 1992).
+
+    Each dim gets ``PI_MIN`` plus a share of a FIXED budget proportional to its
+    relative reliability ``r_i = 1/(e_i^2 + EPS)``. ``sum_i target == PI_BUDGET``
+    (mean ``1.0`` == the ``ones`` init), so precision is a *redistribution* of a
+    fixed attention budget, not an absolute magnitude that can all-pin at
+    ``PI_MAX``. Each ``target_i`` lands in ``[PI_MIN, PI_MIN + _PI_GAIN]``.
+    """
+    r = [1.0 / (errs[i] ** 2 + EPS) for i in range(N)]
+    s = sum(r) + 1e-12
+    return [PI_MIN + _PI_GAIN * (r[i] / s) for i in range(N)]
 
 
 def spectral_clamp(
@@ -189,6 +231,11 @@ class PELState:
     z_ema: list[float]
     eta_w: float
     free_energy: float = 0.0
+    # 更脑 v2 plastic state (defaulted so the bare boundedness-fuzz construction
+    # stays valid; production paths set all three explicitly via from_personality).
+    pi0: list[float] = field(default_factory=lambda: [0.0] * N)  # frozen trait-prior anchor (M3)
+    theta: list[float] = field(default_factory=lambda: [THETA_INIT] * N)  # BCM sliding thresholds (M2)
+    s_bar: float = 0.0  # slow surprise EMA (M3 gate only)
 
 
 @dataclass
@@ -199,6 +246,9 @@ class PELCore:
     # last per-dim diagnostics (bottom-up / top-down errors), for observability.
     last_e0: list[float] = field(default_factory=lambda: [0.0] * N)
     last_e1: list[float] = field(default_factory=lambda: [0.0] * N)
+    # last per-dim BCM metaplastic gain m_i (M2); recomputed each tick, NOT
+    # persisted. Surfaced for the product-spread production witness (must-fix #9).
+    last_m: list[float] = field(default_factory=lambda: [1.0] * N)
 
     # -- construction ----------------------------------------------------------
     @classmethod
@@ -235,7 +285,13 @@ class PELCore:
         pi_top = [1.0] * N
         mu = list(pi)
         z = list(base) if base is not None else [0.0] * N
-        eta_w = 0.002 * (0.5 + openness)
+        # 更脑 v2 (M1/eta_w): divisive precision means a per-dim share of a fixed
+        # budget (mean 1.0) instead of a pinned PI_MAX scalar, so the Hebbian's
+        # precision gate no longer inflates the rate 5x. Restore the *designed*
+        # mean magnitude by the matching gain (ETA_W_DIVISIVE_GAIN = 5.0). Pure
+        # pre-clamp scale — proof-free (spectral_clamp is unconditional and last).
+        eta_w_base = 0.002 * (0.5 + openness)
+        eta_w = eta_w_base * (ETA_W_DIVISIVE_GAIN if PRECISION_DIVISIVE else 1.0)
 
         state = PELState(
             mu=mu,
@@ -246,6 +302,8 @@ class PELCore:
             pi=pi,
             z_ema=list(z),
             eta_w=eta_w,
+            pi0=list(pi),  # 更脑 v2 (M3): freeze the true trait prior as the anchor
+            theta=[THETA_INIT] * N,  # 更脑 v2 (M2): BCM thresholds start at typical e0^2
         )
         return cls(state=state)
 
@@ -278,26 +336,51 @@ class PELCore:
         e0f = [x_t[i] - _dot(st.w_gen[i], mu) for i in range(N)]
         e1f = [mu[i] - st.pi[i] for i in range(N)]
 
-        # three-factor surprise-gated Hebbian on the generative matrix
+        # 更脑 v2 (M2): BCM-inspired metaplastic GAIN on the three-factor F-gradient
+        # Hebbian. m_i potentiates dims whose squared error exceeds their own sliding
+        # threshold theta_i and pauses those below; theta_i = EMA(e0^2) self-modifies
+        # plasticity on a ~100-tick timescale. m_i in [1-LAMBDA_BCM, 1+LAMBDA_BCM] =
+        # [0, 2] at default. theta_i is read BEFORE its own EMA update (the threshold
+        # reflects PAST error energy). Direction stays +e0*mu (free-energy descent) —
+        # M2 gates the rate only, never the sign, so no aimless Hebb is reintroduced.
+        m = [1.0] * N
         for i in range(N):
-            factor = st.eta_w * surprise * st.pi_obs[i] * e0f[i]
+            a_i = e0f[i] * e0f[i]  # PC error-unit activity^2
+            g_i = math.tanh(GAMMA_BCM * (a_i - st.theta[i]) / (st.theta[i] + THETA_FLOOR))
+            m_i = 1.0 + LAMBDA_BCM * g_i
+            m[i] = m_i
+            factor = st.eta_w * surprise * st.pi_obs[i] * e0f[i] * m_i
             row = st.w_gen[i]
             for j in range(N):
                 row[j] += factor * mu[j]
-        st.w_gen = spectral_clamp(st.w_gen, W_SPECTRAL_MAX)
+            st.theta[i] = (1.0 - RHO_THETA) * st.theta[i] + RHO_THETA * a_i  # lags activity
+        st.w_gen = spectral_clamp(st.w_gen, W_SPECTRAL_MAX)  # UNCHANGED, unconditional, last
 
-        # online precision (inverse-variance) updates, clipped to [PI_MIN, PI_MAX]
-        for i in range(N):
-            st.pi_obs[i] = _clip(
-                (1.0 - RHO_P) * st.pi_obs[i] + RHO_P / (e0f[i] ** 2 + EPS),
-                PI_MIN,
-                PI_MAX,
-            )
-            st.pi_top[i] = _clip(
-                (1.0 - RHO_P) * st.pi_top[i] + RHO_P / (e1f[i] ** 2 + EPS),
-                PI_MIN,
-                PI_MAX,
-            )
+        # 更脑 v2 (M1): divisive-normalization precision — competitive, budget-
+        # conserving. The RHO_P EMA and the [PI_MIN, PI_MAX] clip are UNCHANGED; only
+        # the per-dim *target* changes (relative budget share vs raw inverse-variance).
+        # The OFF branch keeps the committed build's SINGLE-DIVISION form
+        # (RHO_P / (e^2+EPS), NOT RHO_P*(1/(e^2+EPS))) so PRECISION_DIVISIVE=False is
+        # bit-for-bit identical to the committed precision update — a*(1/b) vs a/b would
+        # otherwise differ by <=1 ULP in IEEE-754 and slowly leak into w_gen / F.
+        if PRECISION_DIVISIVE:
+            tgt_obs = _divisive_precision(e0f)
+            tgt_top = _divisive_precision(e1f)
+            for i in range(N):
+                st.pi_obs[i] = _clip(
+                    (1.0 - RHO_P) * st.pi_obs[i] + RHO_P * tgt_obs[i], PI_MIN, PI_MAX
+                )
+                st.pi_top[i] = _clip(
+                    (1.0 - RHO_P) * st.pi_top[i] + RHO_P * tgt_top[i], PI_MIN, PI_MAX
+                )
+        else:
+            for i in range(N):
+                st.pi_obs[i] = _clip(
+                    (1.0 - RHO_P) * st.pi_obs[i] + RHO_P / (e0f[i] ** 2 + EPS), PI_MIN, PI_MAX
+                )
+                st.pi_top[i] = _clip(
+                    (1.0 - RHO_P) * st.pi_top[i] + RHO_P / (e1f[i] ** 2 + EPS), PI_MIN, PI_MAX
+                )
 
         # free energy (diagnostic / D-1 surfaceable)
         free_energy = (
@@ -306,16 +389,30 @@ class PELCore:
             - 0.5 * sum(math.log(st.pi_obs[i]) + math.log(st.pi_top[i]) for i in range(N))
         )
 
-        # D-8: slow, bounded allostatic pi drift toward the EMA of z.
+        # 更脑 v2 (M3): anchored allostatic pi — mean-reverts toward <z> AND back to
+        # the frozen trait prior pi0 (no identity erosion). The update is a convex
+        # blend (coeffs >= 0, sum 1 since drift + RHO_ANCHOR <= 1), so pi stays in
+        # [-1,1]^8 forward-invariantly; the slow fixed point retains a/(d+a) ~ 80% of
+        # pi0. Surprise gate default OFF (flat surprise => constant rescale = theater).
+        # RHO_ANCHOR=0 reduces to the legacy leak-to-<z> rule (erosion).
+        drift = RHO_PI
+        if SURPRISE_GATE:
+            st.s_bar = (1.0 - RHO_S) * st.s_bar + RHO_S * surprise
+            drift = RHO_PI * st.s_bar
         for i in range(N):
             st.z_ema[i] = (1.0 - Z_EMA_RATE) * st.z_ema[i] + Z_EMA_RATE * z[i]
-            st.pi[i] = (1.0 - RHO_PI) * st.pi[i] + RHO_PI * st.z_ema[i]
+            st.pi[i] = _clip(
+                st.pi[i] + drift * (st.z_ema[i] - st.pi[i]) - RHO_ANCHOR * (st.pi[i] - st.pi0[i]),
+                -1.0,
+                1.0,
+            )
 
         st.mu = mu
         st.z = z
         st.free_energy = free_energy
         self.last_e0 = e0f
         self.last_e1 = e1f
+        self.last_m = m  # 更脑 v2 (M2): per-dim metaplastic gain, for the product witness
         return z, free_energy
 
     # -- persistence -----------------------------------------------------------
@@ -337,12 +434,26 @@ class PELCore:
             "z_ema": list(st.z_ema),
             "eta_w": st.eta_w,
             "free_energy": st.free_energy,
+            # 更脑 v2 plastic state
+            "pi0": list(st.pi0),
+            "theta": list(st.theta),
+            "s_bar": st.s_bar,
             "v": PEL_SCHEMA_VERSION,
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> PELCore:
-        """Reconstruct a :class:`PELCore` from :meth:`to_dict` output."""
+        """Reconstruct a :class:`PELCore` from :meth:`to_dict` output.
+
+        v2 adds ``pi0``/``theta``/``s_bar`` with back-compat fallbacks so v1
+        snapshots round-trip. **Migration caveat (must-fix #2):** a v1 snapshot
+        has no ``pi0``, so the anchor falls back to the *current* (possibly
+        already-eroded) ``pi`` — the no-washout guarantee then freezes the
+        drifted identity rather than restoring the true trait prior. To recover
+        the genuine ``pi0`` after migrating a long-running v1 session, the host
+        should re-call :meth:`ScarredState.set_pel_priors` (which has the
+        personality) on first load; the fallback only prevents a hard failure.
+        """
         state = PELState(
             mu=[float(x) for x in data["mu"]],
             z=[float(x) for x in data["z"]],
@@ -353,6 +464,11 @@ class PELCore:
             z_ema=[float(x) for x in data["z_ema"]],
             eta_w=float(data["eta_w"]),
             free_energy=float(data.get("free_energy", 0.0)),
+            # 更脑 v2 back-compat: v1 dicts lack these. pi0 falls back to pi (see
+            # the migration caveat above), theta to its init, s_bar to 0.
+            pi0=[float(x) for x in data.get("pi0", data["pi"])],
+            theta=[float(x) for x in data.get("theta", [THETA_INIT] * N)],
+            s_bar=float(data.get("s_bar", 0.0)),
         )
         return cls(state=state)
 

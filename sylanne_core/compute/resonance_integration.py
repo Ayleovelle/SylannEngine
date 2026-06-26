@@ -1036,6 +1036,14 @@ class ResonanceSpine:
                 "pi_top": pel_diag["pi_top"],
                 "mean_abs_e0": round(float(pel_diag["mean_abs_e0"]), 6),
                 "mean_abs_e1": round(float(pel_diag["mean_abs_e1"]), 6),
+                # 更脑 v2 production liveness witness (must-fix #4): a downstream
+                # monitor windows these on real traffic and alerts if precision goes
+                # dead (cross-dim spread collapses) where CI on the corpus stays green.
+                "precision_live": pel_diag["precision_live"],
+                "pi_obs_pstd": round(float(pel_diag["pi_obs_pstd"]), 6),
+                "pi_top_pstd": round(float(pel_diag["pi_top_pstd"]), 6),
+                "prod_spread": round(float(pel_diag["prod_spread"]), 6),
+                "pi_anchor_drift": round(float(pel_diag["pi_anchor_drift"]), 6),
             }
         return out
 
@@ -1078,7 +1086,9 @@ class ResonanceSpine:
             from .scar_algebra import ScarredState
 
             if "scar" in engine_data:
-                self._engine.scar_state = ScarredState.from_dict(engine_data["scar"])
+                self._engine.scar_state = ScarredState.from_dict(
+                    engine_data["scar"], pel_enabled=self._pel_enabled
+                )
                 self._restore_pel_after_scar()
             if "void" in engine_data:
                 self._engine.void_space.from_dict(engine_data["void"])
