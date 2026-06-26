@@ -16,11 +16,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import struct
 from pathlib import Path
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # Byte-level tokenizer (no vocabulary needed)
@@ -105,8 +103,6 @@ class MiniTransformer:
         """Xavier/He initialization."""
         rng = np.random.RandomState(0)
         d = self.d_model
-        h = self.n_heads
-        dh = self.d_head
         ff = self.d_ff
 
         # Embedding
