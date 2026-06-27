@@ -55,6 +55,16 @@ class TestParseResponse:
         assert set(out) >= _AFFECT_KEYS
         assert out["valence"] == 0.0
 
+    @pytest.mark.parametrize("payload", ["[]", '"just text"', "null", "42"])
+    def test_non_dict_json_returns_neutral_idle(self, payload):
+        # Legal JSON that isn't an object: json.loads succeeds, but the following
+        # data.get raises AttributeError. Must fall back to neutral, not propagate.
+        out = _parse_response(payload)
+        assert out["flags"] == ["idle"]
+        assert set(out) >= _AFFECT_KEYS
+        assert out["valence"] == 0.0
+        assert out["confidence"] == pytest.approx(0.3)
+
     def test_fenced_json_unwrapped(self):
         out = _parse_response(
             '```json\n{"confidence": 0.7, "flags": ["positive"], "valence": 0.8}\n```'
