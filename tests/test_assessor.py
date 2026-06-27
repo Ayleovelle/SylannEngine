@@ -55,6 +55,15 @@ class TestParseResponse:
         assert set(out) >= _AFFECT_KEYS
         assert out["valence"] == 0.0
 
+    def test_non_finite_affect_falls_back_to_neutral(self):
+        # json.loads accepts the non-standard NaN / Infinity literals, so an LLM can
+        # emit them. They must coerce to neutral defaults, not max out the affect.
+        out = _parse_response(
+            '{"confidence": 0.5, "flags": [], "wound_risk": NaN, "valence": Infinity}'
+        )
+        assert out["wound_risk"] == 0.0
+        assert out["valence"] == 0.0
+
     @pytest.mark.parametrize("payload", ["[]", '"just text"', "null", "42"])
     def test_non_dict_json_returns_neutral_idle(self, payload):
         # Legal JSON that isn't an object: json.loads succeeds, but the following
