@@ -48,6 +48,14 @@ class TestComputationSpine:
         result = spine.process("", time.time())
         assert isinstance(result, dict)
 
+    def test_process_tolerates_non_dict_assessment(self):
+        # A non-dict assessment must not crash — it would AttributeError early at the
+        # cache-signature `assessment.items()` (before the apply_assessment guard).
+        spine = ComputationSpine()
+        for bad in (["hurt"], "angry", 42):
+            result = spine.process("在吗", time.time(), assessment=bad)
+            assert isinstance(result, dict)
+
     def test_apply_personality(self):
         spine = ComputationSpine()
         traits = {
