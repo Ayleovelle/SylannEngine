@@ -773,7 +773,7 @@ class ComputationSpine:
 
         # Layer 3.5: LLM Assessment modulation (if available this tick)
         assessment_source = "hdc_only"
-        if assessment:
+        if isinstance(assessment, dict) and assessment:
             self.apply_assessment(assessment)
             assessment_source = "llm_assessed"
             # Re-observe after assessment modulation

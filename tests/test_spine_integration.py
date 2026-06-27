@@ -76,6 +76,31 @@ class TestResonanceSpine:
         result = spine.process("", timestamp=1000.0)
         assert result["tick"] == 0
 
+    def test_process_tolerates_null_affect_fields(self):
+        # process(assessment=...) is a public entry: a caller (e.g. the plugin's own
+        # LLM) may hand in an assessment whose affect fields came back explicitly null.
+        # These must not float(None) -> TypeError and topple the tick.
+        spine = ResonanceSpine()
+        assessment = {
+            "confidence": None,
+            "wound_risk": None,
+            "valence": None,
+            "arousal": None,
+            "flags": [],
+        }
+        result = spine.process("你好", timestamp=1.0, assessment=assessment)
+        assert "emotion" in result  # tick completed, no raise
+        assert result["tick"] == 1
+
+    def test_process_tolerates_non_dict_assessment(self):
+        # process() is public: a caller may pass a malformed CONTAINER (a bare list /
+        # str / int — the same non-dict shape an LLM emits) where a dict was expected.
+        # It must be dropped, not AttributeError on assessment.get(...).
+        spine = ResonanceSpine()
+        for bad in (["hurt"], "angry", 42, 3.14):
+            result = spine.process("在吗", timestamp=1.0, assessment=bad)
+            assert "emotion" in result  # tick completed, no raise
+
     def test_feedback_updates_counts(self):
         spine = ResonanceSpine()
         spine.process("test", timestamp=1.0)
