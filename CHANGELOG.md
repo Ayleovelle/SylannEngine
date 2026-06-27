@@ -27,14 +27,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   公共入口 `process(assessment=...)` / `host.on_request(assessment=...)` 收到调用方原始结构 `{"wound_risk": null}`
   时落回默认值并 clamp，而非 `float(None)` 抛 `TypeError`（canonical 自走的 `assess_text` 路径字段已是 float，
   本修针对外部直传 assessment 的公开边界）。新增 leaf 模块 `sylanne_core/_numeric.py` 容纳 `_coerce_float`，
-  assessor 与 compute 两侧共用，无 import 环、无层级倒挂。
+  assessor 与 compute 两侧共用，无 import 环、无层级倒挂。评审补全（gemini/sourcery）：`_coerce_float` 再兜
+  `OverflowError`（400 位巨整数 `float()` 会抛）与非有限值（`NaN`/`±inf`——`float()` 接受、`json` 还从字面量
+  `NaN`/`Infinity` 解析；裸 clamp 会把 `NaN` wound_risk 静默映成 `1.0` 满信号），统一落 default。
 - **assessor 畸形容器（非 dict assessment）不再崩公开入口**（`compute/resonance_integration.py` + `compute/kernel.py`
   + `compute/computation_spine.py`）：评审补全。上一条硬化了 assessment 里的畸形「字段」，但「容器」本身若是非 dict
   （`process(text, assessment=[...])` / `="angry"` / `=42`——与 Fix 1 同源的 LLM 畸形形状）仍会 `assessment.get` 抛
   `AttributeError`：`ResonanceSpine.process`、`AlphaKernel._tick_inner`（其 `_update_affect_debt` 的 except 只兜
-  `TypeError/ValueError`）、fallback `ComputationSpine` 三处公开/半公开边界。现于两个 active 入口各做一次容器归一
-  （非 dict→None，等同「无 assessment」），fallback 路用 `isinstance` 守；`_capture_telemetry` 早已裹 `except
-  Exception` 故无需改。
+  `TypeError/ValueError`）、fallback `ComputationSpine` 三处公开/半公开边界。三个公开入口（`ResonanceSpine.process`、
+  `AlphaKernel._tick_inner`、`ComputationSpine.process`）各在最顶部做一次容器归一（非 dict→None，等同「无
+  assessment」）；`_capture_telemetry` 早已裹 `except Exception` 故无需改。评审补全（gemini）：`ComputationSpine`
+  改在 `process()` 入口归一，而非仅守 `apply_assessment`——否则更早的缓存签名 `assessment.items()` 会先崩。
 
 ### ♻️ v2.5 类脑引擎重设计 —— 实测落地(2.3.0)
 
