@@ -63,13 +63,28 @@ def _read_identity(path: Path) -> dict[str, Any] | None:
     return None
 
 
+def _best_effort_fsync(fileno: int) -> None:
+    """fsync, ignoring failures on filesystems that do not support it (containers,
+    network mounts). The identity file is diagnostic, so durability is best-effort
+    and an fsync error must not nuke an otherwise-good write."""
+    try:
+        os.fsync(fileno)
+    except OSError:
+        pass
+
+
 def _write_new_fd(fd: int, path: Path, record: dict[str, Any]) -> dict[str, Any] | None:
     """Write ``record`` to an already-created (O_EXCL) fd. Cleans up on failure."""
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        try:
+            f = os.fdopen(fd, "w", encoding="utf-8")
+        except OSError:
+            os.close(fd)  # fdopen failed: close the raw fd so it cannot leak
+            raise
+        with f:
             f.write(json.dumps(record, ensure_ascii=False))
             f.flush()
-            os.fsync(f.fileno())
+            _best_effort_fsync(f.fileno())
     except OSError:
         # Partial write: drop the half-file so a later import can re-create it cleanly.
         try:
@@ -88,7 +103,7 @@ def _atomic_overwrite(path: Path, record: dict[str, Any]) -> dict[str, Any] | No
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False))
             f.flush()
-            os.fsync(f.fileno())
+            _best_effort_fsync(f.fileno())
         os.replace(tmp, path)
     except OSError:
         try:
