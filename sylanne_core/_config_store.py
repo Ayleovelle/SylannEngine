@@ -103,7 +103,9 @@ def write_default_config(data_dir: str | Path) -> bool:
         return False
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
+        # Exclusive create ("x") closes the check-then-write race: if another
+        # process created the file in between, this raises and we report False.
+        with open(path, "x", encoding="utf-8") as f:
             json.dump(_DEFAULT_CONFIG_TEMPLATE, f, ensure_ascii=False, indent=2)
     except OSError:
         return False

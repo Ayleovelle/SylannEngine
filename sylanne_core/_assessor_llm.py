@@ -74,9 +74,20 @@ def build_from_config(block: dict[str, Any] | None) -> LLMFn | None:
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
             req = urllib.request.Request(url, data=body, headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
-            return str(payload["choices"][0]["message"]["content"])
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    raw = resp.read()
+            except Exception as exc:
+                logger.warning("assessor llm request to %s failed: %s", url, exc)
+                raise
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+                return str(payload["choices"][0]["message"]["content"])
+            except (ValueError, KeyError, IndexError, TypeError) as exc:
+                logger.warning(
+                    "assessor llm response from %s unparseable: %s (body %.200r)", url, exc, raw
+                )
+                raise
 
         return await asyncio.to_thread(_blocking)
 

@@ -28,9 +28,10 @@ from typing import Any, cast
 # incompatible future cell coexists instead of corrupting this one.
 _RENDEZVOUS_KEY = "__sylanne_core_rendezvous_v1__"
 
-# Guards the lazy field-fill in get_cell (a foreign/older cell may predate the field
-# we want to add, and even its own lock may be absent).
-_BOOTSTRAP = threading.Lock()
+# The lazy field-fill in get_cell is serialized by a PROCESS-global lock (also in
+# builtins): a module-level lock would be distinct per vendored copy and would not
+# mutually exclude copies racing to fill fields on the one shared cell.
+_BOOTSTRAP_KEY = "__sylanne_core_bootstrap_lock_v1__"
 
 
 class _Cell:
@@ -59,9 +60,10 @@ def get_cell() -> _Cell:
     if cell is None:
         cell = builtins.__dict__.setdefault(_RENDEZVOUS_KEY, _Cell())
     # Tolerate a cell built by a different SDK version that predates a field: fill
-    # whatever this version needs. Cheap, and race-safe under the bootstrap lock.
+    # whatever this version needs. Cheap, and race-safe under a process-global lock.
     if not all(hasattr(cell, n) for n in ("lock", "registry", "identities", "builders")):
-        with _BOOTSTRAP:
+        bootstrap = builtins.__dict__.setdefault(_BOOTSTRAP_KEY, threading.Lock())
+        with bootstrap:
             if not hasattr(cell, "lock"):
                 cell.lock = threading.Lock()
             for name in ("registry", "identities", "builders"):

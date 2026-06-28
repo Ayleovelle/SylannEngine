@@ -112,26 +112,32 @@ def _note_identity(key: str, *, built: bool) -> None:
         copy_id = ident.get("copy_id")
         if not copy_id:
             return
+        builder_version: str | None = None
+        builder_short: str | None = None
         with cell.lock:
             cell.identities[copy_id] = ident
             if built:
                 cell.builders[key] = copy_id
                 return
             builder_id = cell.builders.get(key)
-        if builder_id and builder_id != copy_id:
-            builder = cell.identities.get(builder_id) or {}
-            builder_version = builder.get("version")
-            if builder_version and builder_version != ident.get("version"):
-                logger.warning(
-                    "sylanne_core version skew on %r: engine built by %s (v%s), but this "
-                    "copy %s (v%s) loaded a different version. Namespace the vendored copy "
-                    "or install sylanne_core once as a shared dependency.",
-                    key,
-                    builder.get("short"),
-                    builder_version,
-                    ident.get("short"),
-                    ident.get("version"),
-                )
+            if builder_id and builder_id != copy_id:
+                # Read the builder's record INSIDE the lock; another thread may be
+                # registering or clearing identities concurrently.
+                builder = cell.identities.get(builder_id)
+                if builder:
+                    builder_version = builder.get("version")
+                    builder_short = builder.get("short")
+        if builder_version and builder_version != ident.get("version"):
+            logger.warning(
+                "sylanne_core version skew on %r: engine built by %s (v%s), but this "
+                "copy %s (v%s) loaded a different version. Namespace the vendored copy "
+                "or install sylanne_core once as a shared dependency.",
+                key,
+                builder_short,
+                builder_version,
+                ident.get("short"),
+                ident.get("version"),
+            )
     except Exception:
         return
 
