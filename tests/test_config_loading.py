@@ -129,3 +129,29 @@ class TestAssessorFallback:
         )
         engine = SylanneEngine(tmp_path, llm=AsyncMock())
         assert engine._assessor_llm is not None
+
+
+class TestDefaultTemplate:
+    def test_writes_when_absent(self, tmp_path: Path):
+        from sylanne_core._config_store import write_default_config
+
+        assert write_default_config(tmp_path) is True
+        assert (tmp_path / CONFIG_FILENAME).exists()
+        # The template loads back to defaults (its _comment key is ignored).
+        cfg, block = load_config(tmp_path)
+        assert cfg == SylanneConfig()
+        assert block is None
+
+    def test_does_not_overwrite_user_file(self, tmp_path: Path):
+        from sylanne_core._config_store import write_default_config
+
+        _write_config(tmp_path, {"mode": "pro"})
+        assert write_default_config(tmp_path) is False
+        cfg, _ = load_config(tmp_path)
+        assert cfg.mode == "pro"  # user's file untouched
+
+    @pytest.mark.asyncio
+    async def test_engine_start_drops_template(self, tmp_path: Path):
+        engine = SylanneEngine(tmp_path, llm=AsyncMock())
+        await engine.start()
+        assert (tmp_path / CONFIG_FILENAME).exists()

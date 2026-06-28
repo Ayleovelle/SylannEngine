@@ -79,6 +79,9 @@ class SylanneEngine:
         self._data_dir = Path(data_dir)
         self._llm = llm
         self._embedding = embedding
+        # Track whether config came from the file (vs passed in code) so start()
+        # can drop a starter template only for the file-driven path.
+        self._config_from_file = config is None
         # No config passed -> self-read it from the shared config file in data_dir
         # (one stable place users edit, independent of which copy owns the engine).
         # A missing/invalid file falls back to defaults. An ``assessor_model`` block
@@ -107,6 +110,10 @@ class SylanneEngine:
     async def start(self) -> None:
         """Initialize the engine. Must be called before process/tick."""
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        if self._config_from_file:
+            from ._config_store import write_default_config
+
+            write_default_config(self._data_dir)
         self._status = "running"
 
     def on(self, listener: Callable[[str, Surface], Any]) -> None:

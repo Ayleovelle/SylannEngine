@@ -72,3 +72,39 @@ def load_config(data_dir: str | Path) -> tuple[SylanneConfig, dict[str, Any] | N
         logger.warning("invalid config in %s (%s); using defaults", path, exc)
         return SylanneConfig(), None
     return cfg, assessor
+
+
+# A starter file dropped into a fresh data_dir so users have something to edit.
+# Values mirror SylanneConfig defaults; the ``_comment`` key is ignored on load.
+_DEFAULT_CONFIG_TEMPLATE: dict[str, Any] = {
+    "_comment": (
+        "Sylanne engine config — edit and restart. Top-level keys mirror "
+        "SylanneConfig (mode / assessor_enabled / locale / ...). To route emotional "
+        'assessment to a small, cheap model, add an "assessor_model" block: '
+        '{"api_base": "https://api.deepseek.com/v1", "api_key": '
+        '"${SYLANNE_ASSESSOR_KEY}", "model": "deepseek-chat"}. Prefer ${ENV_VAR} for '
+        "api_key and do not commit secrets. Without an assessor_model, assessment "
+        "uses the main llm."
+    ),
+    "mode": "lite",
+    "assessor_enabled": True,
+}
+
+
+def write_default_config(data_dir: str | Path) -> bool:
+    """Drop a starter ``sylanne.config.json`` into ``data_dir`` if none exists.
+
+    Best-effort: returns True if a template was written, False if a file already
+    existed or the directory is not writable (a read-only install simply runs on
+    defaults). Never overwrites a user's file.
+    """
+    path = Path(data_dir) / CONFIG_FILENAME
+    if path.exists():
+        return False
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(_DEFAULT_CONFIG_TEMPLATE, f, ensure_ascii=False, indent=2)
+    except OSError:
+        return False
+    return True
