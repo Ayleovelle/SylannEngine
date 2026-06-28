@@ -14,15 +14,17 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import importlib
 import logging
 import os
-import threading
 import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from ._identity import resolve_identity
+from ._rendezvous import get_cell
 from .config import SylanneConfig
 
 if TYPE_CHECKING:
@@ -52,8 +54,14 @@ class _Entry:
 # A slot holds either a live _Entry or, while shutdown is in flight, an
 # asyncio.Future tombstone. Concurrent shared() that sees a tombstone awaits it
 # (outside the lock) then retries the lookup.
-_REGISTRY: dict[str, _Entry | asyncio.Future[None]] = {}
-_LOCK = threading.Lock()
+#
+# The registry and its lock live in a process-global rendezvous cell, not in this
+# module: vendored copies under different module names then converge on ONE
+# registry and dedup for real. These names alias the cell's objects, which are
+# stable for the process lifetime (cleared in place, never rebound).
+_cell = get_cell()
+_REGISTRY: dict[str, _Entry | asyncio.Future[None]] = _cell.registry
+_LOCK = _cell.lock
 
 
 def _make_key(data_dir: str | Path) -> str:
@@ -70,11 +78,70 @@ def _copy_config(cfg: SylanneConfig) -> SylanneConfig:
     return dataclasses.replace(cfg)
 
 
+_SELF_IDENTITY: dict[str, Any] | None = None
+
+
+def _self_identity() -> dict[str, Any]:
+    """Resolve (and cache) THIS copy's diagnostic identity. Best-effort.
+
+    Lazy on purpose: ``__version__`` is defined in ``__init__`` AFTER this module
+    is imported, so it is read at call time, not import time.
+    """
+    global _SELF_IDENTITY
+    if _SELF_IDENTITY is None:
+        pkg = __package__ or "sylanne_core"
+        try:
+            version = getattr(importlib.import_module(pkg), "__version__", "0+unknown")
+        except Exception:
+            version = "0+unknown"
+        _SELF_IDENTITY = resolve_identity(Path(__file__).resolve().parent, version, pkg)
+    return _SELF_IDENTITY
+
+
+def _note_identity(key: str, *, built: bool) -> None:
+    """Register this copy in the rendezvous cell; warn when a consuming copy's
+    version differs from the version that built the engine.
+
+    Best-effort and never raises — identity is diagnostics, not correctness. The
+    cell mutations run OUTSIDE the dedup lock section of get_shared_engine, so the
+    non-reentrant cell lock is never taken twice.
+    """
+    try:
+        cell = get_cell()
+        ident = _self_identity()
+        copy_id = ident.get("copy_id")
+        if not copy_id:
+            return
+        with cell.lock:
+            cell.identities[copy_id] = ident
+            if built:
+                cell.builders[key] = copy_id
+                return
+            builder_id = cell.builders.get(key)
+        if builder_id and builder_id != copy_id:
+            builder = cell.identities.get(builder_id) or {}
+            builder_version = builder.get("version")
+            if builder_version and builder_version != ident.get("version"):
+                logger.warning(
+                    "sylanne_core version skew on %r: engine built by %s (v%s), but this "
+                    "copy %s (v%s) loaded a different version. Namespace the vendored copy "
+                    "or install sylanne_core once as a shared dependency.",
+                    key,
+                    builder.get("short"),
+                    builder_version,
+                    ident.get("short"),
+                    ident.get("version"),
+                )
+    except Exception:
+        return
+
+
 async def get_shared_engine(
     data_dir: str | Path,
     llm: LLMFn | None,
     embedding: EmbeddingFn | None = None,
     config: SylanneConfig | None = None,
+    assessor_llm: LLMFn | None = None,
 ) -> SylanneEngine:
     """Return (and start) the process-shared engine for ``data_dir``.
 
@@ -84,7 +151,20 @@ async def get_shared_engine(
 
     key = _make_key(data_dir)
     resolved_dir = Path(data_dir).resolve()
-    cfg = _copy_config(config if config is not None else SylanneConfig())
+    # When no config is passed, self-read it (and any assessor_model block) from
+    # the shared config file in data_dir, so the conflict baseline and the engine
+    # see the same user-controlled settings.
+    if config is not None:
+        cfg = _copy_config(config)
+    else:
+        from ._config_store import load_config
+
+        loaded_cfg, assessor_block = load_config(data_dir)
+        cfg = _copy_config(loaded_cfg)
+        if assessor_llm is None and assessor_block:
+            from ._assessor_llm import build_from_config
+
+            assessor_llm = build_from_config(assessor_block)
     loop = asyncio.get_running_loop()
 
     while True:
@@ -155,7 +235,12 @@ async def get_shared_engine(
             assert llm is not None
             try:
                 new_engine = SylanneEngine(
-                    resolved_dir, llm, embedding=embedding, config=cfg, _shared=True
+                    resolved_dir,
+                    llm,
+                    embedding=embedding,
+                    config=cfg,
+                    assessor_llm=assessor_llm,
+                    _shared=True,
                 )
                 await new_engine.start()
             except BaseException:
@@ -170,12 +255,14 @@ async def get_shared_engine(
                 raise
             with _LOCK:
                 _REGISTRY[key] = _Entry(new_engine, cfg, llm, embedding, weakref.ref(loop))
+            _note_identity(key, built=True)
             init_future.set_result(None)
             return new_engine
 
         assert engine is not None
         if engine.status in ("init", "closed"):
             await engine.start()
+        _note_identity(key, built=False)
         return engine
 
 
@@ -235,8 +322,11 @@ def clear_shared_registry() -> None:
 
     Safe to call from sync code with no event loop.
     """
-    with _LOCK:
-        _REGISTRY.clear()
+    cell = get_cell()
+    with cell.lock:
+        cell.registry.clear()
+        cell.identities.clear()
+        cell.builders.clear()
 
 
 def is_shared(data_dir: str | Path) -> bool:

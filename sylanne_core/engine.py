@@ -65,6 +65,7 @@ class SylanneEngine:
         embedding: Callable[[str], Awaitable[list[float]]] | None = None,
         config: SylanneConfig | None = None,
         *,
+        assessor_llm: Callable[[str, str], Awaitable[str]] | None = None,
         _shared: bool = False,
     ) -> None:
         # _shared is set only by SylanneEngine.shared() when it builds the one
@@ -78,7 +79,21 @@ class SylanneEngine:
         self._data_dir = Path(data_dir)
         self._llm = llm
         self._embedding = embedding
-        self._config = config or SylanneConfig()
+        # No config passed -> self-read it from the shared config file in data_dir
+        # (one stable place users edit, independent of which copy owns the engine).
+        # A missing/invalid file falls back to defaults. An ``assessor_model`` block
+        # becomes a small dedicated assessor llm; without one, assessment falls back
+        # to the main llm.
+        if config is None:
+            from ._config_store import load_config
+
+            config, assessor_block = load_config(data_dir)
+            if assessor_llm is None and assessor_block:
+                from ._assessor_llm import build_from_config
+
+                assessor_llm = build_from_config(assessor_block)
+        self._config = config
+        self._assessor_llm = assessor_llm
         self._status: EngineStatus = "init"
         self._hosts: dict[str, SylanneHost] = {}
         self._locks: dict[str, asyncio.Lock] = {}
@@ -286,6 +301,8 @@ class SylanneEngine:
         llm: Callable[[str, str], Awaitable[str]],
         embedding: Callable[[str], Awaitable[list[float]]] | None = None,
         config: SylanneConfig | None = None,
+        *,
+        assessor_llm: Callable[[str, str], Awaitable[str]] | None = None,
     ) -> SylanneEngine:
         """Return (and start) the process-shared engine for ``data_dir``.
 
@@ -293,6 +310,12 @@ class SylanneEngine:
         so independent call sites can share a single instance without passing
         the object around — and one persistence directory is never owned by two
         engines at once (which would cause lost updates on flush).
+
+        When ``config`` is omitted, the engine self-reads it from
+        ``<data_dir>/sylanne.config.json`` (one stable place users edit), so every
+        plugin can just call ``shared(data_dir)`` and share the same settings. An
+        ``assessor_model`` block in that file routes assessment to a small
+        dedicated model; otherwise assessment uses the main ``llm``.
 
         Later calls with the same data_dir return the existing instance. A
         conflicting ``config`` raises SharedEngineConflictError; a different
@@ -306,7 +329,9 @@ class SylanneEngine:
         """
         from ._sharing import get_shared_engine
 
-        return await get_shared_engine(data_dir, llm, embedding=embedding, config=config)
+        return await get_shared_engine(
+            data_dir, llm, embedding=embedding, config=config, assessor_llm=assessor_llm
+        )
 
     @classmethod
     async def release_shared(cls, data_dir: str | Path) -> None:
@@ -425,7 +450,7 @@ class SylanneEngine:
         try:
             from .assessor import assess_text
 
-            result = await assess_text(text, self._llm)
+            result = await assess_text(text, self._assessor_llm or self._llm)
             if result and result.pop("_degraded", False):
                 if self._status == "running":
                     self._status = "degraded"
