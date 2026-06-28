@@ -95,3 +95,31 @@ def test_same_copy_does_not_warn(monkeypatch, caplog):
     with caplog.at_level("WARNING", logger="sylanne_core"):
         sharing._note_identity(key, built=False)  # same copy reusing its own engine
     assert not any("version skew" in r.message for r in caplog.records)
+
+
+def test_clear_registry_keeps_foreign_copy_entries():
+    cell = get_cell()
+    my_id = sharing._self_identity()["copy_id"]
+    foreign = sharing._Entry(
+        engine=object(), config=None, llm=None, embedding=None, loop_ref=lambda: None
+    )
+    mine = sharing._Entry(
+        engine=object(), config=None, llm=None, embedding=None, loop_ref=lambda: None
+    )
+    try:
+        with cell.lock:
+            cell.registry.clear()
+            cell.identities.clear()
+            cell.builders.clear()
+            cell.registry["foreign"] = foreign
+            cell.builders["foreign"] = "some-other-copy"
+            cell.registry["mine"] = mine
+            cell.builders["mine"] = my_id
+        sharing.clear_shared_registry()
+        assert "foreign" in cell.registry  # a co-resident copy's engine survives
+        assert "mine" not in cell.registry  # this copy's own entry is cleared
+    finally:
+        with cell.lock:
+            cell.registry.clear()
+            cell.identities.clear()
+            cell.builders.clear()

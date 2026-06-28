@@ -157,9 +157,10 @@ async def get_shared_engine(
     if config is not None:
         cfg = _copy_config(config)
     else:
-        from ._config_store import load_config
+        from ._config_store import load_config, write_default_config
 
         loaded_cfg, assessor_block = load_config(data_dir)
+        write_default_config(data_dir)  # drop a starter template on first use
         cfg = _copy_config(loaded_cfg)
         if assessor_llm is None and assessor_block:
             from ._assessor_llm import build_from_config
@@ -205,7 +206,10 @@ async def get_shared_engine(
                     # loop-bound and is preserved.
                     slot.loop_ref = weakref.ref(loop)
                     slot.engine._locks.clear()
-                if slot.config != cfg:
+                # Compare by VALUE (asdict), not identity/class: two vendored copies
+                # have distinct SylanneConfig classes, so a plain != would flag equal
+                # configs as conflicting.
+                if dataclasses.asdict(slot.config) != dataclasses.asdict(cfg):
                     raise SharedEngineConflictError(
                         f"Shared engine {key!r} already exists with a different SylanneConfig."
                     )
@@ -310,12 +314,16 @@ async def release_shared_engine(data_dir: str | Path) -> None:
 
 
 def clear_shared_registry() -> None:
-    """Drop all registry entries WITHOUT shutdown. TEST ISOLATION ONLY.
+    """Drop THIS copy's registry entries WITHOUT shutdown. TEST ISOLATION ONLY.
 
     DANGER: this does NOT call shutdown() and does NOT flush sessions — any
     in-memory state not yet persisted is lost, and live engines are orphaned
     (still running, just no longer findable via shared()). It exists so tests
     can reset process-global state cheaply between cases.
+
+    Scoped to entries THIS copy built (plus tombstones and builder-less slots),
+    so a reset in one vendored copy never orphans an engine a co-resident copy is
+    still using. In the common single-copy case this clears everything, as before.
 
     Never call this in production. For real teardown use release_shared_engine()
     (or SylanneEngine.release_shared), which flushes and shuts down cleanly.
@@ -323,10 +331,25 @@ def clear_shared_registry() -> None:
     Safe to call from sync code with no event loop.
     """
     cell = get_cell()
+    try:
+        my_copy_id = _self_identity().get("copy_id")
+    except Exception:
+        my_copy_id = None
     with cell.lock:
-        cell.registry.clear()
-        cell.identities.clear()
-        cell.builders.clear()
+        if my_copy_id is None:
+            # Identity unavailable: clear everything (safe in the single-copy/test
+            # case this method exists for).
+            cell.registry.clear()
+            cell.identities.clear()
+            cell.builders.clear()
+            return
+        for slot_key in list(cell.registry):
+            entry = cell.registry[slot_key]
+            builder = cell.builders.get(slot_key)
+            if not isinstance(entry, _Entry) or builder is None or builder == my_copy_id:
+                del cell.registry[slot_key]
+                cell.builders.pop(slot_key, None)
+        cell.identities.pop(my_copy_id, None)
 
 
 def is_shared(data_dir: str | Path) -> bool:
