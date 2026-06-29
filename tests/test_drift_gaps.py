@@ -18,6 +18,8 @@ hand-set _should_express (process() overwrites it in _update_expression).
 
 from __future__ import annotations
 
+import random
+
 from sylanne_core.compute.computation_spine import ComputationSpine
 from sylanne_core.compute.personality import DriftSignalExtractor
 from sylanne_core.compute.resonance_integration import ResonanceSpine
@@ -82,15 +84,25 @@ class TestGap2ExpressionOutcome:
 
     def test_silent_suppresses_false_positive_across_gate(self):
         # Cross the 30s gate (dt=100) so this measures suppression, not rate-limiting.
-        speak = ResonanceSpine()
-        speak.process("warmup", timestamp=1000.0)
-        speak.process("p", timestamp=1100.0, expression_outcome=True)
-        edt_speak = speak._embodiment_traits[_EDT].value
+        # The meta-learner draws from the GLOBAL random module (random.gauss), which
+        # any prior process() call in the suite advances — so seed it identically
+        # before each run to isolate the expression_outcome effect from that shared
+        # noise, then restore the global state so this test perturbs no other.
+        _rng_state = random.getstate()
+        try:
+            random.seed(0)
+            speak = ResonanceSpine()
+            speak.process("warmup", timestamp=1000.0)
+            speak.process("p", timestamp=1100.0, expression_outcome=True)
+            edt_speak = speak._embodiment_traits[_EDT].value
 
-        silent = ResonanceSpine()
-        silent.process("warmup", timestamp=1000.0)
-        silent.process("p", timestamp=1100.0, expression_outcome=False)
-        edt_silent = silent._embodiment_traits[_EDT].value
+            random.seed(0)
+            silent = ResonanceSpine()
+            silent.process("warmup", timestamp=1000.0)
+            silent.process("p", timestamp=1100.0, expression_outcome=False)
+            edt_silent = silent._embodiment_traits[_EDT].value
+        finally:
+            random.setstate(_rng_state)
 
         assert edt_speak > edt_silent  # SPEAK fires expression_fired (+), SILENT does not
 

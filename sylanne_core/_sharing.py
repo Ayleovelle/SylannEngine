@@ -1,7 +1,9 @@
 """Process-local sharing registry for SylanneEngine.
 
 Deduplicates engines by resolved data_dir so one persistence directory is owned
-by exactly one engine per process (prevents lost-update on flush).
+by exactly one engine per process (prevents lost-update on flush). The guarantee
+is PER PROCESS: there is no cross-process lock, so two OS processes pointed at one
+data_dir each build an engine and double-flush — run one process per data_dir.
 
 Engines are event-loop affine: a shared engine must be used from the loop it was
 first acquired on. Cross-loop sharing raises RuntimeError.
@@ -21,7 +23,7 @@ import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 from ._identity import resolve_identity
 from ._rendezvous import get_cell
@@ -71,6 +73,17 @@ def _make_key(data_dir: str | Path) -> str:
     it later). normcase folds case and separators on Windows; no-op on POSIX.
     """
     return os.path.normcase(str(Path(data_dir).resolve()))
+
+
+def _is_live_entry(slot: object) -> TypeGuard[_Entry]:
+    """A slot is a live engine entry iff it is present and not a tombstone Future.
+
+    Duck-typed on purpose (NOT isinstance _Entry): vendored copies under different
+    module names have distinct _Entry classes, so isinstance would misjudge a
+    co-resident copy's entry as absent — making the diagnostics lie and, worse,
+    letting clear_shared_registry orphan another copy's still-running engine.
+    """
+    return slot is not None and not isinstance(slot, asyncio.Future)
 
 
 def _copy_config(cfg: SylanneConfig) -> SylanneConfig:
@@ -157,6 +170,7 @@ async def get_shared_engine(
 
     key = _make_key(data_dir)
     resolved_dir = Path(data_dir).resolve()
+    explicit_config = config is not None
     # When no config is passed, self-read it (and any assessor_model block) from
     # the shared config file in data_dir, so the conflict baseline and the engine
     # see the same user-controlled settings.
@@ -212,12 +226,25 @@ async def get_shared_engine(
                     # loop-bound and is preserved.
                     slot.loop_ref = weakref.ref(loop)
                     slot.engine._locks.clear()
-                # Compare by VALUE (asdict), not identity/class: two vendored copies
-                # have distinct SylanneConfig classes, so a plain != would flag equal
-                # configs as conflicting.
-                if dataclasses.asdict(slot.config) != dataclasses.asdict(cfg):
-                    raise SharedEngineConflictError(
-                        f"Shared engine {key!r} already exists with a different SylanneConfig."
+                # Config compatibility, compared by VALUE over the INTERSECTION of
+                # field names: two vendored copies have distinct SylanneConfig
+                # classes (and a newer copy may have ADDED a defaulted field), so a
+                # plain != would falsely conflict on class identity or an extra key.
+                stored = dataclasses.asdict(slot.config)
+                wanted = dataclasses.asdict(cfg)
+                if any(stored[k] != wanted[k] for k in stored.keys() & wanted.keys()):
+                    if explicit_config:
+                        # A caller explicitly handed a conflicting config: hard error.
+                        raise SharedEngineConflictError(
+                            f"Shared engine {key!r} already exists with a different SylanneConfig."
+                        )
+                    # Self-read diff (the on-disk file was edited, or a cross-version
+                    # copy): do NOT crash a bystander acquirer. Keep the running
+                    # config and tell the operator a restart is needed to apply it.
+                    logger.warning(
+                        "shared engine %r: on-disk config differs from the running "
+                        "engine; keeping the running config (restart to apply).",
+                        key,
                     )
                 if llm is not None and slot.llm is not llm:
                     logger.warning(
@@ -351,8 +378,13 @@ def clear_shared_registry() -> None:
             return
         for slot_key in list(cell.registry):
             entry = cell.registry[slot_key]
-            builder = cell.builders.get(slot_key)
-            if not isinstance(entry, _Entry) or builder is None or builder == my_copy_id:
+            if not _is_live_entry(entry):
+                # Tombstone (Future): transient, drop it.
+                del cell.registry[slot_key]
+                cell.builders.pop(slot_key, None)
+            elif cell.builders.get(slot_key) == my_copy_id:
+                # A live entry THIS copy built. A foreign copy's live entry (or one
+                # with no recorded builder) is left alone so we never orphan it.
                 del cell.registry[slot_key]
                 cell.builders.pop(slot_key, None)
         cell.identities.pop(my_copy_id, None)
@@ -366,7 +398,7 @@ def is_shared(data_dir: str | Path) -> bool:
     """
     key = _make_key(data_dir)
     with _LOCK:
-        return isinstance(_REGISTRY.get(key), _Entry)
+        return _is_live_entry(_REGISTRY.get(key))
 
 
 def list_shared() -> list[dict[str, str]]:
@@ -377,7 +409,7 @@ def list_shared() -> list[dict[str, str]]:
     Intended for diagnostics — e.g. spotting redundant engines across plugins.
     """
     with _LOCK:
-        snapshot = [(key, entry) for key, entry in _REGISTRY.items() if isinstance(entry, _Entry)]
+        snapshot = [(key, entry) for key, entry in _REGISTRY.items() if _is_live_entry(entry)]
     # Read engine.status outside the lock; it is a cheap attribute read.
     return [{"data_dir": key, "status": entry.engine.status} for key, entry in snapshot]
 
@@ -392,7 +424,7 @@ def warn_if_shared_exists(data_dir: str | Path) -> None:
     """
     key = _make_key(data_dir)
     with _LOCK:
-        exists = isinstance(_REGISTRY.get(key), _Entry)
+        exists = _is_live_entry(_REGISTRY.get(key))
     if exists:
         logger.warning(
             "A shared SylanneEngine already exists for %r, but a new engine is being "
