@@ -451,6 +451,29 @@ SylanneEngine.is_shared("./data/x")  # True / False
 
 ---
 
+## 配置文件
+
+不显式传 `config` 时，引擎会自动读取 `<data_dir>/sylanne.config.json`——所有插件 `shared(data_dir)` 共享同一份用户可改的配置，首次启动还会写入一份默认模板。设置只放这一个地方，跟哪个插件先加载、哪份是主控都无关。
+
+```jsonc
+{
+    "mode": "lite",
+    "assessor_enabled": true,
+    // 可选：把情感评估交给一个小而便宜的模型；不填则用主 llm
+    "assessor_model": {
+        "api_base": "https://api.deepseek.com/v1",
+        "api_key": "${SYLANNE_ASSESSOR_KEY}",   // 建议用环境变量，别把密钥提交进仓库
+        "model": "deepseek-chat"
+    }
+}
+```
+
+- 顶层认识的键映射到 `SylanneConfig`（`mode`、`assessor_enabled`、`locale` 等），不认识的键忽略；文件缺失/损坏/取值非法都回退默认，引擎照常启动。
+- `assessor_model` 打任意 OpenAI 兼容 `/chat/completions` 接口，纯标准库实现，lite 档零依赖不破；`api_key` 支持 `${环境变量}`。
+- 显式传入的 `config=` 优先于文件。配置在建引擎时读取，改动需重启生效。
+
+---
+
 ## 输出示例
 
 ```jsonc
