@@ -1,6 +1,6 @@
 # SylannEngine SDK 规范
 
-版本：`2.0.0`
+版本：`2.3.2`
 协议版本：`sylanne.engine.v1`
 
 ---
@@ -59,8 +59,10 @@ engine = SylanneEngine(
 
 Use `SylanneEngine.shared()` to deduplicate engines by resolved data_dir within
 a process — one persistence directory is owned by exactly one engine, avoiding
-state splits and lost updates on flush.
-用 `SylanneEngine.shared()` 按解析后的 data_dir 在进程内去重——一个持久化目录只由一个引擎拥有，避免状态分裂与 flush 丢更新。
+state splits and lost updates on flush. The guarantee is **per process**: there is
+no cross-process lock, so two OS processes on one data_dir would double-flush —
+run one process per data_dir.
+用 `SylanneEngine.shared()` 按解析后的 data_dir 在进程内去重——一个持久化目录只由一个引擎拥有，避免状态分裂与 flush 丢更新。该保证是**进程内**的：没有跨进程锁，两个进程指向同一 data_dir 会双写，请一个 data_dir 一个进程。
 
 ```python
 # 同一 data_dir 总是返回同一已启动实例
@@ -75,15 +77,18 @@ SylanneEngine.is_shared("./data")  # bool
 ```
 
 - 多个下游约定同一 data_dir 并统一走 `shared()`，即可复用单一引擎，避免重复计算与重复 LLM 调用（取代前置插件的共享单例职责）。
-- 同一 data_dir 第二次传入不同 `config` → 抛 `SharedEngineConflictError`；不同 `llm`/`embedding` → 仅警告并复用原实例。
+- 不传 `config` 时引擎自读 `<data_dir>/sylanne.config.json`（见 §7），所有下游共享同一份用户可改配置；首次启动写入默认模板。
+- 配置冲突：**显式传入**不同 `config` → 抛 `SharedEngineConflictError`；自读（文件被改 / 跨版本 vendored copy）出现差异 → 仅警告并复用运行中的配置（重启生效），不崩后来者。不同 `llm`/`embedding`/`assessor_llm` → 警告并复用原实例（first-builder-wins）。
 - 共享实例 **event-loop 亲和**：仅在首次获取的事件循环内使用，跨 loop 使用抛 `RuntimeError`；不要对共享实例用 `async with`。
+- `release_shared()` 之后该实例 `closed`；**不要再用已释放的实例**——共享引擎对已释放实例的再次调用会抛 `RuntimeError`（避免在注册表外复活成第二个引擎、双写丢更新），请重新 `shared()` 获取。
 - 直接 `SylanneEngine(...)` 构造不受影响，且不进入共享注册表；但若目标 data_dir 已有活跃共享实例，会记一条 warning 提示重复创建（软提醒，不阻断）。
+- 多个 vendored 副本（不同模块名）共存会汇合到同一引擎并去重；若某副本版本与建引擎的副本不一致，会记一条版本串味 warning，建议各副本独立 namespace，或整进程装一份共享依赖。
 
 ### 2.2 Core Methods / 核心方法
 
 | Method / 方法 | Signature / 签名 | Description / 说明 |
 |--------|-----------|-------------|
-| `shared` | `classmethod async (data_dir, llm, embedding=None, config=None) -> SylanneEngine` | 取进程内共享实例（按 data_dir 去重，返回已 start 的引擎） |
+| `shared` | `classmethod async (data_dir, llm, embedding=None, config=None, *, assessor_llm=None) -> SylanneEngine` | 取进程内共享实例（按 data_dir 去重，返回已 start 的引擎）；不传 config 时自读 `sylanne.config.json` |
 | `release_shared` | `classmethod async (data_dir) -> None` | 关闭并从注册表移除共享实例 |
 | `is_shared` | `classmethod (data_dir) -> bool` | 该 data_dir 是否已有活跃共享实例 |
 | `list_shared` | `classmethod () -> list[dict]` | 列出当前进程所有共享实例及状态 |
@@ -489,12 +494,32 @@ if surface["schema_version"].startswith("sylanne.engine.v1"):
 ```python
 @dataclass
 class SylanneConfig:
+    mode: str = "lite"                 # 计算档位 lite / pro / max
     diagnostics: bool = False          # 是否返回管线中间态
     assessor_enabled: bool = True      # 是否启用 LLM 评估器
     persistence_fsync: bool = True     # 持久化是否 fsync
     tick_drift_cap: float = 0.05       # 单次人格漂移上限
     locale: str = "zh"                 # 语言（影响评估器 prompt）
 ```
+
+### 7.1 Config File / 配置文件
+
+不显式传 `config` 时，引擎自读 `<data_dir>/sylanne.config.json`——所有下游 `shared(data_dir)` 共享同一份用户可改配置（首启写入默认模板，显式传入的 `config=` 优先于文件）。顶层认识的键映射到 `SylanneConfig`，不认识的键忽略；缺失/损坏/取值非法均回退默认、引擎照常启动。配置在建引擎时读取，改动需重启生效。
+
+```jsonc
+{
+    "mode": "lite",
+    "assessor_enabled": true,
+    // 可选：把语义评估交给一个小而便宜的模型；不填则用主 llm
+    "assessor_model": {
+        "api_base": "https://api.deepseek.com/v1",
+        "api_key": "${SYLANNE_ASSESSOR_KEY}",   // 建议用环境变量，勿提交密钥
+        "model": "deepseek-chat"
+    }
+}
+```
+
+`assessor_model` 块走任意 OpenAI 兼容 `/chat/completions` 接口（纯标准库实现，lite 档零依赖）。也可绕过文件、直接给 `SylanneEngine(...)` / `shared(...)` 传 `assessor_llm`（`async (system, user) -> str`）；二者皆无则评估回落主 `llm`。
 
 ---
 

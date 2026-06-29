@@ -7,7 +7,7 @@
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
-[![Version](https://img.shields.io/badge/Version-2.0.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-2.3.2-green.svg)](CHANGELOG.md)
 [![Tests](https://img.shields.io/badge/Tests-434_passed-brightgreen.svg)]()
 [![Zero Dependencies](https://img.shields.io/badge/Lite_Tier-Zero_Dependencies-orange.svg)]()
 
@@ -431,8 +431,9 @@ await SylanneEngine.release_shared("./data/sylannengine")
 
 | 场景 | 行为 |
 |------|------|
-| 同一 data_dir 第二次传入**不同 config** | 抛 `SharedEngineConflictError` |
-| 同一 data_dir 传入不同 `llm`/`embedding` | 警告并复用原实例 |
+| 同一 data_dir **显式传入**不同 config | 抛 `SharedEngineConflictError` |
+| 自读 `sylanne.config.json` 出现差异（文件被改/跨版本副本） | 仅警告并复用运行中的配置（重启生效），不崩后来者 |
+| 同一 data_dir 传入不同 `llm`/`embedding`/`assessor_llm` | 警告并复用原实例 |
 | 直接 `SylanneEngine(...)` 构造但目标 data_dir 已有共享实例 | 软警告（不阻断，但你大概率在重复创建） |
 
 **注意事项：**
