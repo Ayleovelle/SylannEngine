@@ -55,7 +55,16 @@ def build_from_config(block: dict[str, Any] | None) -> LLMFn | None:
     if not api_base or not model:
         logger.warning("assessor_model block missing api_base/model; falling back to main llm")
         return None
-    timeout = float(block.get("timeout", _DEFAULT_TIMEOUT))
+    raw_timeout = block.get("timeout", _DEFAULT_TIMEOUT)
+    try:
+        timeout = float(raw_timeout)
+    except (TypeError, ValueError):
+        logger.warning(
+            "assessor_model timeout %r is not a number; using default %ss",
+            raw_timeout,
+            _DEFAULT_TIMEOUT,
+        )
+        timeout = _DEFAULT_TIMEOUT
     url = f"{api_base}/chat/completions"
 
     async def assessor(system: str, user: str) -> str:

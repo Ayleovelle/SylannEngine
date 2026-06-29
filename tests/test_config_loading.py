@@ -155,3 +155,19 @@ class TestDefaultTemplate:
         engine = SylanneEngine(tmp_path, llm=AsyncMock())
         await engine.start()
         assert (tmp_path / CONFIG_FILENAME).exists()
+
+
+class TestAssessorTimeoutRobustness:
+    def test_non_numeric_timeout_does_not_crash_builder(self, caplog):
+        with caplog.at_level("WARNING", logger="sylanne_core"):
+            fn = build_from_config({"api_base": "http://x/v1", "model": "m", "timeout": "fast"})
+        assert callable(fn)  # malformed timeout fell back, did not raise
+        assert any("not a number" in r.message for r in caplog.records)
+
+    def test_malformed_assessor_timeout_does_not_crash_engine(self, tmp_path: Path):
+        _write_config(
+            tmp_path,
+            {"assessor_model": {"api_base": "http://x/v1", "model": "m", "timeout": "fast"}},
+        )
+        engine = SylanneEngine(tmp_path, llm=AsyncMock())  # must not raise
+        assert engine._assessor_llm is not None

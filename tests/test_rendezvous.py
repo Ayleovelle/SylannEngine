@@ -8,6 +8,7 @@ version skew between copies can be surfaced.
 from __future__ import annotations
 
 import builtins
+import dataclasses
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -97,10 +98,23 @@ def test_same_copy_does_not_warn(monkeypatch, caplog):
     assert not any("version skew" in r.message for r in caplog.records)
 
 
-def test_clear_registry_keeps_foreign_copy_entries():
+@dataclasses.dataclass
+class _ForeignEntry:
+    """Stand-in for another vendored copy's _Entry — a DIFFERENT class, so
+    isinstance(x, sharing._Entry) is False (the genuine cross-copy case the old
+    test failed to exercise by reusing the local _Entry)."""
+
+    engine: object
+    config: object
+    llm: object
+    embedding: object
+    loop_ref: object
+
+
+def test_clear_keeps_foreign_class_live_entry():
     cell = get_cell()
     my_id = sharing._self_identity()["copy_id"]
-    foreign = sharing._Entry(
+    foreign = _ForeignEntry(
         engine=object(), config=None, llm=None, embedding=None, loop_ref=lambda: None
     )
     mine = sharing._Entry(
@@ -111,13 +125,39 @@ def test_clear_registry_keeps_foreign_copy_entries():
             cell.registry.clear()
             cell.identities.clear()
             cell.builders.clear()
-            cell.registry["foreign"] = foreign
+            cell.registry["foreign"] = foreign  # a genuinely different _Entry class
             cell.builders["foreign"] = "some-other-copy"
             cell.registry["mine"] = mine
             cell.builders["mine"] = my_id
         sharing.clear_shared_registry()
-        assert "foreign" in cell.registry  # a co-resident copy's engine survives
+        # The foreign-class live entry must survive (duck-typed liveness), not be
+        # orphaned because isinstance(_Entry) returned False.
+        assert "foreign" in cell.registry
         assert "mine" not in cell.registry  # this copy's own entry is cleared
+    finally:
+        with cell.lock:
+            cell.registry.clear()
+            cell.identities.clear()
+            cell.builders.clear()
+
+
+def test_list_shared_sees_foreign_class_entry():
+    cell = get_cell()
+
+    class _Eng:
+        status = "running"
+
+    class _FE:  # another copy's entry class
+        engine = _Eng()
+
+    try:
+        with cell.lock:
+            cell.registry.clear()
+            cell.identities.clear()
+            cell.builders.clear()
+            cell.registry["k"] = _FE()
+        listing = sharing.list_shared()
+        assert any(item["status"] == "running" for item in listing)
     finally:
         with cell.lock:
             cell.registry.clear()
