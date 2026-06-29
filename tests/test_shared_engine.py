@@ -308,3 +308,67 @@ class TestConcurrentInit:
         engine = await SylanneEngine.shared(tmp_path, llm=m)
         assert engine.status == "running"
         assert len(SylanneEngine.list_shared()) == 1
+
+
+class TestResurrectionGuard:
+    @pytest.mark.asyncio
+    async def test_released_shared_engine_refuses_to_resurrect(self, tmp_path: Path):
+        engine = await SylanneEngine.shared(tmp_path, llm=_llm())
+        await SylanneEngine.release_shared(tmp_path)
+        assert engine.status == "closed"
+        # A stale holder using the released engine must NOT silently revive it
+        # (that would let the next shared() build a duplicate and double-flush).
+        with pytest.raises(RuntimeError, match="released"):
+            await engine.process("s1", "hi")
+
+    @pytest.mark.asyncio
+    async def test_direct_engine_still_restarts_after_close(self, tmp_path: Path):
+        engine = SylanneEngine(tmp_path, llm=_llm())
+        await engine.start()
+        await engine.shutdown()
+        assert engine.status == "closed"
+        await engine.process("s1", "hi")  # a DIRECT engine auto-restarts on use
+        assert engine.status in ("running", "degraded")
+
+
+class TestSelfReadConfigDiff:
+    @pytest.mark.asyncio
+    async def test_self_read_change_reuses_not_raises(self, tmp_path: Path, caplog):
+        import json
+
+        m = _llm()
+        a = await SylanneEngine.shared(tmp_path, llm=m)  # file absent -> lite default
+        # The user edits the file (the template literally says "edit and restart").
+        (tmp_path / "sylanne.config.json").write_text(json.dumps({"mode": "pro"}), encoding="utf-8")
+        with caplog.at_level("WARNING", logger="sylanne_core"):
+            b = await SylanneEngine.shared(tmp_path, llm=m)
+        assert b is a  # reused, no crash
+        assert a._config.mode == "lite"  # running config unchanged
+        assert any("on-disk config differs" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_explicit_conflicting_config_still_raises(self, tmp_path: Path):
+        m = _llm()
+        await SylanneEngine.shared(tmp_path, llm=m, config=SylanneConfig(mode="lite"))
+        with pytest.raises(SharedEngineConflictError):
+            await SylanneEngine.shared(tmp_path, llm=m, config=SylanneConfig(mode="pro"))
+
+
+class TestShutdownFlushError:
+    @pytest.mark.asyncio
+    async def test_flush_failure_is_logged_and_marks_degraded(
+        self, tmp_path: Path, caplog, monkeypatch
+    ):
+        engine = SylanneEngine(tmp_path, llm=_llm())
+        await engine.start()
+        await engine.process("s1", "hi")  # create a host
+
+        def boom(self: object) -> None:
+            raise OSError("disk full")
+
+        # The host class has __slots__, so patch the method on the class.
+        monkeypatch.setattr(type(engine._hosts["s1"]), "flush", boom)
+        with caplog.at_level("WARNING", logger="sylanne_core"):
+            await engine.shutdown()
+        assert engine.status == "degraded"  # flush failure not masked as clean 'closed'
+        assert any("flush failed" in r.message for r in caplog.records)

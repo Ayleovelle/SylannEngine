@@ -5,6 +5,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### 🔗 多插件共享机制重设计（2.3.2）
+
+多个（可能各自 vendored 一份 SDK 的）插件指向同一 `data_dir` 时，让"一个 data_dir 一个引擎 + 一份用户配置"真正
+成立。弃掉早先一版"版本选举 / lease / 热交接 / HMAC"设计——8-agent 红队判其对单进程单作者部署过度设计且核心不
+成立（自报 `__version__` 可被任意 copy 冒充夺全场、热交接因 `_assess` 在 session 锁外丢更新、Windows `os.kill(pid,0)`
+杀主控、热切安全闸依赖不存在的整数 state-schema-major）。公共 API 向后兼容，新增可选 `assessor_llm` 参数。
+
+- **rendezvous cell**（`_rendezvous.py`）：进程级 cell 挂在 `builtins` 一个固定 sentinel key 上，各 vendored copy
+  （不同模块名）汇合到同一注册表、真去重——修掉"两份 namespaced copy 各自 `_REGISTRY` 抢同一 data_dir、flush
+  互覆盖丢更新"。`_REGISTRY`/`_LOCK` 别名指过去，init-Future / tombstone / loop 亲和不变。first-builder-wins，
+  进程内主控不切换，靠重启升级。
+- **写一次持久 copy 身份**（`_identity.py`）：每份 copy 一个 `<pkg>/_identity.json` 里的 uuid（O_EXCL 跨进程安全、
+  损坏自愈、只读安装回退路径 hash）。纯诊断 label，非选举非安全；据此在版本不一致时发串味告警。
+- **共享 config 文件**（`_config_store.py`）：无 `config` 时引擎自读 `<data_dir>/sylanne.config.json`，所有插件
+  `shared(data_dir)` 共享同一份用户可改配置（首启写默认模板）。不认识的键忽略；缺失/损坏回退默认。
+- **可选小模型 assessor**（`_assessor_llm.py`）：config 里 `assessor_model` 块变成零依赖 OpenAI 兼容回调
+  （urllib + `asyncio.to_thread`；`api_key` 支持 `${ENV}`），把情感评估交给小而便宜的模型；不配则回落主 llm。
+- **审计加固**：完备性审计（对真码 + 真两-copy 实测）查出的 2 blocker + 4 major 全修，每条带复现测试——released
+  引擎不再自我复活成双引擎双写（`_ensure_started` 守卫）；自读 config 差异 warn+复用而非硬抛崩无辜后来者；
+  `shutdown` flush 失败打日志且保 `degraded` 不被 `closed` 盖；畸形 assessor timeout 兜底不崩构造；跨 copy 守护函数
+  改 duck-type 判活（`clear` 不再误删别 copy 活引擎）；`shared()` docstring 改 per-process 诚实化。
+
 ### 🛡️ 鲁棒性硬化（2.3.1）
 
 外部 LLM / 调用方返回畸形结构时的防御缺口：插件 PR #45 的 gemini 自动审查转交三条（逐条对 canonical 真码核实，
