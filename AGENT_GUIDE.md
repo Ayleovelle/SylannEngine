@@ -61,7 +61,9 @@ engine = await SylanneEngine.shared(
 SylanneEngine.list_shared()   # [{"data_dir": "...", "status": "running"}, ...]
 ```
 
-应用关闭时调 `await SylanneEngine.release_shared(data_dir)` 落盘释放（没有 atexit 自动刷写）。共享实例只在首次获取它的事件循环里使用，不要对它用 `async with`。单插件、单实例场景直接 `SylanneEngine(...)` 即可。
+配置只放一个地方：不传 `config` 时引擎自读 `<data_dir>/sylanne.config.json`（首启写默认模板），所有插件共享这一份用户可改配置——别各插件各传一份 `config`。想让语义评估走个便宜的小模型，就在该文件加一个 `assessor_model` 块（`api_base`/`api_key`/`model`，`api_key` 支持 `${环境变量}`），不填则回落主 `llm`；也可直接给 `shared(..., assessor_llm=...)` 传回调。详见 SPEC §7。
+
+应用关闭时调 `await SylanneEngine.release_shared(data_dir)` 落盘释放（没有 atexit 自动刷写）；释放后**不要再用那个实例**——共享引擎对已释放实例的再次调用会抛错，请重新 `shared()` 获取。共享实例只在首次获取它的事件循环里使用，不要对它用 `async with`。这套保证是**进程内**的（没有跨进程锁，请一个 data_dir 一个进程）。单插件、单实例场景直接 `SylanneEngine(...)` 即可。
 
 ---
 
