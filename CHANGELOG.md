@@ -12,12 +12,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 多插件同进程共存时，只有一个插件跑引擎（driver），其余转纯监听（observer）。
 
 - `SylanneEngine.acquire(data_dir, llm, ..., as_observer=False) -> AcquireResult`：按角色取共享引擎
-- `ObserverView`：只读句柄（`on/off/state/exists/health`），结构上无法 `process/tick/inject`
+- `ObserverView`：只读句柄（`on/off/state/exists/health`），不绑定 `process/tick/inject`——
+  合作式护栏（防误触发第二条计算流），非安全边界
 - `SylanneEngine.shared_data_dir(explicit=None) -> Path`：解析 host 级共享目录
 - `SylanneEngine.role(data_dir) -> str`：合作式角色标签
 - `AcquireResult`：`role` / `engine` / `observer` / `handle` / `is_driver`
 - `tests/test_surface_compat.py`：Surface 只加不删不改（additive-only），CI 强制
 - `SHARING_INTEGRATION.md` 内容合并入 `AGENT_GUIDE.md`，原文件删除
+
+发布前对抗性自审修订（同版本内）：
+
+- 修 `__version__` 漏改：`sylanne_core.__version__` 同步到 `2.4.0`（之前仍报 `2.3.2`）
+- Surface 运行时护栏由 6 处抽查改为递归全树校验；新增 TypedDict 边接线锁 +
+  `HealthStatus` 字段锁——adapter 漏发任意叶子、改接更薄类型都会红 CI
+- `state()` 补 `_ensure_started()`：已释放的共享引擎读 `state()` 现按复活守卫报错，
+  不再静默重建 host、绕过守卫
+- `release_shared_engine` 释放时一并清 `builders[key]`，不留陈旧 driver id
+- 清理删档/改名遗留断链（`SHARING_INTEGRATION.md`、`docs/SPEC.md`→`docs/theoretical_spec.md`）：
+  `test_surface_compat`/`test_axiom_conformance`/`resonance_integration`/interchange schema
+- `README` `inject` 形参名修正 `type` → `influence_type`
 
 ### 🔗 多插件共享机制重设计（2.3.2）
 

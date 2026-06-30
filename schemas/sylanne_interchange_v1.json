@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://sylanne.dev/schemas/interchange/v1",
   "title": "Sylanne Affective State Interchange Document",
-  "description": "JSON Schema (draft 2020-12) for Level 1+ conformance serialization as defined in SPEC.md Section 8.",
+  "description": "JSON Schema (draft 2020-12) for Level 1+ conformance serialization as defined in docs/theoretical_spec.md Section 8 (Serialization Format).",
   "type": "object",
   "required": ["sylanne_version", "schema_version", "session_key", "personality", "state", "scars", "metadata"],
   "additionalProperties": false,

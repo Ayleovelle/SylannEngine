@@ -1,6 +1,6 @@
 """Sylanne Affective Computation Standard — Axiom Conformance Test Suite.
 
-Tests the 7 core axioms from docs/SPEC.md with rigorous mathematical verification.
+Tests the 7 core axioms from docs/theoretical_spec.md with rigorous mathematical verification.
 Each axiom is tested via falsification: we attempt to violate the property and assert
 that the implementation resists all violations.
 
@@ -36,7 +36,7 @@ DETERMINISM_SEQUENCE_LEN = 50
 SCAR_TRAUMA_EVENTS = 30
 SCAR_HEALING_EVENTS = 50
 
-# Declared value ranges from SPEC.md Section 5
+# Declared value ranges from docs/theoretical_spec.md Section 5 (Data Model)
 DECLARED_RANGES: dict[str, tuple[float, float]] = {
     "valence": (-1.0, 1.0),
     "arousal": (0.0, 1.0),
