@@ -540,7 +540,15 @@ class TestAcquire:
         # driving methods, and the registry is free again (role -> unowned).
         assert view.status == "closed"
         assert not hasattr(view, "process")
-        view.on(lambda sid, surf: None)  # harmless no-op on a closed engine
+        # on() does not crash, but registering on a released engine is a dead drop
+        # (the listener list is on the closed object and can never fire again);
+        # the observer must re-acquire to receive pushes — there is no auto-rebind.
+        view.on(lambda sid, surf: None)
+        # The write path is closed too: reading state() on a released shared engine
+        # refuses to rehydrate a host (resurrection guard) instead of silently
+        # rebuilding it from disk. Re-acquire is the only correct path forward.
+        with pytest.raises(RuntimeError, match="released"):
+            await view.state("s1")
         assert SylanneEngine.role(tmp_path) == "unowned"
         # A fresh acquire rebuilds a NEW engine (not the released one).
         rebuilt = await SylanneEngine.acquire(tmp_path, llm=_llm())

@@ -342,6 +342,10 @@ async def release_shared_engine(data_dir: str | Path) -> None:
         with _LOCK:
             if _REGISTRY.get(key) is tombstone:
                 del _REGISTRY[key]
+                # Drop the stale builder record too, so a released path leaves no
+                # orphaned driver id behind (clear_shared_registry does the same).
+                # _LOCK is the cell lock, so this is consistent with the del above.
+                _cell.builders.pop(key, None)
         if not tombstone.done():
             tombstone.set_result(None)
 
@@ -489,8 +493,11 @@ def shared_role(data_dir: str | Path) -> str:
         if not _is_live_entry(slot):
             return "unowned"
         # builders and registry share one lock (_LOCK is cell.lock), so this read
-        # is consistent with the entry's liveness. The builder is recorded before
-        # the init Future resolves, so a live entry never lacks its builder here.
+        # is consistent with the entry's liveness. For the acquiring loop the
+        # builder is recorded before the init Future resolves; a cross-thread
+        # caller that races the publish-then-record window may briefly read no
+        # builder and fall through to "observer" — acceptable for a cooperative
+        # diagnostic label, and self-corrects once the build completes.
         builder_id = _cell.builders.get(key)
     if my_id and builder_id and builder_id == my_id:
         return "driver"

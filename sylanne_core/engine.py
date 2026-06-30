@@ -249,6 +249,11 @@ class SylanneEngine:
 
     async def state(self, session_id: str) -> Surface:
         """Get current session state without advancing the pipeline."""
+        # Mirror process/tick/inject: a released SHARED engine must refuse to
+        # rehydrate a host here too, else an observer reading state() on a
+        # released engine would silently rebuild hosts from disk and bypass the
+        # resurrection guard. _ensure_started is a no-op on a running engine.
+        await self._ensure_started()
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
             surface = host.diagnostics()
@@ -588,11 +593,17 @@ class ObserverView:
     """A listen-only handle to a shared engine for a non-driver plugin.
 
     When several plugins co-deploy in one process, only the driver runs
-    computation; every other plugin gets an ``ObserverView`` so it physically
-    CANNOT call ``process()``/``tick()``/``inject()`` — the methods are simply not
+    computation; every other plugin gets an ``ObserverView`` whose surface does
+    not bind ``process()``/``tick()``/``inject()`` — those methods are simply not
     here. It can subscribe to the driver's output via ``on()``, read a session's
-    surface via ``state()``, and check ``health()``/``status``. This turns "one
-    engine, the rest listen" into a structural guarantee rather than a convention.
+    surface via ``state()``, and check ``health()``/``status``. This makes "one
+    engine, the rest listen" the path of least resistance: a plugin holding a
+    view cannot *accidentally* start a second compute stream.
+
+    It is a cooperative guardrail, not a security boundary: co-deployed plugins
+    share one trusted process, and the underlying engine is still reachable via
+    ``view._engine`` if a caller goes out of its way. The point is to stop honest
+    mistakes, not a hostile copy.
 
     Obtain one from ``SylanneEngine.acquire(...)`` (the observer path); do not
     construct it directly.

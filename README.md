@@ -414,7 +414,7 @@ python run_all.py 1 4 8  # 指定编号
 | `reset(session_id)` | 重置会话状态 |
 | `destroy(session_id)` | 销毁会话 |
 | `exists(session_id)` | 检查会话是否存在 |
-| `inject(session_id, source, type, intensity, ...)` | 外部影响注入 |
+| `inject(session_id, source, influence_type, intensity, ...)` | 外部影响注入 |
 | `on(listener)` / `off(listener)` | 推送监听 |
 | `health()` | 健康检查 |
 
