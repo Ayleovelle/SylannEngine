@@ -20,6 +20,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -410,6 +411,90 @@ class SylanneEngine:
 
         return list_shared()
 
+    @classmethod
+    def role(cls, data_dir: str | Path) -> str:
+        """This copy's cooperative role for the shared engine on ``data_dir``.
+
+        Returns ``"driver"``, ``"observer"``, or ``"unowned"``. When several
+        plugins each embed the SDK in one process, the first to build the engine
+        for a ``data_dir`` is the ``driver`` (it should wire incoming events to
+        ``process()``); every other plugin is an ``observer`` and should only
+        ``engine.on(...)`` and let the driver compute — so the deployment runs ONE
+        engine, not one per plugin. ``"unowned"`` means no engine exists yet.
+
+        This label is cooperative; ``shared()`` still returns the full engine to
+        all callers. For a handle that cannot drive at all, use ``acquire``.
+        """
+        from ._sharing import shared_role
+
+        return shared_role(data_dir)
+
+    @classmethod
+    def shared_data_dir(cls, explicit: str | Path | None = None) -> Path:
+        """Resolve the canonical host-shared ``data_dir`` for co-deployed plugins.
+
+        Returns ``explicit`` if given, else ``$SYLANNE_DATA_DIR``, else
+        ``~/.sylanne/shared`` — resolved and absolute, not created. Route every
+        plugin's ``shared``/``acquire`` call through this so independent plugins
+        converge on ONE engine instead of each defaulting to its own directory
+        (which would never dedup). See ``acquire`` for the driver/observer split.
+        """
+        from ._sharing import resolve_shared_data_dir
+
+        return resolve_shared_data_dir(explicit)
+
+    @classmethod
+    async def acquire(
+        cls,
+        data_dir: str | Path,
+        llm: Callable[[str, str], Awaitable[str]] | None = None,
+        embedding: Callable[[str], Awaitable[list[float]]] | None = None,
+        config: SylanneConfig | None = None,
+        *,
+        assessor_llm: Callable[[str, str], Awaitable[str]] | None = None,
+        as_observer: bool = False,
+    ) -> AcquireResult:
+        """Acquire the process-shared engine for ``data_dir`` WITH a role.
+
+        Like ``shared()``, but instead of handing every caller the full engine it
+        returns an :class:`AcquireResult` reflecting this copy's role:
+
+        - The first plugin to acquire a ``data_dir`` builds the engine and becomes
+          the ``"driver"``: ``result.engine`` is the full SylanneEngine — drive it.
+        - Every other co-resident plugin becomes an ``"observer"``:
+          ``result.engine`` is ``None`` and ``result.observer`` is an
+          :class:`ObserverView` that can ``on(...)``/read state but CANNOT
+          ``process()`` — so one engine serves the whole process, not one per
+          plugin. ``result.handle`` returns whichever you got.
+
+        Building the engine (driver path) requires ``llm`` — if none is given and
+        no engine exists yet, a clear ``ValueError`` is raised. Pass
+        ``as_observer=True`` for a pure-listener plugin that must NEVER drive even
+        if it loads first: it attaches to an existing driver's engine, or returns
+        role ``"unowned"`` (``engine``/``observer`` both ``None``) if no driver is
+        up yet — retry once one is. Role is fixed for the engine's lifetime;
+        restart to change the driver (no election, no hand-off).
+        """
+        from ._sharing import get_shared_engine, peek_shared_engine, shared_role
+
+        if as_observer:
+            # Pure observer: attach without ever building. No driver yet -> unowned.
+            existing = peek_shared_engine(data_dir)
+            if existing is None:
+                return AcquireResult("unowned", None, None)
+            return AcquireResult("observer", None, ObserverView(existing))
+
+        # Driver path (or attach to an engine another copy already built).
+        # get_shared_engine raises a clear ValueError if asked to build with no llm.
+        engine = await get_shared_engine(
+            data_dir, llm, embedding=embedding, config=config, assessor_llm=assessor_llm
+        )
+        if shared_role(data_dir) == "driver":
+            return AcquireResult("driver", engine, None)
+        # Another co-resident copy owns the engine: hand back a listen-only view so
+        # this plugin physically cannot drive a second compute stream.
+        return AcquireResult("observer", None, ObserverView(engine))
+
     # --- internal ---
 
     async def _notify(self, session_id: str, surface: Surface) -> None:
@@ -497,3 +582,77 @@ class SylanneEngine:
         from .adapter import to_surface
 
         return to_surface(session_id, host, raw, diagnostics=self._config.diagnostics)
+
+
+class ObserverView:
+    """A listen-only handle to a shared engine for a non-driver plugin.
+
+    When several plugins co-deploy in one process, only the driver runs
+    computation; every other plugin gets an ``ObserverView`` so it physically
+    CANNOT call ``process()``/``tick()``/``inject()`` — the methods are simply not
+    here. It can subscribe to the driver's output via ``on()``, read a session's
+    surface via ``state()``, and check ``health()``/``status``. This turns "one
+    engine, the rest listen" into a structural guarantee rather than a convention.
+
+    Obtain one from ``SylanneEngine.acquire(...)`` (the observer path); do not
+    construct it directly.
+    """
+
+    __slots__ = ("_engine",)
+
+    def __init__(self, engine: SylanneEngine) -> None:
+        self._engine = engine
+
+    @property
+    def role(self) -> str:
+        return "observer"
+
+    @property
+    def status(self) -> EngineStatus:
+        return self._engine.status
+
+    def on(self, listener: Callable[[str, Surface], Any]) -> None:
+        """Subscribe to the driver's per-``process()`` surface pushes."""
+        self._engine.on(listener)
+
+    def off(self, listener: Callable[[str, Surface], Any]) -> None:
+        """Unsubscribe a previously registered listener."""
+        self._engine.off(listener)
+
+    async def state(self, session_id: str) -> Surface:
+        """Read a session's current surface without advancing the pipeline."""
+        return await self._engine.state(session_id)
+
+    def exists(self, session_id: str) -> bool:
+        """Check whether a session exists without creating it."""
+        return self._engine.exists(session_id)
+
+    def health(self) -> HealthStatus:
+        """Engine health snapshot (shared with the driver)."""
+        return self._engine.health()
+
+
+@dataclass(frozen=True)
+class AcquireResult:
+    """Outcome of ``SylanneEngine.acquire``: the caller's role and its handle.
+
+    Exactly one of ``engine``/``observer`` is set for a live role:
+
+    - ``role == "driver"``   -> ``engine`` is the full SylanneEngine, ``observer`` None.
+    - ``role == "observer"`` -> ``observer`` is an ObserverView, ``engine`` None.
+    - ``role == "unowned"``  -> both None (only from ``acquire(as_observer=True)``
+      when no driver exists yet).
+    """
+
+    role: str
+    engine: SylanneEngine | None
+    observer: ObserverView | None
+
+    @property
+    def handle(self) -> SylanneEngine | ObserverView | None:
+        """Whichever handle you got: the engine (driver) or the view (observer)."""
+        return self.engine if self.engine is not None else self.observer
+
+    @property
+    def is_driver(self) -> bool:
+        return self.role == "driver"

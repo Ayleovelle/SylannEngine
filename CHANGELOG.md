@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.4.0] — 2026-06-30
+
+### 🔀 Driver/Observer 角色层 + Surface 兼容性护栏
+
+多插件同进程共存时，只有一个插件跑引擎（driver），其余转纯监听（observer）。
+
+- `SylanneEngine.acquire(data_dir, llm, ..., as_observer=False) -> AcquireResult`：按角色取共享引擎
+- `ObserverView`：只读句柄（`on/off/state/exists/health`），结构上无法 `process/tick/inject`
+- `SylanneEngine.shared_data_dir(explicit=None) -> Path`：解析 host 级共享目录
+- `SylanneEngine.role(data_dir) -> str`：合作式角色标签
+- `AcquireResult`：`role` / `engine` / `observer` / `handle` / `is_driver`
+- `tests/test_surface_compat.py`：Surface 只加不删不改（additive-only），CI 强制
+- `SHARING_INTEGRATION.md` 内容合并入 `AGENT_GUIDE.md`，原文件删除
+
 ### 🔗 多插件共享机制重设计（2.3.2）
 
 多个（可能各自 vendored 一份 SDK 的）插件指向同一 `data_dir` 时，让"一个 data_dir 一个引擎 + 一份用户配置"真正
@@ -201,7 +215,7 @@ SylannEngine V2 — 共振场架构正式版。完全重写计算核心，从顺
 - `docs/resonance_field_architecture.md`：完整架构规范 + 开发者集成指南（英文）
 - `docs/resonance_field_architecture_zh.md`：同上（中文）
 - `docs/max_tier_workflow.md`：MAX 档 Mermaid 计算流程图
-- `docs/SPEC.md`：更新共振模型、平台要求、人格映射表
+- `docs/theoretical_spec.md`：更新共振模型、平台要求、人格映射表
 - `docs/resonance_field_paper_en.tex`：学术论文（英文）
 - `docs/resonance_field_paper_zh.tex`：学术论文（中文）
 - README：重写，含共振场说明、Mermaid 图、档位对比

@@ -414,6 +414,89 @@ def list_shared() -> list[dict[str, str]]:
     return [{"data_dir": key, "status": entry.engine.status} for key, entry in snapshot]
 
 
+def resolve_shared_data_dir(explicit: str | Path | None = None) -> Path:
+    """Resolve the canonical host-shared ``data_dir`` so co-deployed plugins converge.
+
+    Sharing dedups by ``data_dir``: if each embedded-SDK plugin defaults to its own
+    directory, they never collide and you get one engine per plugin — the exact
+    waste the driver/observer model exists to avoid. Route every plugin through
+    this and they land on ONE engine. Priority:
+
+      1. ``explicit`` (if given) — the caller pins the directory.
+      2. ``$SYLANNE_DATA_DIR`` — the host operator pins one directory for all plugins.
+      3. ``~/.sylanne/shared`` — a stable per-user default.
+
+    Returns a resolved absolute path. It is NOT created here — ``start()`` creates
+    it on first use. The result feeds straight into ``shared``/``acquire``.
+    """
+    if explicit is not None:
+        return Path(explicit).expanduser().resolve()
+    env = os.environ.get("SYLANNE_DATA_DIR")
+    if env and env.strip():
+        return Path(env.strip()).expanduser().resolve()
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        # Home undeterminable (unusual container/service accounts): fall back to a
+        # stable cwd-relative dir so the path is still deterministic for the run.
+        home = Path.cwd()
+    return (home / ".sylanne" / "shared").resolve()
+
+
+def peek_shared_engine(data_dir: str | Path) -> SylanneEngine | None:
+    """Return the live shared engine for ``data_dir``, or None. NEVER builds.
+
+    Unlike ``get_shared_engine``, this never constructs or starts an engine — it
+    is the attach-only primitive an observer uses to grab the driver's engine
+    without becoming a driver itself. A slot mid-teardown counts as absent.
+    """
+    key = _make_key(data_dir)
+    with _LOCK:
+        slot = _REGISTRY.get(key)
+        if _is_live_entry(slot):
+            return slot.engine
+    return None
+
+
+def shared_role(data_dir: str | Path) -> str:
+    """Return THIS copy's cooperative role for the shared engine on ``data_dir``.
+
+    - ``"driver"``   — a live shared engine exists and THIS copy built it. The
+      driver owns computation: wire incoming events to ``process()``/``tick()``.
+    - ``"observer"`` — a live shared engine exists, built by another co-resident
+      copy (or its builder was not recorded). An observer should only attach via
+      ``engine.on(...)`` and let the driver compute, so N co-deployed plugins run
+      ONE engine instead of N — that is the whole point: avoid N× duplicate work.
+    - ``"unowned"``  — no live shared engine for ``data_dir`` yet; whoever builds
+      it first (via ``shared``/``acquire``) becomes the driver.
+
+    This is a COOPERATIVE label, not enforcement — ``shared()`` still hands every
+    caller the full engine. For a handle that structurally cannot drive, use
+    ``SylanneEngine.acquire`` (observers get a listen-only view). Role is keyed by
+    (copy, data_dir) and fixed for the engine's lifetime: the builder stays the
+    driver until release/restart. There is no election and no driver hand-off.
+    """
+    key = _make_key(data_dir)
+    # Resolve our own copy id OUTSIDE the lock — _self_identity may touch the
+    # filesystem on its first call, and _LOCK is the same non-reentrant lock the
+    # rendezvous cell uses, so doing IO under it would be a footgun.
+    try:
+        my_id = _self_identity().get("copy_id")
+    except Exception:
+        my_id = None
+    with _LOCK:
+        slot = _REGISTRY.get(key)
+        if not _is_live_entry(slot):
+            return "unowned"
+        # builders and registry share one lock (_LOCK is cell.lock), so this read
+        # is consistent with the entry's liveness. The builder is recorded before
+        # the init Future resolves, so a live entry never lacks its builder here.
+        builder_id = _cell.builders.get(key)
+    if my_id and builder_id and builder_id == my_id:
+        return "driver"
+    return "observer"
+
+
 def warn_if_shared_exists(data_dir: str | Path) -> None:
     """Warn when a direct SylanneEngine(...) targets a data_dir already shared.
 

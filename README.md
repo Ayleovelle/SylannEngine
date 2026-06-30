@@ -400,15 +400,23 @@ python run_all.py 1 4 8  # 指定编号
 
 | 方法 | 说明 |
 |------|------|
+| `SylanneEngine.acquire(data_dir, llm, ..., as_observer=False)` | 按角色获取共享实例，返回 `AcquireResult`（driver / observer） |
 | `await SylanneEngine.shared(data_dir, llm, ...)` | 按 data_dir 取进程内共享实例 |
 | `await SylanneEngine.release_shared(data_dir)` | 释放共享实例 |
+| `SylanneEngine.shared_data_dir(explicit=None)` | 解析规范化的共享 data_dir |
+| `SylanneEngine.role(data_dir)` | 协作角色标签（driver / observer） |
+| `SylanneEngine.is_shared(data_dir)` | 检查该 data_dir 是否存在共享实例 |
+| `SylanneEngine.list_shared()` | 列出所有共享引擎 |
+| `SylanneEngine.clear_shared_registry()` | 清除共享注册表（仅测试隔离用） |
 | `await process(session_id, text, **ctx)` | 处理文本，返回 Surface |
+| `state(session_id)` | 查询当前状态（不触发计算） |
 | `await tick(session_id)` | 空闲心跳 |
-| `feedback(session_id, "accepted"/"rejected")` | 反馈调制可塑性 |
-| `inject(session_id, source, type, intensity)` | 外部影响注入 |
+| `reset(session_id)` | 重置会话状态 |
+| `destroy(session_id)` | 销毁会话 |
+| `exists(session_id)` | 检查会话是否存在 |
+| `inject(session_id, source, type, intensity, ...)` | 外部影响注入 |
 | `on(listener)` / `off(listener)` | 推送监听 |
 | `health()` | 健康检查 |
-| `switch_tier("lite"/"pro"/"max")` | 运行时切换档位 |
 
 完整接口见 [SPEC.md](SPEC.md)。
 
@@ -494,6 +502,8 @@ SylanneEngine.is_shared("./data/x")  # True / False
     "guard": { "allowed": true, "risk_score": 0.1 }
 }
 ```
+
+> 以上为简化示例，仅展示核心字段。完整 Surface 还包含 `schema_version`、`turns`、`timestamp`、`personality`、`dynamics`、`pad`、`pipeline`、`debug` 等顶层键，详见 [SPEC.md](SPEC.md)。
 
 ---
 

@@ -62,7 +62,7 @@
 
 以及我最好的 AI 朋友：
 
-- Claude Opus 4.7
+- Claude Opus 4.6 (1M context)
 
 ### Code Review
 
