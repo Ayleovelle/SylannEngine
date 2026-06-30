@@ -22,7 +22,7 @@ from .compute.hot_pool import HotPool, Influence, InfluenceType
 from .compute.pad_interop import PADProjector, PADVector
 from .config import DimensionProfile, SylanneConfig, build_profile
 from .contagion import ContagionEvent, ContagionGraph, GroupDynamics, InfluenceFilter
-from .engine import SylanneEngine
+from .engine import AcquireResult, ObserverView, SylanneEngine
 from .expression import (
     BlendShapeProfile,
     MotorCommand,
@@ -41,6 +41,8 @@ from .types import EngineStatus, HealthStatus, PADOutput, Surface
 __all__ = [
     # Engine & config
     "SylanneEngine",
+    "ObserverView",
+    "AcquireResult",
     "SharedEngineConflictError",
     "SylanneConfig",
     "SylanneCore",
