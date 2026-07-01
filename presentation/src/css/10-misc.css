@@ -1,0 +1,55 @@
+/* ════════════════════════════════════════════
+   对比组件 · 仅提示词 vs 接上引擎
+   ════════════════════════════════════════════ */
+.vs{display:flex;flex-direction:column;gap:.9rem}
+.vs-lbl{font-family:var(--font-mono);font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--text-faint);margin-bottom:.2rem}
+.vs .comms{margin:0;max-width:none}
+.vs-a{opacity:.78;border-left-color:var(--text-faint);background:linear-gradient(180deg,rgba(120,120,120,.04),transparent)}
+.vs-b{border-left-width:3px;box-shadow:0 8px 30px -18px var(--glow)}
+
+/* ════════════════════════════════════════════
+   Mermaid 流程图容器（懒加载渲染，主题联动）
+   ════════════════════════════════════════════ */
+.mermaid-wrap{background:var(--card-solid);border:1px solid var(--card-border);border-radius:12px;padding:0;overflow:hidden}
+.mermaid-head{display:flex;gap:.45em;align-items:center;padding:.85rem 1.3rem;border-bottom:1px solid var(--line2)}
+.mermaid-head i{width:9px;height:9px;border-radius:50%}
+.mermaid-head i:nth-child(1){background:var(--accent)}.mermaid-head i:nth-child(2){background:var(--amber)}.mermaid-head i:nth-child(3){background:var(--cyan)}
+.mermaid-head em{font-style:normal;font-size:.62rem;letter-spacing:.14em;color:var(--text-faint);margin-left:.6em;text-transform:uppercase;font-family:var(--font-mono)}
+.mermaid{padding:1.6rem 1.3rem;text-align:center;font-family:var(--font-mono);font-size:.8rem;color:var(--text-faint);min-height:60px}
+.mermaid svg{max-width:100%;height:auto}
+.mermaid:not([data-rendered]){white-space:pre-wrap;line-height:1.7;text-align:left;opacity:.5}
+.mermaid-fallback{display:none;padding:0 1.3rem 1.3rem;font-size:.86rem;line-height:1.7;color:var(--text-muted)}
+.no-mermaid .mermaid{display:none}
+.no-mermaid .mermaid-fallback{display:block;padding-top:1.3rem}
+
+@media(max-width:760px){#scrollprog{right:14px;bottom:14px}}
+
+/* ════════════════════════════════════════════
+   开机加载门 · 全部就绪才揭幕
+   ════════════════════════════════════════════ */
+#boot{position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:1.1rem;background:var(--bg);transition:opacity .6s ease,visibility .6s ease}
+#boot.gone{opacity:0;visibility:hidden;pointer-events:none}
+#boot .blabel{background:var(--text);color:var(--bg);padding:5px 13px;border-radius:3px;
+  font-family:var(--font-head);font-size:.7rem;font-weight:700;letter-spacing:.24em;text-transform:uppercase}
+#boot .bsub{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--text-faint)}
+/* —— 开机显示器（CSS，零依赖）—— */
+.boot-monitor{display:flex;flex-direction:column;align-items:center}
+.boot-screen{width:min(78vw,560px);aspect-ratio:16/10;background:var(--bg2,#161019);
+  border:1px solid var(--line,rgba(184,138,158,.3));border-radius:12px;overflow:hidden;
+  box-shadow:0 0 0 6px var(--card-solid,#221b25),0 22px 60px rgba(0,0,0,.5),0 0 48px -8px var(--accent);
+  display:flex;flex-direction:column}
+.boot-bar{display:flex;align-items:center;gap:7px;padding:9px 13px;
+  background:color-mix(in srgb,var(--accent) 12%,transparent);border-bottom:1px solid var(--line2,rgba(184,138,158,.16))}
+.boot-bar i{width:9px;height:9px;border-radius:50%}
+.boot-bar i:nth-child(1){background:#e0707a}.boot-bar i:nth-child(2){background:#caa44e}.boot-bar i:nth-child(3){background:#7fae9e}
+.boot-bar span{margin-left:8px;font-family:var(--font-mono);font-size:.64rem;letter-spacing:.06em;color:var(--text-muted)}
+.boot-term{flex:1;margin:0;padding:14px 16px;font-family:var(--font-mono);
+  font-size:clamp(.62rem,1.5vw,.82rem);line-height:1.7;color:var(--text-muted);
+  white-space:pre-wrap;word-break:break-word;text-shadow:0 0 8px color-mix(in srgb,var(--accent) 40%,transparent)}
+.boot-neck{width:14px;height:26px;background:var(--card-solid,#221b25);margin-top:-2px}
+.boot-base{width:120px;height:9px;border-radius:0 0 6px 6px;background:var(--card-solid,#221b25);
+  box-shadow:0 6px 16px rgba(0,0,0,.35)}
+@media(prefers-reduced-motion:reduce){.boot-term{text-shadow:none}}
+/* 加载门未消失前，锁滚动 */
+html.booting,html.booting body{overflow:hidden}

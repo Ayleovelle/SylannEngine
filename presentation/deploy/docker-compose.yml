@@ -1,0 +1,8 @@
+services:
+  sylanne-site:
+    build: .
+    image: sylanne-site:latest
+    container_name: sylanne-site
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"   # 只绑内网，由宿主宝塔 nginx 反代

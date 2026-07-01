@@ -212,6 +212,12 @@ training/models/
 training/training/
 _topology_test*.py
 
+# Scratch benchmark / experiment artifacts — regenerable, never tracked.
+experiments/_tmp_*
+
+# Local agent tooling config & transient worktrees (Claude Code etc.)
+.claude/
+
 # Per-copy SDK identity — minted once at runtime per install, never tracked.
 sylanne_core/_identity.json
 

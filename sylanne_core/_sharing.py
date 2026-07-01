@@ -19,6 +19,7 @@ import dataclasses
 import importlib
 import logging
 import os
+import sys
 import weakref
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -155,6 +156,54 @@ def _note_identity(key: str, *, built: bool) -> None:
         return
 
 
+_SCANNED_FOR_OLD_COPIES = False
+
+
+def _scan_for_pre2_copies() -> None:
+    """One-shot diagnostic: warn about any pre-2.0 sylanne_core copy already loaded.
+
+    A pre-2.0 copy predates the rendezvous cell entirely: it cannot reach this
+    process's shared registry no matter what, so it will always build its own
+    engine on a data_dir another copy also shares — silently double-flushing
+    the SAME files from two independent engines. There is nothing to converge
+    (that copy structurally cannot participate), so this is log-only: name the
+    module and its file path so the operator knows to migrate it.
+
+    Runs once per process (guarded by ``_SCANNED_FOR_OLD_COPIES``), triggered
+    from the first ``get_shared_engine`` call. Entirely best-effort: any
+    failure here must never break sharing itself.
+    """
+    global _SCANNED_FOR_OLD_COPIES
+    if _SCANNED_FOR_OLD_COPIES:
+        return
+    _SCANNED_FOR_OLD_COPIES = True
+    try:
+        this_pkg = __package__ or "sylanne_core"
+        for name, mod in list(sys.modules.items()):
+            if mod is None or name == this_pkg or not name.endswith("sylanne_core"):
+                continue
+            version = getattr(mod, "__version__", None)
+            if not version:
+                continue
+            try:
+                major = int(str(version).split(".", 1)[0])
+            except (ValueError, IndexError):
+                continue
+            if major < 2:
+                logger.warning(
+                    "found a pre-2.0 sylanne_core copy already imported as %r (v%s, %s) — "
+                    "that copy predates the rendezvous cell and cannot reach a shared "
+                    "engine at all; it will build and flush its OWN engine on any data_dir "
+                    "it is pointed at, silently double-flushing alongside newer copies. "
+                    "Migrate it to >=3.0.",
+                    name,
+                    version,
+                    getattr(mod, "__file__", "<unknown path>"),
+                )
+    except Exception:
+        return
+
+
 async def get_shared_engine(
     data_dir: str | Path,
     llm: LLMFn | None,
@@ -167,6 +216,8 @@ async def get_shared_engine(
     See SylanneEngine.shared for the public contract.
     """
     from .engine import SylanneEngine
+
+    _scan_for_pre2_copies()
 
     key = _make_key(data_dir)
     resolved_dir = Path(data_dir).resolve()
@@ -226,6 +277,33 @@ async def get_shared_engine(
                     # loop-bound and is preserved.
                     slot.loop_ref = weakref.ref(loop)
                     slot.engine._locks.clear()
+                    # submit()'s dedup tasks are asyncio Tasks bound to the dead loop
+                    # too — awaiting them on the new loop would hang forever. Cancel
+                    # and drop them (same cleanup engine.shutdown() does) so the next
+                    # submit() on the rebound engine recomputes instead of wedging.
+                    if hasattr(slot.engine, "_cancel_and_clear_submissions"):
+                        slot.engine._cancel_and_clear_submissions()
+                    if hasattr(slot.engine, "_last_tick"):
+                        slot.engine._last_tick.clear()
+                # A pre-2.4 builder's engine has no submit() at all: dedup is simply
+                # unavailable on this data_dir until every copy upgrades. Loud because
+                # silent duplicate LLM cost is exactly the failure mode 3.0 exists to
+                # kill everywhere else.
+                if not hasattr(slot.engine, "submit"):
+                    builder_id = _cell.builders.get(key)
+                    builder_short = None
+                    if builder_id:
+                        builder_ident = _cell.identities.get(builder_id)
+                        if builder_ident:
+                            builder_short = builder_ident.get("short")
+                    logger.warning(
+                        "shared engine %r has no submit() — it was built by a pre-2.4 "
+                        "sylanne_core copy%s. submit() dedup is UNAVAILABLE on this "
+                        "data_dir until every co-resident copy is upgraded to >=3.0; "
+                        "duplicate LLM cost across plugins is possible until then.",
+                        key,
+                        f" ({builder_short})" if builder_short else "",
+                    )
                 # Config compatibility, compared by VALUE over the INTERSECTION of
                 # field names: two vendored copies have distinct SylanneConfig
                 # classes (and a newer copy may have ADDED a defaulted field), so a
@@ -342,6 +420,10 @@ async def release_shared_engine(data_dir: str | Path) -> None:
         with _LOCK:
             if _REGISTRY.get(key) is tombstone:
                 del _REGISTRY[key]
+                # Drop the stale builder record too, so a released path leaves no
+                # orphaned driver id behind (clear_shared_registry does the same).
+                # _LOCK is the cell lock, so this is consistent with the del above.
+                _cell.builders.pop(key, None)
         if not tombstone.done():
             tombstone.set_result(None)
 
@@ -412,6 +494,50 @@ def list_shared() -> list[dict[str, str]]:
         snapshot = [(key, entry) for key, entry in _REGISTRY.items() if _is_live_entry(entry)]
     # Read engine.status outside the lock; it is a cheap attribute read.
     return [{"data_dir": key, "status": entry.engine.status} for key, entry in snapshot]
+
+
+def resolve_shared_data_dir(explicit: str | Path | None = None) -> Path:
+    """Resolve the canonical host-shared ``data_dir`` so co-deployed plugins converge.
+
+    Sharing dedups by ``data_dir``: if each embedded-SDK plugin defaults to its own
+    directory, they never collide and you get one engine per plugin — the exact
+    waste the driver/observer model exists to avoid. Route every plugin through
+    this and they land on ONE engine. Priority:
+
+      1. ``explicit`` (if given) — the caller pins the directory.
+      2. ``$SYLANNE_DATA_DIR`` — the host operator pins one directory for all plugins.
+      3. ``~/.sylanne/shared`` — a stable per-user default.
+
+    Returns a resolved absolute path. It is NOT created here — ``start()`` creates
+    it on first use. The result feeds straight into ``shared``.
+    """
+    if explicit is not None:
+        return Path(explicit).expanduser().resolve()
+    env = os.environ.get("SYLANNE_DATA_DIR")
+    if env and env.strip():
+        return Path(env.strip()).expanduser().resolve()
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        # Home undeterminable (unusual container/service accounts): fall back to a
+        # stable cwd-relative dir so the path is still deterministic for the run.
+        home = Path.cwd()
+    return (home / ".sylanne" / "shared").resolve()
+
+
+def peek_shared_engine(data_dir: str | Path) -> SylanneEngine | None:
+    """Return the live shared engine for ``data_dir``, or None. NEVER builds.
+
+    Unlike ``get_shared_engine``, this never constructs or starts an engine — it
+    is the attach-only primitive an observer uses to grab the driver's engine
+    without becoming a driver itself. A slot mid-teardown counts as absent.
+    """
+    key = _make_key(data_dir)
+    with _LOCK:
+        slot = _REGISTRY.get(key)
+        if _is_live_entry(slot):
+            return slot.engine
+    return None
 
 
 def warn_if_shared_exists(data_dir: str | Path) -> None:

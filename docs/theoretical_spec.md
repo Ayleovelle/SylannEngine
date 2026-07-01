@@ -1,3 +1,5 @@
+> **Note**: This document describes the theoretical computation standard (axioms, algebra, conformance levels). For the SDK API specification (method signatures, Surface schema), see [SPEC.md](../SPEC.md). For the integration guide, see [AGENT_GUIDE.md](../AGENT_GUIDE.md).
+
 # Sylanne Affective Computation Standard — Draft Specification v0.1
 
 ## 1. Purpose
