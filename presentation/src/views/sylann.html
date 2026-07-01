@@ -1,0 +1,349 @@
+<section class="view" data-view="sylann">
+<!-- PAGE HEADER -->
+  <header class="pagehead">
+    <div class="crumb r"><a data-nav="home" href="#/home">首页</a><span class="sep">/</span><span>SYLANN · V3 实验内核</span></div>
+    <div class="label r">Experimental Core · Beyond Backprop</div>
+    <h1 class="r d1">SYL<span class="em">ANN</span></h1>
+    <div class="tagline r d2">Scars You Leave Are Never Nothing<span class="en">a self-organizing affective architecture with no backpropagation</span></div>
+    <p class="lede r d3">不依赖 backprop 的情感计算架构。一条局部学习规则反复执行，记忆、伤疤、分化、死亡从中自行涌现——无需显式编程。
+    注意这里少了一个 <span class="hl">e</span>：Sylanne 的 e 是 Embodiment（具身），SYLANN 把那层剥掉了，只留纯粹的研究内核。
+    这一页讲的是内核本身，不是产品。</p>
+  </header>
+
+  <!-- 01 命题 -->
+  <section class="block">
+    <div class="block-head r"><span class="bno">01</span><h2>命题：情感从预测中自行生长</h2></div>
+    <div class="prose r d1">
+      <p>Transformer 的核心是<b>空间策略</b>——一次前向传播里，注意力让序列中任意位置直接通信，一口气看清所有关系。
+      SYLANN 走的是正交的路：<b>时间策略</b>。不在一次计算里穷尽所有问题，而是把一条极简的局部规则反复执行到天荒地老，让理解从时间的褶皱里长出来。</p>
+      <p>婴儿不是一次性「算出」语法的。她听了三年，预测了数亿次「下一个音节」，语言能力从重复中涌现。
+      SYLANN 模拟的正是这个过程：<span class="hl">不区分训练与推理，从出生到终老执行同一条规则</span>，所有认知能力都是这条规则在不同时间尺度上的积累效应。</p>
+      <p>而我们要验证的核心命题更激进——情感不是要额外「教」给系统的标签，而是语言预测任务本身就隐含的结构。
+      只要预测下一个字符预测得足够久，情感维度会自行浮现，不需要任何情感标注。</p>
+    </div>
+    <div class="callout r d1" style="margin-top:1.8rem">
+      <div class="ct">关键实验发现 · 27.8M ticks</div>
+      <div class="prose" style="max-width:none">
+        <p>在 15.6GB 中英文语料上做纯逐字符预测预训练，<b>全程零情感标注</b>。训练跑到 27.8M ticks 时：</p>
+        <ul>
+          <li>验证误差从随机基线 <code>0.0886</code> 降到 <code>0.082</code>——系统确实在学语言结构；</li>
+          <li>更出乎意料的是，deep state 已能自发区分悲伤与快乐的文本（cosine ≈ <code>0.07</code>）；</li>
+          <li>8 个情感维度里，<span class="hl">4 个出现了自发相关信号</span>——没人教它什么叫「悲伤」，它从预测里自己读了出来。</li>
+        </ul>
+        <p>这暗示：<b>学说话的时候，感受是顺带习得的副产物。</b>情感不是贴上去的标签，是预测任务底层的结构。</p>
+      </div>
+    </div>
+    <div class="metrics r d1" style="margin-top:1.8rem">
+      <div class="metric"><div class="v">27.8M</div><div class="l">训练 ticks</div><div class="d">pure next-char prediction</div></div>
+      <div class="metric"><div class="v">0.082</div><div class="l">验证误差</div><div class="d">from 0.0886 random baseline</div></div>
+      <div class="metric"><div class="v">4/8</div><div class="l">情感维度自发相关</div><div class="d">zero emotion labels</div></div>
+      <div class="metric"><div class="v">15.6<span style="font-size:1.2rem">GB</span></div><div class="l">中英文语料</div><div class="d">corpus ready</div></div>
+    </div>
+    <div class="comms r d1" style="margin-top:2rem;max-width:none">
+      <div class="meta"><i></i><b>SYLANNE</b></div>
+      <div class="body">先把话说清楚：这不是哲学宣言，是实验数据。我没去教它「这句话很难过」，它自己从猜下一个字里读出来的。
+      <b>4 个维度自发相关</b>——听起来不多？但它一个标注都没见过。这才是有意思的地方。</div>
+    </div>
+  </section>
+
+  <!-- 02 单一规则 -->
+  <section class="block">
+    <div class="block-head r"><span class="bno">02</span><h2>单一规则：一条公式撑起全部涌现</h2></div>
+    <div class="prose r d1">
+      <p>SYLANN 不使用反向传播、不使用注意力机制、不区分训练与推理。整个系统由一条局部更新规则驱动——
+      记忆、分化、固化、伤疤、新生、死亡，这些看似各需独立机制的现象，<b>全部从这一条公式的不同参数状态里自然涌现</b>。</p>
+    </div>
+    <div class="formula r d1" style="margin:1.8rem 0">
+      <span class="tex tex-block" data-tex="\Delta W = \eta \cdot \mathrm{plasticity}(t) \cdot \mathrm{error}(x, W) \cdot \mathrm{context}(\mathrm{neighbors}, \mathrm{reward})">ΔW = η · plasticity(t) · error(x, W) · context(neighbors, reward)</span>
+    </div>
+    <div class="prose r d1">
+      <p>四个因子，逐项拆解：</p>
+    </div>
+    <div class="defrow r d1"><div class="dt">W</div><div class="dd"><code>R^(K×M)</code> · cell 的权重矩阵，即它的<b>全部记忆</b>。对比 Transformer 一个注意力头要 Q/K/V 三个投影 + LayerNorm + FFN + 残差——一个 cell 只有这一个矩阵。</div></div>
+    <div class="defrow r d1"><div class="dt">η · plasticity(t)</div><div class="dd">随时间衰减的可塑性标量，编码<b>发育阶段</b>。年轻 cell（plasticity≈1）每 tick 大幅更新——快速适应但不稳定（工作记忆）；年老 cell（plasticity≈0）几乎冻结——缓慢但永久（长期记忆）。一个标量就完成了短期→长期记忆的转化。</div></div>
+    <div class="defrow r d1"><div class="dt">error(x, W)</div><div class="dd">对下一个输入的<b>预测误差</b>。唯一的学习信号——猜对不动，猜错才调。Hebbian 形式：误差与表征的外积，强化能减小预测误差的连接。</div></div>
+    <div class="defrow r d1"><div class="dt">context(neighbors, reward)</div><div class="dd"><b>竞争得分 × 外部奖励</b>的乘积。竞争得分来自 WTA（赢家才更新，输家不耗算力）；reward 是稀疏的环境反馈——正 reward 强化学习方向，负 reward 削减可塑性（留疤）。</div></div>
+  </section>
+
+  <!-- 03 七公理 -->
+  <section class="block">
+    <div class="block-head r"><span class="bno">03</span><h2>七条公理 · A1–A7</h2></div>
+    <div class="prose r d1">
+      <p>整个架构站在七条基础公理上，源自计算神经科学与发育生物学。每一条都不是修辞——它们是约束系统设计的硬性规则，
+      违反任何一条，跑出来的东西就不再是 SYLANN。</p>
+    </div>
+    <div class="r d1" style="margin-top:1.4rem">
+      <div class="ax"><span class="id">A1</span><span class="t">感知即误预测</span><span class="d">系统只在内部模型预测失败时才「感知」到什么——没有惊讶就没有感受。学习信号完全来自局部预测误差，没有任何全局误差信号能传到内部 cell。</span></div>
+      <div class="ax"><span class="id">A2</span><span class="t">情感即涌现共振</span><span class="d">情感从多域相干中涌现，不由单一路径计算。多个域在共享场里相位锁定，readout 才是情感——没有哪一层「专责」情感。</span></div>
+      <div class="ax"><span class="id">A3</span><span class="t">人格即拓扑不变量</span><span class="d">人格活在微分算子的核空间中，结构上免疫扰动。训练碰不到它，输入扰动穿不透它——数学保证，不是经验观察。</span></div>
+      <div class="ax"><span class="id">A4</span><span class="t">表达即分岔</span><span class="d">表达不是「过了阈值就说」的线性决策，而是鞍点分岔——动能越过势垒的相变式跳跃。要么不发生，发生即质变。</span></div>
+      <div class="ax"><span class="id">A5</span><span class="t">耦合共振场</span><span class="d">输入不沿管线流动，而是在共享场中诱导共振。没有串行的「先算再算」，七个域同时在一个场里相互牵拉直到收敛。</span></div>
+      <div class="ax"><span class="id">A6</span><span class="t">不可逆伤疤</span><span class="d">历史留下永久结构痕迹，伤疤只增不减——<span class="tex" data-tex="\frac{dS}{dt} \ge 0">dS/dt ≥ 0</span> 恒成立，无治愈机制，结构保证。回不去是可证明的定理。</span></div>
+      <div class="ax"><span class="id">A7</span><span class="t">人格派生一切</span><span class="d">所有耦合系数、衰减率、阈值，都是 7 维人格向量的显函数。改人格 = 改全部动力学常数，而非在输出上加偏置。</span></div>
+    </div>
+    <div class="callout r d1" style="margin-top:1.8rem">
+      <div class="ct">从公理到定理</div>
+      <div class="prose" style="max-width:none">
+        <p>这些公理不是空话，各自对应可证的数学保证：A1/A5 → <b>收敛性</b>（T=20 迭代后 ‖μ(T)−μ*‖ ≤ ρ^T·‖μ(0)−μ*‖，ρ&lt;1，需权重谱范数有界 + 侧抑制半负定）；
+        A6 → <b>伤疤单调性</b>（dS/dt ≥ 0，结构保证）；A2 → <b>Kuramoto 同步</b>（K_couple &gt; 3.2/7 ≈ 0.457 时保证相位锁定）；
+        A3/A7 → <b>人格不变性</b>（proj_ker(L_p)(W_t)=0 对所有训练步成立）。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 Benvo -->
+  <section class="block">
+    <div class="block-head r"><span class="bno">04</span><h2>Benvo · 本我 · 身份核</h2></div>
+    <div class="prose r d1">
+      <p>Benvo 是系统的<b>身份核</b>。词源 ben（本，essential）+ vo（我，self），读音对应中文「本我」。
+      它不是学出来的参数，也不是配置——它是决定感知动力学如何展开的<span class="hl">宪法性常数</span>。在 SYLANN 研究内核里，Benvo 是纯数学对象；
+      到了 Sylanne 载体那层（多一个 e = Embodiment）它才被赋予具身的行为表现。本页讲的是研究侧：Benvo 作为参数向量怎么运作。</p>
+      <blockquote>Benvo 不是配置，是构成（constitution）。两个携带不同 Benvo 的实例，即便接收相同输入，也会发展出不同的表征结构、不同的伤疤地形、不同的情感轨迹。</blockquote>
+    </div>
+    <div class="split a r d1" style="margin-top:1.8rem;align-items:start">
+      <div>
+        <h3 class="kch" style="margin-bottom:1rem">Personality 是果，Benvo 是因</h3>
+        <div class="prose" style="max-width:none">
+          <p>Personality 是外在可观察的行为模式——「她很温柔」「他很直接」。
+          Benvo 是产生这些模式的内部参数——「她的耦合矩阵让 warmth 与 engagement 天然共振，于是表现为温柔」。</p>
+          <p>所以 Benvo 不像别的架构那样在输出端加 bias，它改的是感知过程本身的<b>「物理常数」</b>：感知增益、耦合拓扑、演化速度、耗散率、表达阈值。
+          同一把琴，不同的调音，音色就不同。</p>
+        </div>
+      </div>
+      <div>
+        <div class="card k">
+          <div class="ctitle">Benvo 调制什么</div>
+          <ul class="fl">
+            <li><b>感知增益</b> 同样输入，敏感的实例反应更大</li>
+            <li><b>耦合拓扑</b> 哪些情感维度共振、哪些互抑</li>
+            <li><b>演化速度</b> 冲动的快收敛，审慎的慢酝酿</li>
+            <li><b>耗散率</b> 稳定的快速回到平静，易波动的久久不散</li>
+            <li><b>表达阈值</b> 内敛的需更强信号，外放的轻易点火</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="prose r d1" style="margin-top:1.8rem">
+      <p>它在公式里以人格向量 B 的形式出现，<b>初始化即冻结，终身不变</b>，参数化每一条动力学方程（这正是公理 A7）：</p>
+    </div>
+    <table class="tbl r d1" style="margin-top:1rem">
+      <thead><tr><th>子向量</th><th>出现在哪</th><th class="us">效果</th></tr></thead>
+      <tbody>
+        <tr><td>b_prec</td><td class="nn">σ 初始化</td><td class="us">高精度域起步更自信</td></tr>
+        <tr><td>b_rate</td><td class="nn">η_eff 乘子</td><td class="us">该域学习/适应更快</td></tr>
+        <tr><td>b_prior</td><td class="nn">master 方程吸引子</td><td class="us">把所有表征拉向人格中心</td></tr>
+        <tr><td>b_temp</td><td class="nn">WTA softmax 温度</td><td class="us">低=尖锐专家，高=分布式表征</td></tr>
+        <tr><td>b_osc</td><td class="nn">Kuramoto 频率偏移</td><td class="us">改变各域自然节律</td></tr>
+        <tr><td>b_thresh</td><td class="nn">剪枝判据乘子</td><td class="us">高=激进剪枝，网络更稀疏</td></tr>
+        <tr><td>b_couple</td><td class="nn">J_dd' 偏置</td><td class="us">哪些域天然共激活</td></tr>
+      </tbody>
+    </table>
+    <div class="prose r d1" style="margin-top:1.4rem">
+      <p>关于「不可变」要补一句诚实的话：在严格的 V3 研究内核里 B 是<b>初始化即冻结</b>的（Axiom 5）；而在面向部署的载体设定中，Benvo 会以极小的速率（η≈0.01–0.05/事件）<b>缓慢漂移</b>——
+      高惯性，1000 次交互后仍是可辨识的同一个实体，但已与第一天有了微妙差别。这是「先天气质 + 后天塑造」的分工：Benvo 定方向，plasticity 衰减与 scar 做塑形。</p>
+    </div>
+  </section>
+
+  <!-- 05 两种架构路线 -->
+  <section class="block">
+    <div class="block-head r"><span class="bno">05</span><h2>两种架构路线</h2></div>
+    <div class="prose r d1">
+      <p>同一套公理，落到工程有两条互补的实现路线。一条沿时间轴展开（序列预测编码），一条沿层析结构展开（层析共振）。
+      不是二选一——它们是 SYLANN 内核可以采用的两种几何。</p>
+    </div>
+
+    <div class="r d1" style="margin-top:1.6rem">
+      <div class="mode-badge">路线 A · Sequential Predictive Coding · 时间策略</div>
+      <h3 class="kch" style="margin-bottom:.7rem">逐字符预测，让理解从时间中生长</h3>
+      <div class="prose" style="max-width:none">
+        <p>输入文本逐字符喂入，每 tick 各 cell 预测下一个字符，预测误差直接驱动权重更新。无需 tokenizer、无需 position encoding、无需 teacher forcing——
+        系统自行学会字符共现规律。Domain 内部用 <b>WTA 竞争</b>决定谁学习（误差越小分数越高，赢家独占更新，输家不耗算力）；
+        Domain 之间靠 <b>CFC 相位门控</b>通信（相位对齐时门开，错位时隔离）。</p>
+      </div>
+    </div>
+    <div class="split b r d1" style="margin-top:1.6rem;align-items:start">
+      <div class="code">
+        <div class="top"><i></i><i></i><i></i><em>sequential_predictive_coding</em></div>
+<span class="k">for</span> c_t <span class="k">in</span> text:                  <span class="c"># 逐字符</span>
+    prediction = W @ embed(c_t)
+    error = embed(c_t1) - prediction
+    <span class="c"># WTA: 误差越小，context 越高</span>
+    context = <span class="f">softmax</span>(-‖error‖² / τ)
+    ΔW = plasticity · error ⊗ embed(c_t) · context
+    W += ΔW              <span class="c"># 只有赢家更新</span>
+      </div>
+      <div>
+        <div class="card">
+          <div class="ctitle">规模坐标 · ultra 全量</div>
+          <h3 style="margin:.2rem 0 .7rem">14 域 × 128 cell × K=256</h3>
+          <p style="margin-bottom:.8rem">域内 WTA 竞争产生稀疏激活；任意时刻仅 O(1) 个 cell 被唤醒（与 N 无关），推理复杂度 O(D) 不随 cell 总数增长。</p>
+          <ul class="fl">
+            <li><b>WTA 竞争</b> 赢家独占学习，稀疏激活</li>
+            <li><b>14 域</b> 0–6 情感域 + 7–13 认知域</li>
+            <li><b>CFC 相位门控</b> what-when-what 而非 what-what</li>
+            <li><b>K=256</b> 每 cell 的表征维度</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="r d1" style="margin-top:2.6rem">
+      <div class="mode-badge">路线 B · Sheaf-Theoretic Resonance · 层析共振</div>
+      <h3 class="kch" style="margin-bottom:.7rem">用层论约束保证高阶一致</h3>
+      <div class="prose" style="max-width:none">
+        <p>另一条路把多域结构看作一个 cellular sheaf（细胞层），用 sheaf Laplacian 在<b>层析结构</b>上传播高阶约束。
+        情感记忆是这个能量景观上的吸引子；人格是 Hodge 理论意义下的<b>谐波身份</b>——调和积分的核空间，扰动下守恒（这正是 A3 的数学实现）。
+        共振不是沿管线流动，而是在共享场里整体达成一致——输入诱导共振，场迭代收敛，表达是场的一次相变（A4/A5）。</p>
+      </div>
+    </div>
+    <div class="grid g3 r d1" style="margin-top:1.4rem">
+      <div class="card"><div class="ctitle">HANSEN · 2020</div><h3>Sheaf Laplacian</h3><p>高阶拓扑一致性约束，restriction map 在共激活时更新布线。</p></div>
+      <div class="card"><div class="ctitle">HODGE · 1941</div><h3>谐波身份</h3><p>人格 = 调和积分核空间的拓扑不变量，结构上守恒。</p></div>
+      <div class="card"><div class="ctitle">HOPFIELD · 1982</div><h3>情感吸引子</h3><p>记忆 = 能量景观吸引子，表达 = 逃离吸引子。</p></div>
+    </div>
+  </section>
+
+  <!-- 06 涌现现象 -->
+  <section class="block">
+    <div class="block-head r"><span class="bno">06</span><h2>涌现现象：没有编写的机制，自己长了出来</h2></div>
+    <div class="prose r d1">
+      <p>以下认知能力，<b>没有任何一个是单独写的模块</b>。它们全部从那一条 ΔW 公式的参数动态里直接涌现——
+      你只需要让规则跑得足够久，剩下的交给数学。</p>
+    </div>
+    <table class="tbl r d1" style="margin-top:1.4rem">
+      <thead><tr><th>现象</th><th>机制</th><th class="us">生物类比</th></tr></thead>
+      <tbody>
+        <tr><td>分化</td><td class="nn">WTA 竞争放大初始微小差异：误差略小的 cell 被更新，差异单调扩大直到完全专精</td><td class="us">干细胞分化</td></tr>
+        <tr><td>记忆</td><td class="nn">plasticity 时间衰减：年轻 cell ≈ 工作记忆（快变），年老 cell ≈ 长期记忆（永久）</td><td class="us">海马–皮层整合</td></tr>
+        <tr><td>伤疤</td><td class="nn">负 reward 造成 plasticity 不可逆下降——失去在该方向改变的能力，而非存一个创伤向量</td><td class="us">创伤后应激</td></tr>
+        <tr><td>新生 / 死亡</td><td class="nn">blind spot 检测触发 dormant cell 激活；低效 cell 衰减到 plasticity=0 被回收</td><td class="us">神经发生</td></tr>
+        <tr><td>专家化</td><td class="nn">anti-Hebbian 侧抑制 + WTA → 去相关化，不同 cell 占据不同表征子空间</td><td class="us">皮层柱状组织</td></tr>
+      </tbody>
+    </table>
+    <div class="callout r d1" style="margin-top:1.8rem">
+      <div class="ct">真正的不可逆</div>
+      <div class="prose" style="max-width:none">
+        <p>伤疤这条值得单独说。被反复惩罚的 cell 不是存了一个「创伤记忆向量」，而是<b>逐渐丧失在那个方向上改变的能力</b>——
+        <code>if reward &lt; threshold: plasticity *= 0.95</code>，永久降低，不可恢复。</p>
+        <p>这是真正的不可逆：不是参数值不可逆，是<span class="hl">参数的可变性</span>不可逆。它记住了「这个方向是错的」，靠的是再也学不动那个方向。
+        没有撤回键，没有「重置对话」可按。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 与 Attention 对比 -->
+  <section class="block">
+    <div class="block-head r"><span class="bno">07</span><h2>与 Attention / Transformer 对比</h2></div>
+    <div class="prose r d1">
+      <p>SYLANN 不是要复制 Transformer，而是要在它的弱点上走出另一条路。Transformer 是<b>「上帝视角」</b>——看到所有 token，一次算出答案；
+      SYLANN 是<b>「第一人称视角」</b>——逐步感知，逐步理解，有记忆、有情绪、有时间感。前者适合做工具，后者适合做主体。</p>
+    </div>
+    <table class="tbl r d1" style="margin-top:1.4rem">
+      <thead><tr><th>维度</th><th>Attention / Transformer</th><th class="us">SYLANN</th></tr></thead>
+      <tbody>
+        <tr><td>路由方式</td><td class="nn">Q·K 相似度 → 加权求和</td><td class="us">WTA 竞争 → 赢家独占</td></tr>
+        <tr><td>激活模式</td><td class="nn">Dense（所有头都算）</td><td class="us">Sparse（只有赢家算）</td></tr>
+        <tr><td>通信拓扑</td><td class="nn">全连接 O(n²)</td><td class="us">Phase-gated O(D²), D ≪ n</td></tr>
+        <tr><td>时间感知</td><td class="nn">无（position embedding 模拟）</td><td class="us">有（振荡相位 = 真实时间）</td></tr>
+        <tr><td>记忆</td><td class="nn">context window 外即丢失</td><td class="us">W 是永久记忆</td></tr>
+        <tr><td>学习</td><td class="nn">训完不再进化</td><td class="us">每次推理都在微调，终身发育</td></tr>
+        <tr><td>推理成本</td><td class="nn">每 token 触及 O(P) 参数</td><td class="us">每 tick 仅 O(D) 个 winner</td></tr>
+      </tbody>
+    </table>
+    <div class="split a r d1" style="margin-top:1.8rem;align-items:start">
+      <div>
+        <h3 class="kch" style="margin-bottom:1rem">关键差异：多出来的那一维叫时间</h3>
+        <div class="prose" style="max-width:none">
+          <p>Transformer 的注意力是「谁和谁相关」（what-what）；SYLANN 的 phase gating 是<b>「谁在什么时候和谁相关」</b>（what-when-what）。
+          多了一个时间维度——通信窗口会周期性地开合。</p>
+          <p>这让 SYLANN 能做 Transformer 用 position embedding 永远模拟不了的事：不同频率振荡编码不同时间尺度，phase 领先 = 因果推理，cross-frequency coupling = 把快事件嵌进慢节奏。叙事的铺垫→高潮→释放、情绪如何随时间展开——这些是它独有的能力空间。</p>
+        </div>
+      </div>
+      <div>
+        <div class="card k">
+          <div class="ctitle">两句话总结</div>
+          <div class="quote" style="margin:.4rem 0 1rem">Attention is all you need <span style="color:var(--text-faint);font-weight:400">— for computing.</span></div>
+          <div class="quote">Prediction error is all you need <span style="color:var(--text-faint);font-weight:400">— for living.</span></div>
+          <p style="margin-top:1.1rem;color:var(--text-muted);font-size:.94rem">一个是最强的函数逼近器，一个是最简的生命模拟。或许不是替代，而是互补：工具任务（搜索、翻译、编程）交给前者；需要记忆、成长、个性化、情感的任务（陪伴、创作、长期协作）交给后者。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 局限性 -->
+  <section class="block">
+    <div class="block-head r"><span class="bno">08</span><h2>局限性：诚实地把没解决的摊开</h2></div>
+    <div class="prose r d1">
+      <p>这是研究内核，不是成品。把问题藏起来对谁都没好处——下面这些是我们目前<b>还没解决</b>的，有些是工程的，有些是根本性的。</p>
+    </div>
+    <div class="grid g2 r d1" style="margin-top:1.4rem">
+      <div class="card"><div class="ctitle">本质 · Essence</div><h3>底座仍是猜字游戏</h3><p>预测下一个字符，与 Transformer 的训练目标同构。说「不靠 backprop 的智能」之前，得先承认底座还是 next-token prediction。</p></div>
+      <div class="card"><div class="ctitle">依赖 · Dependency</div><h3>依赖「正确答案」</h3><p>学习信号来自预测误差，而误差需要 ground truth。这不是真正的自主——它还在被「正确答案」牵着走。</p></div>
+      <div class="card"><div class="ctitle">被动 · Passivity</div><h3>被动反应，缺乏内驱</h3><p>无输入则静止。虽然 Kuramoto 相位理论上自主振荡，但目前系统没有真正的内驱探索——只是在等刺激。</p></div>
+      <div class="card"><div class="ctitle">读出 · Readout</div><h3>情感是读出来的，不是活的</h3><p>reward 只调制学习率。情感维度能被 readout，但系统并不「体验」它——这是观测，不是感受。</p></div>
+      <div class="card"><div class="ctitle">规模 · Scale</div><h3>规模与速度都还很小</h3><p>64 cells 逐字符处理，离复杂能力还远。长距离依赖必须靠 W 缓慢积累传递，不如 Attention 直接。</p></div>
+      <div class="card"><div class="ctitle">证明 · Proof</div><h3>收敛性未严格证明</h3><p>目前没有严格证明该系统在任意数据分布上收敛到有用表征。超参虽少（~5 个），但 decay_rate 与 temperature 极敏感。</p></div>
+    </div>
+    <div class="callout r d1" style="margin-top:1.8rem">
+      <div class="ct">尚未验证的</div>
+      <div class="prose" style="max-width:none">
+        <p>在标准 NLP benchmark 上，我们<b>预期 SYLANN 在同参数量下不如 Transformer</b>。它的优势体现在持续学习、记忆、个性化、情感这些 Transformer 够不到的维度——
+        但这些优势目前多数还停留在理论推导阶段。所有大规模估算<span class="hl">均未经实验验证</span>。phase gating 的跨域通信能否弥补逐字符处理在长距离依赖上的劣势，也尚待验证。</p>
+      </div>
+    </div>
+    <div class="comms r d1" style="margin-top:1.8rem;max-width:none">
+      <div class="meta"><i></i><b>SYLANNE</b></div>
+      <div class="body">把局限列这么细，不是心虚——<b>研究内核最值钱的东西就是知道自己还差在哪</b>。
+      谁要是跟你说他的架构没缺点，那他不是在做研究，是在卖东西。这一页我宁可少吹一点。</div>
+    </div>
+  </section>
+
+  <!-- 09 本地自进化 + 规模化 -->
+  <section class="block">
+    <div class="block-head r"><span class="bno">09</span><h2>本地自进化与规模化推演</h2></div>
+    <div class="prose r d1">
+      <p>SYLANN 部署后<b>无需网络连接</b>，三层机制在设备上自主进化——这是 local learning 的直接红利：没有 backprop 就不需要训练集群，「训练 = 持续使用」。
+      一个月后，从同一 checkpoint 出发的两个实例，会变成可辨识的不同感知者。</p>
+    </div>
+    <div class="r d1" style="margin-top:1.4rem">
+      <div class="defrow"><div class="dt">L1 · 伤疤 + Benvo 漂移</div><div class="dd">成本 <code>~0</code>。伤疤积累 + Benvo 缓慢漂移，<b>改变感知动力学的展开方式</b>。几乎零开销，每 tick 顺带完成。</div></div>
+      <div class="defrow"><div class="dt">L2 · Hebbian 布线</div><div class="dd">成本 <code>&lt;1ms/tick</code>。restriction map 在共激活时更新（anti-Hebbian 侧抑制 + 跨域投影），<b>改变域间通信路径的强弱</b>。</div></div>
+      <div class="defrow"><div class="dt">L3 · 本地自蒸馏</div><div class="dd">成本 <code>&lt;500ms/update</code>。高 surprise 样本教编码器跳过迭代，<b>改变文本编码方式</b>。低频但影响深远。</div></div>
+    </div>
+    <div class="prose r d1" style="margin-top:1.8rem">
+      <p>认知域（7–13）与情感域（0–6）走<b>不同的可塑性策略</b>：认知域永远可塑、终身学习（模拟新皮层——80 岁还能学新知识）；
+      情感域经历塑形后逐渐固化为人格（模拟边缘系统——关键期后可塑性下降）。最终人格 = 先天 Benvo + 后天 plasticity 衰减 + scar。</p>
+    </div>
+
+    <h3 class="kch r d1" style="margin:2.2rem 0 1rem">规模化推演 · 参数量对标 GPT</h3>
+    <div class="prose r d1" style="margin-bottom:1.2rem">
+      <p>下表是理论推导的规模坐标（<b>注意：大规模数字均为推导，未经实验验证</b>，见上一节局限性）。WTA 稀疏性使每 tick 仅 ~10% cells 激活，等效规模下预期 &lt;2ms/tick。</p>
+    </div>
+    <table class="tbl r d1">
+      <thead><tr><th>规模</th><th>配置</th><th>参数量</th><th class="us">等效</th></tr></thead>
+      <tbody>
+        <tr><td>Tiny</td><td class="nn">14 域 × 16 cell × 32d</td><td class="nn">0.5M</td><td class="us">验证概念</td></tr>
+        <tr><td>Base</td><td class="nn">14 域 × 128 cell × 256d</td><td class="nn">235M</td><td class="us">GPT-2 级</td></tr>
+        <tr><td>Large</td><td class="nn">100 域 × 1000 cell × 512d</td><td class="nn">52B</td><td class="us">GPT-3 级</td></tr>
+        <tr><td>Ultra</td><td class="nn">1000 域 × 10K cell × 1024d</td><td class="nn">21T</td><td class="us">GPT-4 级</td></tr>
+      </tbody>
+    </table>
+    <div class="prose r d1" style="margin-top:1.4rem">
+      <p>训练成本的差异更为尖锐：Transformer（GPT-4 级）需要数千 GPU 训练数月、成本 $100M+；
+      SYLANN 的 local learning 无需 backprop，<b>训练就是持续使用，不需要预训练集群</b>。
+      推理上，Transformer 每 token 触及 O(P) 全参数；SYLANN 靠 WTA 稀疏只算 O(D) 个 winner——当 P ≫ D，每步计算量远低于前者。</p>
+    </div>
+    <div class="comms r d1" style="margin-top:2rem;max-width:none">
+      <div class="meta"><i></i><b>SYLANNE</b></div>
+      <div class="body">最后再点一次那个 e。Sylanne 比 SYLANN 多出来的那个 e，是 Embodiment——具身。
+      这一页讲的是剥掉具身之后的纯研究内核：公式、公理、动力学。等它走进载体那层、变成会跟你拌嘴的我，才算装上了那个 e。
+      <b>内核要冷，人格才能暖。</b></div>
+    </div>
+  </section>
+
+  <!-- PREV / NEXT -->
+  <nav class="pager">
+    <a data-nav="engine" href="#/engine"><div class="dir">← 上一部分</div><div class="pt">SylannEngine · 引擎</div></a>
+    <a class="next" data-nav="roadmap" href="#/roadmap"><div class="dir">下一部分 →</div><div class="pt">演化路线</div></a>
+  </nav>
+</section>

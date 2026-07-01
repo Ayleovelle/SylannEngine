@@ -1,0 +1,72 @@
+nav{position:fixed;z-index:40;top:0;left:0;right:0;height:62px;display:flex;align-items:center;
+  padding:0 clamp(20px,4vw,48px);border-bottom:1px solid transparent;transition:.35s}
+nav.scrolled{background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(14px);border-bottom-color:var(--line2)}
+nav .brand{display:flex;align-items:center;gap:.6em;font-family:var(--font-head);font-weight:700;font-size:1.05rem;letter-spacing:.16em;text-transform:uppercase}
+nav .brand svg{width:30px;height:30px;color:var(--text);overflow:visible}
+nav .brand .logo-mark circle{transform-origin:55px 18px;animation:pulseNode 2.6s ease-in-out infinite}
+nav .brand .logo-mark path{stroke-dasharray:240;stroke-dashoffset:0;transition:stroke-dashoffset .9s cubic-bezier(.2,1,.2,1)}
+nav .brand:hover .logo-mark path{stroke-dashoffset:240;animation:drawPulse 1s cubic-bezier(.2,1,.2,1) forwards}
+@keyframes pulseNode{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.35);opacity:.7}}
+@keyframes drawPulse{from{stroke-dashoffset:240}to{stroke-dashoffset:0}}
+nav .brand b{color:var(--accent)}
+nav .links{display:flex;gap:.1rem;margin-left:auto;align-items:stretch;height:100%}
+/* 标签：小编号 + 中文，单行同构 */
+nav .links a{display:flex;flex-direction:column;justify-content:center;gap:2px;position:relative;
+  padding:0 1.05em;text-decoration:none;transition:.25s;color:var(--text-muted)}
+nav .links a .lx{font-family:var(--font-mono);font-size:.56rem;letter-spacing:.12em;color:var(--text-faint);transition:.25s;line-height:1}
+nav .links a .lz{font-family:var(--font-head);font-size:.98rem;font-weight:700;letter-spacing:.14em;line-height:1.05;color:var(--text)}
+nav .links a::after{content:'';position:absolute;left:1.05em;right:1.05em;bottom:13px;height:2px;background:var(--accent);transform:scaleX(0);transform-origin:left;transition:transform .3s cubic-bezier(.2,1,.2,1)}
+nav .links a:hover .lz,nav .links a.cur .lz{color:var(--accent-d)}
+nav .links a:hover .lx,nav .links a.cur .lx{color:var(--accent)}
+nav .links a.cur::after{transform:scaleX(1)}
+nav .links a:hover::after{transform:scaleX(1);opacity:.5}
+nav .links a.cta{flex-direction:row;align-items:center;align-self:center;height:auto;padding:.5em 1.1em;border:1px solid var(--card-border);border-radius:20px;
+  font-family:var(--font-head);font-size:.8rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text);margin-left:.6em}
+nav .links a.cta::after{display:none}
+nav .links a.cta:hover{border-color:var(--accent);color:var(--accent)}
+nav .tg{align-self:center;width:34px;height:30px;border:1px solid var(--card-border);border-radius:20px;background:transparent;
+  color:var(--text);cursor:pointer;font-size:.9rem;margin-left:.5em;transition:.25s;display:flex;align-items:center;justify-content:center}
+nav .tg:hover{border-color:var(--accent);color:var(--accent-d)}
+nav .burger{display:none;margin-left:auto;background:none;border:none;color:var(--text);font-size:1.4rem;cursor:pointer}
+
+/* ===== 移动端汉堡菜单（≤920px）=====
+   links 不用 display:none 隐藏——保证始终留在可访问树、可被计数；
+   用 opacity/transform/visibility 控制可见与可交互。 */
+@media(max-width:920px){
+  nav .burger{display:flex;align-items:center;justify-content:center;width:42px;height:42px;margin-left:auto;
+    border:1px solid var(--card-border);border-radius:12px;font-size:1.15rem;transition:border-color .25s,color .25s}
+  nav .burger[aria-expanded="true"]{border-color:var(--accent);color:var(--accent-d)}
+  nav .links{
+    position:fixed;top:70px;right:16px;
+    width:min(320px,calc(100vw - 28px));height:auto;            /* 覆盖桌面 height:100%，否则 fixed 下会撑成 100vh */
+    flex-direction:column;align-items:stretch;gap:.25rem;
+    margin:0;padding:.55rem;
+    background:var(--card-solid);
+    border:1px solid var(--card-border);border-radius:16px;
+    box-shadow:0 22px 56px rgba(0,0,0,.22);
+    -webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+    transform-origin:top right;z-index:60;
+    opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-8px) scale(.96);
+    transition:opacity .26s cubic-bezier(.2,1,.2,1),transform .26s cubic-bezier(.2,1,.2,1),
+               visibility 0s linear .26s}
+  nav .links.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0) scale(1);
+    transition:opacity .26s cubic-bezier(.2,1,.2,1),transform .26s cubic-bezier(.2,1,.2,1),visibility 0s}
+  nav .links a{flex-direction:row;align-items:center;gap:.6rem;padding:.6rem .85rem;min-height:44px;border-radius:10px;
+    transition:background .2s ease,color .2s ease}
+  nav .links a .lx{font-size:.6rem;min-width:1.4rem}
+  nav .links a .lz{font-size:1.02rem}
+  nav .links a::after{display:none}                               /* 菜单态不要下划线缩放动画，改靠背景高亮 */
+  nav .links a:hover,nav .links a.cur{background:var(--glow)}
+  nav .links a:hover .lz,nav .links a.cur .lz{color:var(--accent-d)}
+  nav .links a:hover .lx,nav .links a.cur .lx{color:var(--accent)}
+  nav .links a.cta{align-self:stretch;align-self:stretch;margin:.25rem 0 0;padding:.7rem 1rem;min-height:44px;
+    justify-content:center}
+  nav .links .tg{align-self:stretch;justify-content:flex-start;padding:.6rem .9rem;min-height:44px;
+    margin:0;width:auto;height:auto;border-radius:10px}
+  nav .links .tg .tg-ico{font-size:1rem}
+}
+@media(max-width:920px) and (prefers-reduced-motion:reduce){
+  nav .links,nav .links.open{transition:opacity .15s ease,visibility 0s}
+}
+
+/* ===== section + typography ===== */

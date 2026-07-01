@@ -1,0 +1,45 @@
+/* ════ 首页 · 共振场 hero + 路由条 ════ */
+/* hero 压在共振场上，留白大、克制 */
+.hero-field{min-height:auto;padding-top:clamp(8vh,14vh,180px);padding-bottom:3vh}
+.hero-field .desc{max-width:54ch}
+.field-hint{display:block;margin-top:.9rem;font-family:var(--font-mono);font-size:.74rem;
+  letter-spacing:.08em;color:var(--accent-d)}
+
+/* 路由条：四个去向一排，安静的卡，不与共振场抢戏 */
+.routes{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;
+  max-width:1100px;margin:clamp(2rem,5vh,4rem) auto 0;padding:0 clamp(20px,5vw,56px) 8vh}
+.route{position:relative;display:flex;flex-direction:column;gap:.3rem;
+  background:var(--card);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--card-border);border-radius:14px;padding:1.3rem 1.4rem 1.5rem;
+  transition:transform var(--motion-ui) var(--motion-ease),border-color var(--motion-ui) ease,box-shadow var(--motion-ui) ease}
+.route:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 14px 38px rgba(0,0,0,.12)}
+.route:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.rt-k{font-family:var(--font-head);font-weight:700;font-size:1.3rem;letter-spacing:.04em;color:var(--text)}
+.rt-en{font-family:var(--font-mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-d)}
+.rt-d{margin-top:.5rem;font-size:.9rem;line-height:1.5;color:var(--text-muted)}
+.rt-go{position:absolute;top:1.2rem;right:1.3rem;font-family:var(--font-head);font-size:1.1rem;color:var(--text-faint);
+  transition:transform .3s ease,color .3s ease}
+.route:hover .rt-go{transform:translateX(4px);color:var(--accent-d)}
+@media(max-width:880px){.routes{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.routes{grid-template-columns:1fr}}
+
+/* 文档入口条：开发者真正要读的两份，站内显眼入口 */
+.docs-strip{max-width:1100px;margin:0 auto;padding:0 clamp(20px,5vw,56px) 9vh}
+.ds-lbl{display:block;font-family:var(--font-mono);font-size:.66rem;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--text-faint);margin-bottom:.9rem}
+.ds-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem}
+.ds-card{position:relative;display:flex;align-items:center;gap:1rem;
+  background:var(--card);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+  border:1px solid var(--card-border);border-radius:14px;padding:1.1rem 1.3rem;
+  transition:transform var(--motion-ui) var(--motion-ease),border-color var(--motion-ui) ease,box-shadow var(--motion-ui) ease}
+.ds-card:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 14px 38px rgba(0,0,0,.12)}
+.ds-card:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.ds-ico{flex-shrink:0;width:42px;height:42px;display:grid;place-items:center;border-radius:10px;
+  background:var(--glow);color:var(--accent-d);font-family:var(--font-mono);font-size:1.05rem;font-weight:700}
+.ds-body{display:flex;flex-direction:column;gap:.2rem;min-width:0}
+.ds-k{font-family:var(--font-head);font-weight:700;font-size:1.08rem;letter-spacing:.02em;color:var(--text)}
+.ds-d{font-size:.84rem;line-height:1.45;color:var(--text-muted)}
+.ds-go{margin-left:auto;flex-shrink:0;font-family:var(--font-head);font-size:1.1rem;color:var(--text-faint);
+  transition:transform .3s ease,color .3s ease}
+.ds-card:hover .ds-go{transform:translateX(4px);color:var(--accent-d)}
+@media(max-width:520px){.ds-cards{grid-template-columns:1fr}}
