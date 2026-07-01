@@ -7,7 +7,7 @@
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
-[![Version](https://img.shields.io/badge/Version-3.0.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-2.4.0-green.svg)](CHANGELOG.md)
 [![Tests](https://img.shields.io/badge/Tests-650+_passed-brightgreen.svg)]()
 [![Zero Dependencies](https://img.shields.io/badge/Lite_Tier-Zero_Dependencies-orange.svg)]()
 
@@ -68,7 +68,7 @@ Prediction error is all you need — for living.
 
 ```
 # requirements.txt
-sylanne-core>=3,<4
+sylanne-core>=2.4,<3
 ```
 
 ```python
@@ -470,7 +470,7 @@ assert same is engine
 surface = await engine.submit("user_123", raw_text, msg_id=event.message_obj.message_id)
 ```
 
-**submit() 去重规则（3.0.0）：**
+**submit() 去重规则（2.4.0）：**
 
 | 场景 | 行为 |
 |------|------|

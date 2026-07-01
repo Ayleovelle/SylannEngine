@@ -3,7 +3,7 @@
 Covers the dual-index (msg_id / text-hash) join rules, the detached-task +
 shield architecture (cancellation-safety, failure eviction), the lazy
 prune/cap window, submit_stats()/participants() diagnostics, and the
-loop-rebind regression (KS3) — see the sylanne-core 3.0.0 master spec.
+loop-rebind regression (KS3) — see the sylanne-core 2.4.0 master spec.
 """
 
 from __future__ import annotations

@@ -5,15 +5,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [3.0.0] — 2026-07-02
+## [2.4.0] — 2026-07-02
 
-### 💥 BREAKING：删掉 driver/observer 角色层，改用 single-fire submit()
+### 💥 撤回 driver/observer 角色层（发布前，从未进入任何 tag），改用 single-fire submit()
 
 `SylanneEngine.acquire` / `AcquireResult` / `ObserverView` / `SylanneEngine.role` /
 `_sharing.shared_role` / `as_observer` **全部删除**——不是弃用垫片，是彻底移除。
-所有旧调用点会立刻 `AttributeError`/`ImportError`，不留一个行为相似的假亲戚。
+所有旧调用点会立刻 `AttributeError`/`ImportError`，不留一个行为相似的假亲戚。该层只存在于
+发布前的开发分支（见下方「开发期记录」），从未打 tag、从未合入 main、没有任何下游见过——
+因此本版本沿用 2.4.0 号：对一切已发布版本（≤2.3.2）而言这里全部是纯新增，semver 恰为 minor。
 
-**为什么砍掉一个刚在 2.4.0 上过的机制**：driver/observer 把"角色"锚定在 SDK 物理拷贝目录上
+**为什么砍掉一个开发期刚做出来的机制**：driver/observer 把"角色"锚定在 SDK 物理拷贝目录上
 （`my_id == builder_id`）。AstrBot 的默认部署是所有插件共用一份 site-packages 拷贝——于是这个判断
 对每个插件恒真，N 个插件全拿到 `role="driver"` 和完整引擎，N 路 `process()` 全接上，N 倍 LLM
 账单，机制在它唯一要解决的默认部署下是彻底 no-op，且过去无任何告警。以拷贝为身份单位这条路，
@@ -56,7 +58,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### 🗑️ 移除
 
 - `SylanneEngine.acquire()` / `AcquireResult` / `ObserverView` / `SylanneEngine.role()` / `_sharing.shared_role()` /
-  `as_observer` 参数——2.4.0 引入，本版本整层砍掉。`__init__.py` 的 `__all__` 同步移除
+  `as_observer` 参数——开发分支引入，发布前整层撤回，从未出现在任何已发布版本里。`__init__.py` 的 `__all__` 同步移除
   `ObserverView`/`AcquireResult` 导出。
 - `tests/test_shared_engine.py::TestRole`/`TestAcquire` 一并删除。
 
@@ -74,10 +76,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### 版本
 
-`pyproject.toml` 与 `sylanne_core/__init__.py` 的 `__version__` 同步到 `3.0.0`（2.4.0 曾发生过两处失步，这次
+`pyproject.toml` 与 `sylanne_core/__init__.py` 的 `__version__` 同步到 `2.4.0`（此前发生过两处失步，这次
 在同一 commit 里核对一致）。
 
-## [2.4.0] — 2026-06-30
+### 开发期记录（2026-06-30 · 本节的角色层 API 已于发布前撤回，Surface 护栏等其余内容随 2.4.0 发布）
 
 ### 🔀 Driver/Observer 角色层 + Surface 兼容性护栏
 

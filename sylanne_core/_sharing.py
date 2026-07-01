@@ -285,7 +285,7 @@ async def get_shared_engine(
                         slot.engine._cancel_and_clear_submissions()
                     if hasattr(slot.engine, "_last_tick"):
                         slot.engine._last_tick.clear()
-                # A pre-3.0 builder's engine has no submit() at all: dedup is simply
+                # A pre-2.4 builder's engine has no submit() at all: dedup is simply
                 # unavailable on this data_dir until every copy upgrades. Loud because
                 # silent duplicate LLM cost is exactly the failure mode 3.0 exists to
                 # kill everywhere else.
@@ -297,7 +297,7 @@ async def get_shared_engine(
                         if builder_ident:
                             builder_short = builder_ident.get("short")
                     logger.warning(
-                        "shared engine %r has no submit() — it was built by a pre-3.0 "
+                        "shared engine %r has no submit() — it was built by a pre-2.4 "
                         "sylanne_core copy%s. submit() dedup is UNAVAILABLE on this "
                         "data_dir until every co-resident copy is upgraded to >=3.0; "
                         "duplicate LLM cost across plugins is possible until then.",

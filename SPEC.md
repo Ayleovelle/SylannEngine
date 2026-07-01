@@ -1,6 +1,6 @@
 # SylannEngine SDK 规范
 
-版本：`3.0.0`
+版本：`2.4.0`
 协议版本：`sylanne.engine.v1`
 
 > **Scope / 定位**：This document is the **SDK API specification** — public interface, output schema, configuration, and lifecycle.
@@ -28,16 +28,16 @@ SylannEngine 是一个情感计算引擎 SDK。
 ### 2.0 Installation / 安装方式
 
 **Preferred (first-class path): install into a shared venv.** Pin
-`sylanne-core>=3,<4` in `requirements.txt` so every co-deployed plugin resolves
+`sylanne-core>=2.4,<3` in `requirements.txt` so every co-deployed plugin resolves
 to ONE installed copy — this is what lets `shared()`/`submit()` dedup for real
 across plugins with no configuration.
-**首选（一等公民路径）：装进共享 venv。** `requirements.txt` 里锁 `sylanne-core>=3,<4`，
+**首选（一等公民路径）：装进共享 venv。** `requirements.txt` 里锁 `sylanne-core>=2.4,<3`，
 让所有同宿主插件都解析到**同一份**已装拷贝——这是 `shared()`/`submit()` 能跨插件真正
 去重、且零额外配置的前提。
 
 ```
 # requirements.txt
-sylanne-core>=3,<4
+sylanne-core>=2.4,<3
 ```
 
 ```python
@@ -132,10 +132,11 @@ SylanneEngine.is_shared("./data")  # bool
 - 直接 `SylanneEngine(...)` 构造不受影响，且不进入共享注册表；但若目标 data_dir 已有活跃共享实例，会记一条 warning 提示重复创建（软提醒，不阻断）。
 - 多个 vendored 副本（不同模块名）共存会汇合到同一引擎并去重；若某副本版本与建引擎的副本不一致，会记一条版本串味 warning，建议各副本独立 namespace，或整进程装一份共享依赖（见 §2.0 shared-venv-first）。
 
-#### 2.1.1 submit() — 幂等前门（取代 driver/observer 角色层，3.0.0 breaking）
+#### 2.1.1 submit() — 幂等前门（取代开发期的 driver/observer 角色层设计，2.4.0）
 
-3.0.0 删掉了 2.4.0 的 driver/observer 角色层（`acquire`/`AcquireResult`/`ObserverView`/`role`/
-`as_observer`——全部移除，无弃用垫片）。原因：那一层把"谁真跑计算"锚定在 SDK **物理拷贝目录**上
+2.4.0 发布前的开发分支上曾短暂存在一层 driver/observer 角色设计（`acquire`/`AcquireResult`/
+`ObserverView`/`role`/`as_observer`），发布前整层撤回——正式版本里这些名字**不存在**，无弃用垫片。
+撤回原因：那一层把"谁真跑计算"锚定在 SDK **物理拷贝目录**上
 （`my_id == builder_id`），而共享 venv 部署下所有插件共用同一份拷贝，这个判断对每个插件恒真——
 N 个插件全拿到 `role="driver"`，N 路 `process()` 全接上，N 倍 LLM 账单，机制在它唯一要解决的默认
 部署下彻底 no-op。
@@ -215,7 +216,7 @@ session 上次真实 tick 不满这个间隔的调用，直接返回缓存的 `S
 `[1, 12]`（见 `body.py:402`）——衰减/推进量以此为准，而非墙钟时间差本身，所以"调了几次"直接决定
 状态推进了多少步，收敛调用次数就是收敛推进速度。
 
-#### 2.1.3 participants() — 诊断专用身份登记（3.0.0 新增）
+#### 2.1.3 participants() — 诊断专用身份登记（2.4.0 新增）
 
 ```python
 def participants(self) -> list[dict]     # [{"plugin","copy_id","sdk_version","first_seen","submits","joins"}, ...]
@@ -286,7 +287,7 @@ driver 就没有孤儿。唯一残留是建者的 `llm` 闭包：引擎的 `_llm
 | `peek_shared` | `classmethod (data_dir) -> SylanneEngine \| None` | 只读探活，永不建引擎（见 §2.1.5） |
 | `wait_shared` | `classmethod async (data_dir, *, timeout=None, interval=0.5) -> SylanneEngine \| None` | 轮询等待某个插件先建好共享引擎（见 §2.1.5） |
 | `set_llm` | `(llm, *, assessor_llm=None) -> None` | 运维逃生口：热替换 llm/assessor_llm 回调（见 §2.1.4） |
-| **Idempotent Front Door / 幂等前门（3.0.0）** |||
+| **Idempotent Front Door / 幂等前门（2.4.0）** |||
 | `submit` | `async (session_id, text, *, msg_id=None, confidence=None, flags=None, now=None, values=None, dedup=True, plugin=None) -> Surface` | 共享引擎的幂等前门：同一消息被多个插件提交只算一次（见 §2.1.1） |
 | `submit_stats` | `() -> dict` | `{"computed","joined","recomputed_after_window",["by_plugin"]}` 计数快照 |
 | `participants` | `() -> list[dict]` | 诊断专用身份登记表（见 §2.1.3），从不参与去重判断 |
