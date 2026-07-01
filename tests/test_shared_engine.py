@@ -414,7 +414,7 @@ class TestSharedDataDir:
 
 
 class TestPreSubmitBuilderWarning:
-    """3.0.0: attaching to an engine built by a pre-3.0 copy (no submit()) must
+    """2.4.0: attaching to an engine built by a pre-2.4 copy (no submit()) must
     warn loudly — this is the KS4 fix, adapted from the deleted TestRole/
     TestAcquire pattern of faking a foreign co-resident copy directly in the
     rendezvous cell (poking cell.registry/cell.builders)."""
@@ -425,15 +425,15 @@ class TestPreSubmitBuilderWarning:
 
         from sylanne_core._sharing import _cell, _Entry, _make_key
 
-        class _Pre3Engine:
-            """Stand-in for an engine built by a pre-3.0 sylanne_core copy:
+        class _PreSubmitEngine:
+            """Stand-in for an engine built by a pre-2.4 sylanne_core copy:
             has no submit() at all."""
 
             status = "running"
 
         key = _make_key(tmp_path)
         loop = asyncio.get_running_loop()
-        fake_engine = _Pre3Engine()
+        fake_engine = _PreSubmitEngine()
         entry = _Entry(fake_engine, SylanneConfig(), _llm(), None, weakref.ref(loop))
         with _cell.lock:
             _cell.registry[key] = entry

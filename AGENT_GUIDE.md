@@ -30,13 +30,13 @@
 
 ```
 # requirements.txt
-sylanne-core>=3,<4
+sylanne-core>=2.4,<3
 ```
 
 Pin 纪律很重要：一个共享 venv 只有一份最终生效的版本（`pip install` 是 last-write-wins），
-混着写 `sylanne-core==2.4.0` 和 `sylanne-core>=3` 在同一台机器的不同插件里，最后装出来的是
-其中一个版本，另一批插件调 3.0.0 新增的方法会直接 `AttributeError`。统一写 `>=3,<4`，让语义
-化版本自己管住不兼容升级。
+混着写 `sylanne-core==2.3.2` 和 `sylanne-core>=2.4` 在同一台机器的不同插件里，最后装出来的是
+其中一个版本，另一批插件调 2.4.0 新增的方法（如 `submit()`）会直接 `AttributeError`。统一写
+`>=2.4,<3`，让语义化版本自己管住不兼容升级。
 
 插件模板建议加一行运行时版本断言，比"日志里查半天"更快定位问题：
 
@@ -90,10 +90,11 @@ surface = await engine.submit(
 混用也没关系（有的插件传 `msg_id` 有的不传），双索引会吸收，只是不如"人人都传 `msg_id`"那么精确。
 
 同一条消息被 N 个共存插件各自 `submit()` 一次，只有第一个真算，其余 join 同一个 `Surface`——
-**不依赖谁先加载、谁自称什么身份、进程里有几个插件**。这就是 3.0.0 相对 2.4.0 driver/observer
-角色层的核心区别：角色层靠"我是不是第一个建引擎的那份拷贝"判断身份，共享 venv 部署下这个判断
-对所有插件恒真（大家共用一份拷贝），机制在默认部署下彻底失效且无告警；`submit()` 不问身份，只问
-"这条消息算过没有"，正确性和加载顺序、插件数量、任何人的自觉都无关。
+**不依赖谁先加载、谁自称什么身份、进程里有几个插件**。这是 `submit()` 相对开发期曾短暂存在、
+发布前撤回的 driver/observer 角色层设计的核心区别：角色层靠"我是不是第一个建引擎的那份拷贝"
+判断身份，共享 venv 部署下这个判断对所有插件恒真（大家共用一份拷贝），机制在默认部署下彻底失效
+且无告警；`submit()` 不问身份，只问"这条消息算过没有"，正确性和加载顺序、插件数量、任何人的
+自觉都无关。
 
 ```python
 # 排查当前进程里有哪些共享引擎
@@ -235,10 +236,11 @@ listener 支持同步和异步函数。异常不会影响引擎运行。
 
 ### 2.3 迁移指南
 
-#### 从 2.4.0 迁移（driver/observer 角色层已删除）
+#### 从开发分支的 driver/observer 写法迁移（该 API 从未发布）
 
-2.4.0 的 `acquire()` / `AcquireResult` / `ObserverView` / `role()` / `as_observer` 在 3.0.0
-**全部移除**（`AttributeError`/`ImportError` 级，无弃用垫片）。旧代码：
+`acquire()` / `AcquireResult` / `ObserverView` / `role()` / `as_observer` 只在 2.4.0 发布前的
+开发分支上短暂存在过，从未进入任何打过 tag 的版本——正式发布的 2.4.0 里**不存在这些名字**
+（调用即 `AttributeError`/`ImportError`）。如果你照着开发期文档写过这样的代码：
 
 ```python
 res = await SylanneEngine.acquire(data_dir, llm=my_llm)
@@ -269,7 +271,7 @@ emotion_spirit），1.0.0 用的是类属性注册表（`SylanneEngine._shared_i
 WARNING 点名这份旧拷贝，但机制上无法自动收敛）。按下面逐条过：
 
 1. **删掉内嵌目录**（`sylanne_core/` vendored 副本），改走共享 venv：`requirements.txt` 加
-   `sylanne-core>=3,<4`（见 §1.0）。
+   `sylanne-core>=2.4,<3`（见 §1.0）。
 
 2. **换掉旧的三处 `shared()`/直连构造**，统一改成：
    ```python
