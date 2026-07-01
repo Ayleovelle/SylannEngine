@@ -3,7 +3,7 @@
 .hero-field{min-height:auto;padding-top:clamp(8vh,14vh,180px);padding-bottom:3vh}
 .hero-field .desc{max-width:54ch}
 .field-hint{display:block;margin-top:.9rem;font-family:var(--font-mono);font-size:.74rem;
-  letter-spacing:.08em;color:var(--accent-d)}
+  letter-spacing:.08em;color:var(--accent-text)}
 
 /* 路由条：四个去向一排，安静的卡，不与共振场抢戏 */
 .routes{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;
@@ -12,10 +12,10 @@
   background:var(--card);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   border:1px solid var(--card-border);border-radius:14px;padding:1.3rem 1.4rem 1.5rem;
   transition:transform var(--motion-ui) var(--motion-ease),border-color var(--motion-ui) ease,box-shadow var(--motion-ui) ease}
-.route:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 14px 38px rgba(0,0,0,.12)}
+.route:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:var(--shadow-md)}
 .route:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .rt-k{font-family:var(--font-head);font-weight:700;font-size:1.3rem;letter-spacing:.04em;color:var(--text)}
-.rt-en{font-family:var(--font-mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-d)}
+.rt-en{font-family:var(--font-mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--accent-text)}
 .rt-d{margin-top:.5rem;font-size:.9rem;line-height:1.5;color:var(--text-muted)}
 .rt-go{position:absolute;top:1.2rem;right:1.3rem;font-family:var(--font-head);font-size:1.1rem;color:var(--text-faint);
   transition:transform .3s ease,color .3s ease}
@@ -32,10 +32,10 @@
   background:var(--card);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
   border:1px solid var(--card-border);border-radius:14px;padding:1.1rem 1.3rem;
   transition:transform var(--motion-ui) var(--motion-ease),border-color var(--motion-ui) ease,box-shadow var(--motion-ui) ease}
-.ds-card:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:0 14px 38px rgba(0,0,0,.12)}
+.ds-card:hover{transform:translateY(-2px);border-color:var(--accent);box-shadow:var(--shadow-md)}
 .ds-card:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .ds-ico{flex-shrink:0;width:42px;height:42px;display:grid;place-items:center;border-radius:10px;
-  background:var(--glow);color:var(--accent-d);font-family:var(--font-mono);font-size:1.05rem;font-weight:700}
+  background:var(--m-100);color:var(--accent-text);font-family:var(--font-mono);font-size:1.05rem;font-weight:700}
 .ds-body{display:flex;flex-direction:column;gap:.2rem;min-width:0}
 .ds-k{font-family:var(--font-head);font-weight:700;font-size:1.08rem;letter-spacing:.02em;color:var(--text)}
 .ds-d{font-size:.84rem;line-height:1.45;color:var(--text-muted)}

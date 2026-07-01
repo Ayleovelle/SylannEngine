@@ -9,10 +9,10 @@
 .pinpanel{flex:0 0 auto;width:min(72vw,540px);height:min(66vh,520px);display:flex;flex-direction:column;justify-content:center;
   background:var(--card);border:1px solid var(--card-border);border-radius:18px;padding:2.4rem 2.6rem;position:relative;backdrop-filter:blur(8px)}
 .pinpanel::before{content:'';position:absolute;left:0;top:2.4rem;bottom:2.4rem;width:3px;border-radius:3px;background:var(--accent);opacity:.85}
-.pinpanel .pidx{font-family:var(--font-mono);font-size:.72rem;letter-spacing:.16em;color:var(--accent-d);text-transform:uppercase}
+.pinpanel .pidx{font-family:var(--font-mono);font-size:.72rem;letter-spacing:.16em;color:var(--accent-text);text-transform:uppercase}
 .pinpanel .pnm{font-family:var(--font-head);font-weight:700;font-size:clamp(1.8rem,4vw,2.8rem);letter-spacing:.04em;text-transform:uppercase;line-height:1.05;margin:.5rem 0 .2rem}
 .pinpanel .pcap{font-family:var(--font-mono);font-size:.72rem;letter-spacing:.08em;color:var(--text-faint);text-transform:uppercase;margin-bottom:1.1rem}
-.pinpanel .pdesc{font-family:var(--font-body);font-size:1.02rem;line-height:1.78;color:var(--text-muted);font-weight:450;max-width:42ch}
+.pinpanel .pdesc{font-family:var(--font-body);font-size:1.02rem;line-height:1.78;color:var(--text-muted);max-width:42ch}
 .pinpanel .pbig{font-family:var(--font-mono);font-weight:700;font-size:clamp(2.6rem,6vw,4.4rem);line-height:1;color:var(--accent-d);margin:.1em 0 .2em}
 .pinpanel.lead-panel{justify-content:center;width:min(60vw,420px);background:transparent;border:none;backdrop-filter:none}
 .pinpanel.lead-panel::before{display:none}
@@ -22,7 +22,7 @@
 .pinprog{position:absolute;left:0;right:0;bottom:34px;height:2px;background:var(--line);transform-origin:left}
 .pinprog .pf{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent);box-shadow:0 0 8px var(--glow)}
 .pincount{position:absolute;right:clamp(20px,5vw,56px);bottom:24px;font-family:var(--font-mono);font-size:.72rem;letter-spacing:.1em;color:var(--text-faint)}
-.pincount b{color:var(--accent-d)}
+.pincount b{color:var(--accent-text)}
 @media(max-width:760px){
   /* 移动端退化为纵向常规流，不钉屏 */
   .pinh{height:auto!important}
