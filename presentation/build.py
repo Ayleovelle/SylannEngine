@@ -157,12 +157,34 @@ def build_i18n():
     write(f'{ROOT}/i18n.js', js)
     return len(merged)
 
+# ---- 4. 缓存破坏：可变资源引用挂内容哈希 ----
+# index.html 是 no-cache 的，带 ?v=<hash> 的新 URL 会绕过 CDN(Cloudflare)边缘缓存，
+# 否则 css/js 被按 7 天缓存头存住，发版后公网最长一周才更新。
+MUTABLE_ASSETS = ['styles.css', 'i18n.js', 'site.js', 'model3d.js', 'resonance.js', 'three-loader.js']
+def stamp_versions():
+    import hashlib
+    html = read(f'{ROOT}/index.html')
+    n = 0
+    for name in MUTABLE_ASSETS:
+        p = os.path.join(ROOT, name)
+        if not os.path.exists(p): continue
+        h = hashlib.md5(open(p, 'rb').read()).hexdigest()[:8]
+        for attr in ('href', 'src'):
+            old = f'{attr}="{name}"'
+            if old in html:
+                html = html.replace(old, f'{attr}="{name}?v={h}"')
+                n += 1
+    write(f'{ROOT}/index.html', html)
+    return n
+
 if __name__ == '__main__':
     nv, nd = build_html()
     nc = build_css()
     ni = build_i18n()
+    ns = stamp_versions()
     print(f'[build] index.html  <- head + shell + {nv} views + {nd} doc pages')
     print(f'[build] styles.css  <- {nc} css modules')
     print(f'[build] i18n.js     <- {ni} translation keys')
+    print(f'[build] cachebust   <- {ns} asset refs stamped with content hash')
     print('[build] site.js     (手写，未参与构建)')
     print('[build] done.')
