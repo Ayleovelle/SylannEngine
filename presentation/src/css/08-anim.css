@@ -1,0 +1,120 @@
+/* ════════════════════════════════════════════
+   高级动效层（nanfu / awwwards 风格，贴合 webui 语言）
+   ════════════════════════════════════════════ */
+:root{
+  --motion-fast:.18s;
+  --motion-ui:.28s;
+  --motion-reveal:.48s;
+  --motion-ease:cubic-bezier(.22,1,.2,1);
+}
+html.lenis,html.lenis body{height:auto}
+.lenis.lenis-smooth{scroll-behavior:auto!important}
+.lenis.lenis-smooth [data-lenis-prevent]{overscroll-behavior:contain}
+
+/* 滚动揭示：默认隐藏，进入视口 .seen / .in 显形 */
+.r{opacity:0;transform:translateY(14px);
+  transition:opacity var(--motion-reveal) var(--motion-ease),transform var(--motion-reveal) var(--motion-ease)}
+.r.seen,.r.in{opacity:1;transform:none}
+.r.d1{transition-delay:.05s}.r.d2{transition-delay:.10s}.r.d3{transition-delay:.15s}.r.d4{transition-delay:.18s}
+
+/* split-text 行揭幕：遮罩内逐行上滑 */
+.reveal-lines{overflow:hidden}
+.reveal-lines .ln{display:block;transform:translateY(62%);
+  transition:transform .56s var(--motion-ease)}
+.reveal-lines.seen .ln{transform:none}
+.reveal-lines.seen .ln:nth-child(2){transition-delay:.05s}
+.reveal-lines.seen .ln:nth-child(3){transition-delay:.10s}
+.reveal-lines.seen .ln:nth-child(4){transition-delay:.15s}
+
+/* split-text 逐字：大标题用 */
+.split-chars{display:inline-block}
+.split-chars .ch{display:inline-block;transform:translateY(65%) rotate(2deg);opacity:0;
+  transition:transform .48s var(--motion-ease),opacity .42s ease;will-change:transform}
+.split-chars.seen .ch{transform:none;opacity:1}
+
+/* 遮罩揭示块（图块/卡片整体擦入） */
+.mask-up{clip-path:inset(0 0 100% 0);transition:clip-path .55s var(--motion-ease)}
+.mask-up.seen{clip-path:inset(0 0 0 0)}
+
+/* 视差：JS 写 --py */
+[data-parallax]{will-change:transform;transform:translate3d(0,var(--py,0px),0)}
+
+/* 磁吸按钮 */
+.btn,.name,.card,.node-c{will-change:transform}
+.mag{transition:transform .35s cubic-bezier(.2,1,.2,1)}
+
+/* 自定义光标（只在 hover 设备 + JS 就绪后启用 .cursor-on） */
+html.cursor-on,html.cursor-on *{cursor:none!important}
+@media(hover:hover){
+  #cursor{position:fixed;top:0;left:0;width:9px;height:9px;border-radius:50%;background:var(--accent);
+    z-index:9999;pointer-events:none;transform:translate(-50%,-50%);mix-blend-mode:normal;transition:width .25s,height .25s,background .25s,opacity .3s}
+  #cursor-ring{position:fixed;top:0;left:0;width:38px;height:38px;border-radius:50%;border:1px solid var(--accent);
+    z-index:9999;pointer-events:none;transform:translate(-50%,-50%);opacity:.5;
+    transition:width .3s cubic-bezier(.2,1,.2,1),height .3s cubic-bezier(.2,1,.2,1),opacity .3s,border-color .3s}
+  #cursor.hot{width:0;height:0}
+  #cursor-ring.hot{width:64px;height:64px;opacity:1;border-color:var(--accent-d);background:var(--glow)}
+}
+@media(hover:none){#cursor,#cursor-ring{display:none}}
+
+/* 滚动进度环（右下角） */
+#scrollprog{position:fixed;right:26px;bottom:26px;width:46px;height:46px;z-index:55;opacity:0;transition:opacity .4s ease}
+#scrollprog.on{opacity:.9}
+#scrollprog svg{transform:rotate(-90deg)}
+#scrollprog .track{fill:none;stroke:var(--line);stroke-width:2}
+#scrollprog .bar{fill:none;stroke:var(--accent);stroke-width:2;stroke-linecap:round;
+  stroke-dasharray:126;stroke-dashoffset:126;transition:stroke-dashoffset .15s linear}
+#scrollprog .pct{font-family:var(--font-mono);font-size:9px;fill:var(--text-muted)}
+
+/* 回到顶部按钮：长页面（spec/guide 等文档页）滚动超过阈值才现身；
+   固定右下，与进度环纵向错开（环在 bottom:26，它在 bottom:84 上方一截）。 */
+#backTop{position:fixed;right:26px;bottom:84px;width:46px;height:46px;z-index:55;display:grid;place-items:center;
+  border-radius:50%;background:var(--card-solid);border:1px solid var(--card-border);color:var(--text);
+  box-shadow:0 10px 30px rgba(0,0,0,.12);cursor:pointer;
+  opacity:0;visibility:hidden;pointer-events:none;transform:translateY(6px);
+  transition:opacity .3s ease,transform .3s ease,visibility 0s linear .3s,border-color .25s,color .25s}
+#backTop.on{opacity:1;visibility:visible;pointer-events:auto;transform:none;
+  transition:opacity .3s ease,transform .3s ease,visibility 0s,border-color .25s,color .25s}
+#backTop:hover{border-color:var(--accent);color:var(--accent-d);transform:translateY(-2px)}
+#backTop:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+@media(max-width:760px){#backTop{right:14px;bottom:80px;width:44px;height:44px}}
+
+/* hero 进入：大字遮罩 */
+.hero h1{overflow:hidden}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto!important}
+  .r,
+  .reveal-lines .ln,
+  .split-chars .ch,
+  .mask-up{
+    transition:none!important;
+    transform:none!important;
+    opacity:1!important;
+    clip-path:none!important;
+  }
+  [data-parallax],
+  .hero .label,
+  .hero h1,
+  .hero .sub,
+  .hero .desc,
+  .hero .row,
+  .hero .stats,
+  .pintrack,
+  .pinpanel{
+    transform:none!important;
+  }
+  #cursor,
+  #cursor-ring{
+    display:none!important;
+  }
+}
+
+/* ════════════════════════════════════════════
+   Scroll-scrubbed cinematic（GSAP ScrollTrigger 驱动）
+   ════════════════════════════════════════════ */
+/* 揭示动画统一由 CSS + IntersectionObserver(.seen) 驱动，GSAP 只管滚动绑定的电影化部分 */
+/* hero 钉屏期间的视差层基准 */
+.hero{position:relative}
+.hero .label,.hero h1,.hero .sub,.hero .desc,.hero .row,.hero .stats{will-change:transform,opacity}
+/* scrub 容器：避免变换溢出造成横向滚动条 */
+/* 横向溢出由 body 统一裁剪；#app/.view 不能用 overflow，否则破坏内部 position:sticky 钉屏 */
+#app{position:relative}

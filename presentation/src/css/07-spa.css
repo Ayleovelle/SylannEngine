@@ -1,0 +1,17 @@
+/* ════════════════════════════════════════════
+   SPA · 视图切换（无刷新，webui content-slider 风格）
+   ════════════════════════════════════════════ */
+#app{position:relative;z-index:2}
+.view{display:none}
+.view.active{display:block;animation:viewIn .32s var(--motion-ease)}
+@keyframes viewIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+/* 语言切换过渡：整页内容淡出→换字→淡入（在中点换文本，肉眼看不到生硬跳变）*/
+#app,footer{transition:opacity .26s ease}
+html.lang-swapping #app,html.lang-swapping footer{opacity:0}
+/* nav / spine 当前态 */
+nav .links a.cur{color:var(--accent-d)}
+nav .links a.cur::after{transform:scaleX(1)}
+/* 顶部细进度/切换闪线 */
+#routebar{position:fixed;top:0;left:0;height:2px;width:0;z-index:60;background:var(--accent);
+  box-shadow:0 0 10px var(--glow);opacity:0;transition:width .32s var(--motion-ease),opacity .22s ease}
+#routebar.go{opacity:1}
