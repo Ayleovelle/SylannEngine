@@ -24,7 +24,30 @@
 
 ### 1.0 安装与初始化
 
-把 `sylanne_core/` 目录复制进你的项目，或作为 git submodule 引入：
+**首选（一等公民路径）：装进共享 venv。** 同宿主多插件场景下，`requirements.txt` 锁版本，
+让所有插件解析到**同一份**安装拷贝——这是 `shared()` + `submit()` 能跨插件真正去重、零额外
+配置的前提：
+
+```
+# requirements.txt
+sylanne-core>=3,<4
+```
+
+Pin 纪律很重要：一个共享 venv 只有一份最终生效的版本（`pip install` 是 last-write-wins），
+混着写 `sylanne-core==2.4.0` 和 `sylanne-core>=3` 在同一台机器的不同插件里，最后装出来的是
+其中一个版本，另一批插件调 3.0.0 新增的方法会直接 `AttributeError`。统一写 `>=3,<4`，让语义
+化版本自己管住不兼容升级。
+
+插件模板建议加一行运行时版本断言，比"日志里查半天"更快定位问题：
+
+```python
+import sylanne_core
+assert sylanne_core.__version__.split(".")[0] == "3", (
+    f"sylanne-core {sylanne_core.__version__} incompatible with this plugin build; need 3.x"
+)
+```
+
+**备选：内嵌一份拷贝**（单插件部署，或宿主不允许共享装依赖时用）：
 
 ```bash
 git submodule add https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
@@ -33,59 +56,93 @@ git submodule add https://github.com/Ayleovelle/SylannEngine.git deps/sylannengi
 ```python
 import sys
 sys.path.insert(0, "./deps/sylannengine")
-
-from sylanne_core import SylanneEngine, SylanneConfig
-
-engine = SylanneEngine(
-    data_dir="./data/sylannengine",
-    llm=your_llm_callback,  # async (system_prompt, user_prompt) -> str
-    config=SylanneConfig(),
-)
-await engine.start()
 ```
 
 你需要自己提供 LLM 回调函数（async `(system_prompt, user_prompt) -> str`），引擎不绑定任何特定 LLM 提供商或框架。
 
-#### 多个插件共享同一引擎（避免重复计算）
+#### 多插件同宿主的标准写法：shared() + submit()
 
-如果同一进程里有多个插件都用到 SylannEngine，**不要各建一个引擎**——那会对同一用户重复计算、重复调 LLM。约定统一的 `data_dir`，所有插件都用 `SylanneEngine.shared()`，就能复用同一个已启动的实例：
+如果同一进程里有多个插件都用到 SylannEngine，**不要各建一个引擎、也不要各调 `process()`**——
+前者对同一用户重复计算重复调 LLM，后者哪怕实例只有一个，计算照样跑 N 次。约定统一的
+`data_dir`，所有插件都走 `shared()` 拿同一个实例、`submit()` 当前门：
 
 ```python
+from sylanne_core import SylanneEngine
+
 # 任意插件，约定同一 data_dir，拿到的是同一个实例
 engine = await SylanneEngine.shared(
-    data_dir="./data/sylannengine",
+    data_dir=SylanneEngine.shared_data_dir(),  # explicit > $SYLANNE_DATA_DIR > ~/.sylanne/shared
     llm=your_llm_callback,
+    plugin="my_plugin",   # 可选，仅用于诊断（见下方 participants()），不影响去重
 )
-# 一份状态、一份计算、一次 LLM 调用，无论多少插件共用
 
+# 每条平台消息事件，任意插件都直接 submit() ——不用问自己"我是不是该驱动的那个"
+surface = await engine.submit(
+    session_id=event.session_id,
+    text=event.raw_text,                          # 传平台原始、未经改写的文本……
+    msg_id=event.message_obj.message_id,          # ……或者（更稳）传平台自己的消息 id
+)
+```
+
+**原始文本契约**：`text` 要么传平台给你的原始消息文本（未经你自己清洗/改写），要么就传 `msg_id`
+——两者至少满足一个，`submit()` 才能保证同一条消息在多个插件间精确合并成一次计算。两边都不给
+（比如各插件自己预处理出不同的文本、又不传 `msg_id`）会让去重退化成"大概率合并"而非"保证合并"。
+混用也没关系（有的插件传 `msg_id` 有的不传），双索引会吸收，只是不如"人人都传 `msg_id`"那么精确。
+
+同一条消息被 N 个共存插件各自 `submit()` 一次，只有第一个真算，其余 join 同一个 `Surface`——
+**不依赖谁先加载、谁自称什么身份、进程里有几个插件**。这就是 3.0.0 相对 2.4.0 driver/observer
+角色层的核心区别：角色层靠"我是不是第一个建引擎的那份拷贝"判断身份，共享 venv 部署下这个判断
+对所有插件恒真（大家共用一份拷贝），机制在默认部署下彻底失效且无告警；`submit()` 不问身份，只问
+"这条消息算过没有"，正确性和加载顺序、插件数量、任何人的自觉都无关。
+
+```python
 # 排查当前进程里有哪些共享引擎
 SylanneEngine.list_shared()   # [{"data_dir": "...", "status": "running"}, ...]
+
+# 排查去重效果 / 谁提交了多少次
+engine.submit_stats()         # {"computed": 1, "joined": 2, "recomputed_after_window": 0, "by_plugin": {...}}
+engine.participants()         # 诊断专用，见下方"参数身份 vs 行为"
 ```
+
+**参数身份 vs 行为**：`shared()`/`submit()` 的 `plugin=` 参数只写入 `participants()`/`submit_stats()`
+这两个诊断入口，纯粹是"排查哪个插件提交了多少次"用的可观测性数据。它**从不影响去重/join 判断**——
+不传 `plugin=` 一样正常去重，传了也不会让某个插件因为"报了名字"而获得任何特殊行为。身份负责观测，
+`submit()` 的双索引负责保证，两者刻意解耦。
 
 配置只放一个地方：不传 `config` 时引擎自读 `<data_dir>/sylanne.config.json`（首启写默认模板），所有插件共享这一份用户可改配置——别各插件各传一份 `config`。想让语义评估走个便宜的小模型，就在该文件加一个 `assessor_model` 块（`api_base`/`api_key`/`model`，`api_key` 支持 `${环境变量}`），不填则回落主 `llm`；也可直接给 `shared(..., assessor_llm=...)` 传回调。详见 SPEC §7。
 
-应用关闭时调 `await SylanneEngine.release_shared(data_dir)` 落盘释放（没有 atexit 自动刷写）；释放后**不要再用那个实例**——共享引擎对已释放实例的再次调用会抛错，请重新 `shared()` 获取。共享实例只在首次获取它的事件循环里使用，不要对它用 `async with`。这套保证是**进程内**的（没有跨进程锁，请一个 data_dir 一个进程）。单插件、单实例场景直接 `SylanneEngine(...)` 即可。
+共享实例只在首次获取它的事件循环里使用，不要对它用 `async with`。这套保证是**进程内**的（没有跨进程锁，请一个 data_dir 一个进程）。单插件、单实例场景直接 `SylanneEngine(...)` 即可，用 `process()` 就行——去重表是给多插件共享场景准备的，单实例没有"别人重复提交"这回事。
 
-#### 一个引擎驱动、其余转监听（多插件同部署省资源）
+#### release_shared() 是进程级运维操作，不是插件生命周期钩子
 
-`shared()` 只保证"同 data_dir 只有一个引擎实例"，但**没拦住每个插件各调 `process()`**——那样实例是一个、计算却跑 N 次。要让"只有一个插件真跑、其余纯监听"，分两步：
+> [!WARNING]
+> **不要在插件的 `terminate()`/卸载钩子里调 `release_shared()`。** 它会把整个共享引擎连同其他
+> 还在用它的插件一起关掉——你的插件卸载，会顺手杀死别的插件的情感计算。
+
+`await SylanneEngine.release_shared(data_dir)` 该放在应用/宿主**整体**关闭的路径里，调一次即可（flush 落盘；没有 atexit 自动刷写）。释放后**不要再用那个实例**——共享引擎对已释放实例的再次调用会抛错，请重新 `shared()` 获取。平时插件正常热禁用/重载，什么都不用调，见下方"建者死亡"一节。
+
+#### 建者死亡：热禁用/重载建引擎的那个插件会怎样
+
+建引擎的插件被宿主热禁用或重载，**其余插件的 `submit()` 照常计算**——没有"驱动角色"，也就没有孤儿。
+唯一残留是引擎的 `_llm` 闭包还指向那个被拆除的插件实例：如果闭包捕获的状态已失效，评估会走异常
+兜底降级（`engine.health()` 里 `status` 变 `"degraded"`，计算仍在跑，只是精度下降）。两条应对：
+
+- 推荐：把 `llm` 传成一个**宿主级、比插件生命周期更长**的 provider 回调（AstrBot 场景下 provider
+  通常比单个插件寿命长，这在实践中多半是非事件）。
+- 需要不重启进程就热替换：调 `engine.set_llm(new_llm, assessor_llm=...)`——运维逃生口，无自动
+  魔法，没人替你调用，你自己的健康检查脚本决定何时调。
+
+#### 纯监听插件：没有自己的 llm，怎么等引擎出现
 
 ```python
-# 1) 先把所有插件引到同一个 host 级目录（否则各用各的目录，根本不会汇合）
-data_dir = SylanneEngine.shared_data_dir()        # explicit > $SYLANNE_DATA_DIR > ~/.sylanne/shared
-
-# 2) 用 acquire 拿"带角色"的句柄
-res = await SylanneEngine.acquire(data_dir, llm=your_llm_callback)
-if res.is_driver:
-    # 第一个 acquire 的插件成为 driver：把消息事件接到它的 process()
-    engine = res.engine
-    surface = await engine.process(session_id, text)
-else:
-    # 其余插件是 observer：只能监听，拿到的 ObserverView 根本没有 process()
-    res.observer.on(lambda sid, surf: my_react(sid, surf))
+# 只读探活，永不建引擎——想附加而不是抢建引擎时用这个，不要传 llm 硬 shared()
+engine = SylanneEngine.peek_shared(data_dir)
+if engine is None:
+    # 轮询等某个有 llm 的插件先建好；0.5s 默认间隔，超时打日志返回 None
+    engine = await SylanneEngine.wait_shared(data_dir, timeout=30.0)
+if engine is not None:
+    engine.on(lambda sid, surf: my_react(sid, surf))
 ```
-
-要点：driver = 第一个建引擎的插件，**引擎活着期间不变**，换 driver 靠重启（无选举、无切换）。observer 的 `ObserverView` 只有 `on/off/state/exists/health`，结构上调不出 `process/tick/inject`，想重复驱动也做不到。纯监听插件（只反应、从不处理消息）传 `as_observer=True`：附到已有 driver，没 driver 就返回 `role=="unowned"`，等有了再挂。轻量自检角色可用 `SylanneEngine.role(data_dir)`（合作式标签，不强制；强制只读请走 `acquire`）。
 
 ---
 
@@ -94,6 +151,8 @@ else:
 SylannEngine 支持两种集成模式：
 
 #### 拉模式（Pull）— 你主动问引擎要结果
+
+单实例场景直接 `process()`；多插件共享引擎场景请用 `submit()`（见 §1.0），下面示例用单实例说明基本用法：
 
 ```python
 surface = await engine.process(session_id="user_123", text="你好")
@@ -115,15 +174,30 @@ engine.off(on_surface)   # 取消
 
 listener 支持同步和异步函数。异常不会影响引擎运行。
 
+### 1.2 process() — advanced / raw access
+
+`process()` 仍然公开，但在多插件共享引擎场景下把它当作**旁路逃生口**，不是首选前门——它总是
+重新计算，不查、不写 `submit()` 的去重表。共享引擎上直连 `process()` 会打一条一次性 nudge log
+（"想要跨插件去重就改用 submit()"），但不会被拒绝或降级——契约不是牢房，某些调用方确实需要
+"每次都全新计算"的语义（比如一次性诊断脚本、明确不想合并的场景）。
+
+单实例、无共享需求的场景，`process()` 就是唯一入口，正常用即可（就是本文档大部分示例展示的
+用法）。多插件共享引擎的日常业务逻辑请走 `submit()`（见 §1.0）。
+
 ### 方法一览
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
-| `process` | `await (session_id, text, **ctx) -> dict` | 主入口，处理文本并返回完整计算结果 |
+| `submit` | `await (session_id, text, *, msg_id=None, dedup=True, plugin=None, **ctx) -> dict` | **多插件共享场景的主入口**，同一消息跨插件只算一次（见 §1.0） |
+| `process` | `await (session_id, text, **ctx) -> dict` | Advanced/raw：直接处理文本，总是重新计算，不参与 `submit()` 去重（见 §1 末尾） |
 | `on` | `(listener) -> None` | 注册推送监听器 |
 | `off` | `(listener) -> None` | 移除推送监听器 |
 | `state` | `await (session_id) -> dict` | 查询当前状态（只读，不触发计算） |
+| `tick` | `await (session_id, *, force=False) -> dict` | 空闲心跳，带每 session 45s 最小间隔收敛 |
 | `health` | `() -> dict` | 引擎健康检查 |
+| `set_llm` | `(llm, *, assessor_llm=None) -> None` | 运维逃生口：热替换 llm 回调 |
+| `submit_stats` | `() -> dict` | 去重计数器快照 |
+| `participants` | `() -> list[dict]` | 诊断专用身份登记表 |
 | `reset` | `await (session_id) -> None` | 重置会话，清除所有状态 |
 | `destroy` | `await (session_id) -> None` | 销毁会话及持久化数据 |
 | `exists` | `(session_id) -> bool` | 检查会话是否存在 |
@@ -132,7 +206,7 @@ listener 支持同步和异步函数。异常不会影响引擎运行。
 
 ## 2. Surface 契约与跨版本升级
 
-`acquire()` / `ObserverView` / `shared_data_dir()` 已在 §1.0 介绍。本节讲**消费方该怎么稳读 Surface、升级内嵌副本时怎么不翻车**。
+`shared()` / `submit()` / `shared_data_dir()` 已在 §1.0 介绍。本节讲**消费方该怎么稳读 Surface、升级内嵌副本时怎么不翻车**。
 
 ### 2.1 Surface 只加不删不改（additive-only contract）
 
@@ -159,34 +233,73 @@ listener 支持同步和异步函数。异常不会影响引擎运行。
 
 **根治**：别各自内嵌不同版本，统一依赖**同一份 canonical 安装的 `sylanne_core`**。进程里只有一个版本，"版本对不上"压根不存在。rendezvous 让"多版本内嵌"机制上能跑，单装才让它"永远不因版本漂移再断"。
 
-### 2.3 现存内嵌插件的迁移清单
+### 2.3 迁移指南
 
-如果你现在是"内嵌了一份旧 `sylanne_core`、自己包了一层消费 API"的状态（如 emotion_spirit），按下面逐条过：
+#### 从 2.4.0 迁移（driver/observer 角色层已删除）
 
-1. **升级内嵌副本**到带角色层（rendezvous cell + `acquire`）的版本。旧的 1.0.0 用的是类属性注册表（`SylanneEngine._shared_instances`），**够不到** `builtins` 里的共享 cell——不升级，永远不会和别人共享。
+2.4.0 的 `acquire()` / `AcquireResult` / `ObserverView` / `role()` / `as_observer` 在 3.0.0
+**全部移除**（`AttributeError`/`ImportError` 级，无弃用垫片）。旧代码：
 
-2. **修消费空转**。如果你的 `PublicAPI` / `consume()` 对谁都返 `None`，那不是引擎的问题：本引擎**没有** `consume` / `PublicAPI` / `_latest_signals`，它是 push 模型——
+```python
+res = await SylanneEngine.acquire(data_dir, llm=my_llm)
+if res.is_driver:
+    engine = res.engine
+    surface = await engine.process(session_id, text)
+else:
+    res.observer.on(lambda sid, surf: my_react(sid, surf))
+```
+
+改成人人跑一样的两行，没有分支、没有自我分类：
+
+```python
+engine = await SylanneEngine.shared(SylanneEngine.shared_data_dir(), llm=my_llm)
+engine.on(cb)
+surface = await engine.submit(session_id, raw_text, msg_id=event.message_obj.message_id)
+```
+
+心跳循环可以保留（`tick()` 会自动收敛到约 45s 一次）或者删掉；`terminate()` 里什么都不用调——
+尤其**不要**调 `release_shared()`（见 §1.0）。
+
+#### 从 1.0.0 迁移（emotion_spirit 路径）
+
+如果你现在是"内嵌了一份 1.0.0 `sylanne_core`、自己包了一层消费 API"的状态（如
+emotion_spirit），1.0.0 用的是类属性注册表（`SylanneEngine._shared_instances`），**结构上够
+不到** `builtins` 里的共享 rendezvous cell——不升级，永远不会和别人共享，且同进程同 `data_dir`
+会静默双引擎双 flush（比"仅跨进程有风险"更糟，SDK 侧会在首次 `get_shared_engine` 时扫描并
+WARNING 点名这份旧拷贝，但机制上无法自动收敛）。按下面逐条过：
+
+1. **删掉内嵌目录**（`sylanne_core/` vendored 副本），改走共享 venv：`requirements.txt` 加
+   `sylanne-core>=3,<4`（见 §1.0）。
+
+2. **换掉旧的三处 `shared()`/直连构造**，统一改成：
+   ```python
+   engine = await SylanneEngine.shared(SylanneEngine.shared_data_dir(), llm=my_llm)
+   surface = await engine.submit(session_id, text, msg_id=msg_id)
+   ```
+
+3. **修消费空转**。如果你的 `PublicAPI` / `consume()` 对谁都返 `None`，那不是引擎的问题：本引擎
+   **没有** `consume` / `PublicAPI` / `_latest_signals`，它是 push 模型——
    ```python
    engine.on(lambda session_id, surface: your_cache.update(session_id, surface))
    ```
-   每次 `process()` 完会回调，带着 `session_id`。把缓存接到 `on()` 推送、按 `session_id` 存即可。
+   每次计算完会回调，带着 `session_id`。把缓存接到 `on()` 推送、按 `session_id` 存即可。
 
-3. **Surface 解析迁到当前 schema**（`types.py` 的 `Surface`）。旧的 ~60 字段 1.0.0 Surface 已经不在了；按 §2.1 防御式读当前结构。
+4. **Surface 解析迁到当前 schema**（`types.py` 的 `Surface`）。旧的 ~60 字段 1.0.0 Surface 已经
+   不在了；按 §2.1 防御式读当前结构（`surface["state"].get("rhythm", {})` 式取值）。
 
-4. **定你的角色**：纯反应型（TTS / 表情）用 `acquire(as_observer=True)`；要处理用户消息的，按 `res.is_driver` 分流。
-
-5. **用共享目录才会真汇合**：`SylanneEngine.shared_data_dir()`，或全体约定 `$SYLANNE_DATA_DIR` 指同一处。各用各的目录 = 各建各的引擎，去重根本不触发。
+5. **它自己的 `session_id` 缓存 bug**：与本次迁移无关，属 emotion_spirit 自身需要单独修的问题，
+   建议同一批一起做掉。
 
 ### 2.4 责任边界
 
 | 我们（SDK 侧）负责 | 你（消费方）负责 |
 |-------------------|----------------|
-| 引擎实例跨插件汇合（rendezvous）与去重 | 升到够新的内嵌版本（或改 canonical 单装） |
-| driver / observer 角色层 | 把消费接到 `on()` 推送 |
+| 引擎实例跨插件汇合（rendezvous）与去重 | 升到 3.x（或改共享 venv 单装） |
+| `submit()` 幂等前门（不依赖身份/加载顺序） | 传原始文本或稳定 `msg_id`，把消费接到 `on()` 推送 |
 | Surface 只加不改 + CI 强制 | 防御式读 Surface（get + 默认值） |
-| | 选好角色、用共享 `data_dir` |
+| | 用共享 `data_dir`，`terminate()` 里别调 `release_shared()` |
 
-参考：`SPEC.md` §2（API）、`tests/test_surface_compat.py`（Surface 契约锁）、`tests/test_shared_engine.py`（共享 / 角色行为）。
+参考：`SPEC.md` §2（API）、`tests/test_surface_compat.py`（Surface 契约锁）、`tests/test_submit.py`（submit 去重行为）。
 
 ---
 
@@ -928,10 +1041,11 @@ surface = await engine.process(
 
 ## 11. 注意事项
 
-- **每条消息只调一次 `process()`**，不要重复调用
+- **单实例场景每条消息只调一次 `process()`**，不要重复调用；多插件共享引擎场景改调 `submit()`，它本身就是为"多方对同一条消息各调一次"设计的（见 §1.0）
 - **session_id 必须唯一**，不同用户用不同 ID，状态完全隔离
 - **不要忽略 guard**，`allowed=False` 时 agent 必须克制
 - **引擎退化时仍可用**，`health()` 返回 `degraded` 表示 LLM 评估器不可用，但计算仍在运行（精度下降）
-- **人格漂移是自动的**，你不需要手动触发，每次 `process()` 都会推进
+- **人格漂移是自动的**，你不需要手动触发，每次 `process()`/`submit()` 都会推进
 - **listener 异常不影响引擎**，推模式下某个 listener 报错不会中断其他 listener 或主流程
+- **`release_shared()` 不要放进插件 `terminate()`**，那是进程级运维操作，见 §1.0
 - **开源免费，不希望商用**，使用时如果愿意请注明原作者 [Ayleovelle](https://github.com/Ayleovelle)

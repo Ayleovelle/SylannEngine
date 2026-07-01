@@ -5,6 +5,78 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.0] — 2026-07-02
+
+### 💥 BREAKING：删掉 driver/observer 角色层，改用 single-fire submit()
+
+`SylanneEngine.acquire` / `AcquireResult` / `ObserverView` / `SylanneEngine.role` /
+`_sharing.shared_role` / `as_observer` **全部删除**——不是弃用垫片，是彻底移除。
+所有旧调用点会立刻 `AttributeError`/`ImportError`，不留一个行为相似的假亲戚。
+
+**为什么砍掉一个刚在 2.4.0 上过的机制**：driver/observer 把"角色"锚定在 SDK 物理拷贝目录上
+（`my_id == builder_id`）。AstrBot 的默认部署是所有插件共用一份 site-packages 拷贝——于是这个判断
+对每个插件恒真，N 个插件全拿到 `role="driver"` 和完整引擎，N 路 `process()` 全接上，N 倍 LLM
+账单，机制在它唯一要解决的默认部署下是彻底 no-op，且过去无任何告警。以拷贝为身份单位这条路，
+在共享 venv 部署下从根上就错了。
+
+**新模型，五行说完**：
+1. 每个插件都用 `shared()` 拿同一个完整引擎——不再区分 driver / observer。
+2. 前门从 `process()` 换成 `await engine.submit(session_id, text, msg_id=...)`。
+3. N 个插件对同一条消息各自 `submit()`，第一个 miss 真算，其余 join 同一个 `Surface`——**不依赖谁先加载、谁自称什么身份**。
+4. 幂等表挂在引擎实例上（不在 rendezvous cell 里），双索引（`msg_id` + 文本哈希），10 秒默认窗口。
+5. 插件死亡是非事件：没有 driver 就没有孤儿，幸存者 `submit()` 照算；唯一残留是建者的 `llm` 闭包，`health()` 可见降级，`set_llm()` 可运维换绑。
+
+### ✨ 新增
+
+- `await engine.submit(session_id, text, *, msg_id=None, confidence=None, flags=None, now=None, values=None, dedup=True, plugin=None) -> Surface`——
+  共享引擎的新前门。双索引 join 规则：无 `msg_id` 的查询可 join 哈希命中；带 `msg_id` 的查询仅当命中条目未记录
+  `msg_id` 时才 join 哈希命中（记录了不同 `msg_id` = 真重复 → 重新计算）；直接 `msg_id` 命中恒 join（文本分歧则
+  WARNING 一次）。真计算跑在 detached task 里，所有 awaiter（含首提交者）`asyncio.shield()` 等它——一个 awaiter
+  自己的取消永远杀不掉共享计算。`dedup=False` 等价直接 `process()`，逃生口不锁死。
+- `engine.submit_stats() -> {"computed", "joined", "recomputed_after_window", ["by_plugin"]}`——去重计数器快照。
+- `engine.participants() -> list[dict]`——诊断专用的身份登记表（`shared(..., plugin=...)` / `submit(..., plugin=...)`
+  可选传入）。**硬规则：这份数据永不参与任何行为判断**，只喂日志/统计——身份负责观测，幂等负责保证，这正是
+  2.4.0 式"以身份定角色"翻车之后要守住的边界。
+- `engine.set_llm(llm, *, assessor_llm=None) -> None`——运维逃生口：热替换一个已死插件留下的 `llm` 闭包，无自动魔法，
+  没人替你调用它，纯粹给运维脚本/健康检查用。替换时打一条 INFO。
+- `engine.tick(session_id, flags=None, *, force=False) -> Surface`——tick 现在带**每 session 绝对最小间隔**
+  `config.tick_min_interval_seconds`（默认 45s）：间隔内的调用直接返回缓存 `Surface`、不推进状态。几个共存插件
+  各跑自己 ~60s 心跳循环，打到同一个共享引擎上会被收敛到约每 45s 一次真实 tick，而不是 N 次。`force=True` 绕过
+  收敛器——这是测试/运维逃生口，**不是心跳所有权的暗号**，谁传了 force 都不会因此获得特殊地位。
+- `classmethod SylanneEngine.peek_shared(data_dir) -> SylanneEngine | None`——只读探活，永不建引擎；给没有自己
+  `llm`、绝不该成为建引擎那份拷贝的纯监听插件用。
+- `classmethod async SylanneEngine.wait_shared(data_dir, *, timeout=None, interval=0.5) -> SylanneEngine | None`——
+  轮询版 `peek_shared`，等某个有 `llm` 的插件先把引擎建起来。0.5s 轮询，不引入任何跨拷贝唤醒协议（曾评估
+  parked-future 唤醒方案，会在不同模块名的 vendored 拷贝间丢唤醒/泄漏，弃用）。超时打一条 INFO 后返回 `None`。
+- `shared(..., plugin: str | None = None)` / `submit(..., plugin: str | None = None)`：可选调用方身份字符串，
+  写入 `participants()`，首次 attach 打 INFO。
+- `config.py` 新增 `submit_window_seconds: float = 10.0`、`submit_max_entries: int = 1024`、
+  `tick_min_interval_seconds: float = 45.0`。
+
+### 🗑️ 移除
+
+- `SylanneEngine.acquire()` / `AcquireResult` / `ObserverView` / `SylanneEngine.role()` / `_sharing.shared_role()` /
+  `as_observer` 参数——2.4.0 引入，本版本整层砍掉。`__init__.py` 的 `__all__` 同步移除
+  `ObserverView`/`AcquireResult` 导出。
+- `tests/test_shared_engine.py::TestRole`/`TestAcquire` 一并删除。
+
+### ⚠️ 已知诚实限度（不是 bug，是文档化的取舍）
+
+- `process()` 旁路：文档不锁死直连 `process()`，绕过 `submit()` 的调用方依旧各付各的 LLM 账单——契约不是牢房；
+  共享引擎上直连 `process()` 现会打一次性 nudge log 引导去 `submit()`。
+- 1.0.0 孤岛：结构性够不到 rendezvous cell 的旧内嵌拷贝（如未迁移的 emotion_spirit）唯一出路是升级，SDK 侧只能
+  在首次 `get_shared_engine` 时扫描 `sys.modules` 里的 pre-2.0 拷贝并 WARNING 点名，无法机械收敛。
+- 跨进程双 flush：维持既定取舍，一个 data_dir 一个进程，不加 PID 锁。
+- 无 `msg_id` 时，窗口内真·重复消息会被合并成一次（状态不推进）——启发式键的诚实代价，`msg_id` 可根除，
+  `dedup=False` 可逃生。
+- 混布过渡窗（部分拷贝已 3.0、部分还在 2.x）：加载顺序决定谁先建引擎，是一次性的"抽签"而非机制性收敛——
+  但从静默变成响亮：附着到无 `submit()` 的旧引擎会打一条命名建者版本的 WARNING。
+
+### 版本
+
+`pyproject.toml` 与 `sylanne_core/__init__.py` 的 `__version__` 同步到 `3.0.0`（2.4.0 曾发生过两处失步，这次
+在同一 commit 里核对一致）。
+
 ## [2.4.0] — 2026-06-30
 
 ### 🔀 Driver/Observer 角色层 + Surface 兼容性护栏

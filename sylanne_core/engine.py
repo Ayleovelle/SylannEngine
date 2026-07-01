@@ -17,8 +17,10 @@ Typical usage::
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +35,27 @@ from .config import SylanneConfig
 from .types import EngineStatus, HealthStatus, Surface
 
 logger = logging.getLogger("sylanne_core")
+
+
+@dataclass
+class _Submission:
+    """One in-flight-or-recently-completed ``submit()`` computation.
+
+    Stored under one or two keys in ``engine._submissions`` — the text-hash
+    key always, and the ``msg_id`` key too once a caller has supplied one —
+    with BOTH keys pointing at the same instance, so a join through either
+    index reaches the same task and eviction (via ``keys``) removes it once.
+    """
+
+    task: asyncio.Task[Surface]
+    created: float
+    text_hash: str
+    msg_id: str | None
+    ctx_fp: tuple[Any, ...]
+    keys: tuple[Any, ...]
+    done_at: float | None = None
+    warned_text_divergence: bool = False
+    warned_ctx_divergence: bool = False
 
 
 class SylanneEngine:
@@ -104,6 +127,22 @@ class SylanneEngine:
         self._locks: dict[str, asyncio.Lock] = {}
         self._listeners: list[Callable[[str, Surface], Any]] = []
         self._telemetry_sink: DistillationSink | None = self._build_telemetry_sink()
+        # --- submit() dedup table (engine-instance, engine-loop-affine: no locks) ---
+        self._submissions: dict[Any, _Submission] = {}
+        # Bounded FIFO of recently-evicted keys, used only to classify a later miss
+        # on the same key as "recomputed_after_window" vs a genuinely new key for
+        # submit_stats(). Capped like the dedup table itself so long-running
+        # processes never grow this without bound.
+        self._recent_evicted: OrderedDict[Any, None] = OrderedDict()
+        self._stat_computed = 0
+        self._stat_joined = 0
+        self._stat_recomputed_after_window = 0
+        # Diagnostics-only identity registry; see ``participants()``. NEVER read
+        # by any branch that affects behavior — see module docs / submit().
+        self._participants: dict[str, dict[str, Any]] = {}
+        self._process_nudge_logged = False
+        # --- tick() absolute-minimum-interval coalescer state ---
+        self._last_tick: dict[str, tuple[float, Surface]] = {}
 
     @property
     def status(self) -> EngineStatus:
@@ -169,6 +208,8 @@ class SylanneEngine:
                 )
         self._hosts.clear()
         self._locks.clear()
+        self._cancel_and_clear_submissions()
+        self._last_tick.clear()
         if self._telemetry_sink is not None:
             self._telemetry_sink.close()
         # Preserve a flush failure in the final status instead of masking it as a
@@ -207,7 +248,22 @@ class SylanneEngine:
 
         Returns:
             Surface dict with keys: state, decision, guard, personality, memory, dynamics.
+
+        Note:
+            On a ``shared()`` engine, prefer ``submit()`` — it dedups identical
+            messages across co-resident plugins; ``process()`` always recomputes,
+            so N plugins calling it on the same shared engine still pay N LLM
+            calls. This stays public (some callers genuinely want raw, always-fresh
+            processing), but a shared engine logs a one-time nudge below.
         """
+        if self._shared and not self._process_nudge_logged:
+            self._process_nudge_logged = True
+            logger.info(
+                "process() called directly on the shared engine for %s; if you want "
+                "cross-plugin duplicate-message dedup, call submit() instead — process() "
+                "always recomputes and never joins",
+                self._data_dir,
+            )
         await self._ensure_started()
         assessment = await self._assess(text) if self._config.assessor_enabled else None
         async with self._session_lock(session_id):
@@ -228,24 +284,283 @@ class SylanneEngine:
             await self._notify(session_id, surface)
             return surface
 
+    async def submit(
+        self,
+        session_id: str,
+        text: str,
+        *,
+        msg_id: str | None = None,
+        confidence: float | None = None,
+        flags: list[str] | None = None,
+        now: float | None = None,
+        values: dict[str, float] | None = None,
+        dedup: bool = True,
+        plugin: str | None = None,
+    ) -> Surface:
+        """Submit a message for idempotent, cross-plugin-dedup'd processing.
+
+        The front door for a ``shared()`` engine. When several co-resident
+        plugins each receive the SAME platform event and each call ``submit()``
+        with the same ``session_id`` (and the same text, or better, the same
+        ``msg_id``), only the FIRST call actually computes — the rest join that
+        computation and all receive the identical :class:`Surface`. There is no
+        election, no role, and no dependence on which plugin loaded first or
+        how many plugins exist: correctness comes from "has this message been
+        submitted before", not from anyone's identity.
+
+        The guarantee is precise, not magical: it is 1x for submit() callers
+        that use CONSISTENT keys — pass the platform's raw, unmodified message
+        text, or (strongly recommended) a stable ``msg_id`` such as the
+        platform's own message id. Mixing "sometimes msg_id, sometimes not" for
+        the same logical message is absorbed by the dual index (see below) but
+        is not what gives the tightest guarantee. Callers that bypass submit()
+        (calling ``process()`` directly) are not covered — that is a deliberate
+        escape hatch, not a hole in this contract.
+
+        Args:
+            session_id: Unique session identifier (e.g. user ID or chat ID).
+            text: The user's message text. Pass the platform's raw text.
+            msg_id: The platform's own message id, if available (e.g.
+                ``event.message_obj.message_id``). Strongly recommended: it is
+                the exact, un-guessable join key and immune to text-normalization
+                differences between plugins.
+            confidence: Pre-computed confidence score [0,1]. Overrides LLM assessment.
+            flags: Semantic flags (e.g. ["safe"], ["hurt", "boundary"]).
+            now: Unix timestamp. Defaults to current time.
+            values: Additional numeric signals — see ``process()``.
+            dedup: When False, this is exactly ``process()`` (no dedup table
+                involvement at all) — the raw, always-recompute escape hatch.
+            plugin: Optional caller identity string, purely for diagnostics (see
+                ``participants()``/``submit_stats()``). Never affects dedup/join
+                behavior — identity observes, idempotency guarantees.
+
+        Returns:
+            The Surface — either freshly computed (this call was first) or
+            joined from another awaiter's in-flight/just-completed computation.
+
+        Dedup mechanics (engine-instance table, engine-loop-affine — no locks):
+            Each first-seen submission is indexed under its text-hash key
+            always, and ALSO under its ``msg_id`` key when one was given. A
+            later call with no ``msg_id`` may join on a hash hit. A later call
+            WITH ``msg_id`` joins an existing hash-hit only if that entry
+            recorded no ``msg_id`` of its own; if it recorded a DIFFERENT
+            ``msg_id``, that is a genuine repeat (same text, distinct message)
+            and triggers a fresh computation. A direct ``msg_id`` hit always
+            joins — even if its recorded text differs (logged once as a
+            warning; reusing a msg_id for different text is a dangerous
+            pattern and the platform is trusted here, so the FIRST submission
+            for that id wins). Divergent confidence/flags/values on a join is
+            logged once at debug level; the first submitter's context wins.
+
+            The real computation runs in a DETACHED task (created, not directly
+            awaited) so that any one awaiter cancelling its own await can never
+            cancel the shared computation for the others — every awaiter
+            (including the first submitter) awaits ``asyncio.shield(task)``.
+
+            Completed entries are pruned lazily on each ``submit()`` call: once
+            older than ``config.submit_window_seconds``, or beyond
+            ``config.submit_max_entries`` (oldest completed evicted first).
+            IN-FLIGHT entries are never capped or evicted by either rule. A
+            FAILED task evicts its own keys immediately — a poisoned entry
+            does not get to "stick" for the rest of the window.
+        """
+        if not dedup:
+            return await self.process(
+                session_id, text, confidence=confidence, flags=flags, now=now, values=values
+            )
+
+        self._prune_submissions()
+
+        text_hash = "h:" + hashlib.blake2b(text.encode()).hexdigest()[:32]
+        key_hash = (session_id, text_hash)
+        key_msg = (session_id, msg_id) if msg_id is not None else None
+        ctx_fp = self._ctx_fingerprint(confidence, flags, values)
+
+        entry: _Submission | None = None
+        joined = False
+
+        if key_msg is not None:
+            entry = self._submissions.get(key_msg)
+            if entry is not None:
+                joined = True
+                if entry.text_hash != text_hash and not entry.warned_text_divergence:
+                    entry.warned_text_divergence = True
+                    logger.warning(
+                        "submit(): msg_id %r on session %r was already submitted with "
+                        "DIFFERENT text — joining the first submission's result anyway "
+                        "(msg_id is trusted as authoritative). Reusing a msg_id across "
+                        "distinct message text is a dangerous pattern; make sure msg_id "
+                        "is unique per logical message.",
+                        msg_id,
+                        session_id,
+                    )
+            else:
+                hash_hit = self._submissions.get(key_hash)
+                if hash_hit is not None and hash_hit.msg_id is None:
+                    # Upgrade the hash-only entry so future msg_id lookups join directly.
+                    hash_hit.msg_id = msg_id
+                    hash_hit.keys = (*hash_hit.keys, key_msg)
+                    self._submissions[key_msg] = hash_hit
+                    entry = hash_hit
+                    joined = True
+                elif hash_hit is not None and hash_hit.msg_id != msg_id:
+                    # A different msg_id already claims this text: a genuine repeat,
+                    # not a duplicate delivery of the same message -> compute fresh.
+                    entry = None
+        else:
+            hash_hit = self._submissions.get(key_hash)
+            if hash_hit is not None:
+                entry = hash_hit
+                joined = True
+
+        if joined and entry is not None:
+            if entry.ctx_fp != ctx_fp and not entry.warned_ctx_divergence:
+                entry.warned_ctx_divergence = True
+                logger.debug(
+                    "submit(): session %r joined a submission whose confidence/flags/"
+                    "values differ from this call's; the first submitter's context wins.",
+                    session_id,
+                )
+            self._stat_joined += 1
+            self._note_submit_outcome(plugin, joined=True)
+            return await asyncio.shield(entry.task)
+
+        # Miss: this call is the one that computes.
+        was_recently_evicted = key_hash in self._recent_evicted or (
+            key_msg is not None and key_msg in self._recent_evicted
+        )
+        keys: tuple[Any, ...] = (key_hash,) if key_msg is None else (key_hash, key_msg)
+        task: asyncio.Task[Surface] = asyncio.ensure_future(
+            self.process(
+                session_id, text, confidence=confidence, flags=flags, now=now, values=values
+            )
+        )
+        new_entry = _Submission(
+            task=task,
+            created=time.time(),
+            text_hash=text_hash,
+            msg_id=msg_id,
+            ctx_fp=ctx_fp,
+            keys=keys,
+        )
+        for k in keys:
+            self._submissions[k] = new_entry
+            self._recent_evicted.pop(k, None)
+        task.add_done_callback(self._on_submission_done)
+        if was_recently_evicted:
+            self._stat_recomputed_after_window += 1
+        else:
+            self._stat_computed += 1
+        self._note_submit_outcome(plugin, joined=False)
+        return await asyncio.shield(task)
+
+    def submit_stats(self) -> dict[str, Any]:
+        """Snapshot of submit() dedup counters since engine construction.
+
+        Returns ``{"computed": int, "joined": int, "recomputed_after_window": int}``.
+        ``recomputed_after_window`` is a best-effort heuristic bounded the same
+        way the dedup table itself is (an LRU of recently-evicted keys) — a miss
+        for a key evicted long enough ago to have aged out of that LRU is
+        counted as ``computed`` instead. When any ``submit(..., plugin=...)``
+        calls have been made, also includes ``"by_plugin"``: a
+        ``{plugin: {"submits": int, "joins": int}}`` breakdown — diagnostics
+        only, sourced from the same registry as ``participants()``.
+        """
+        stats: dict[str, Any] = {
+            "computed": self._stat_computed,
+            "joined": self._stat_joined,
+            "recomputed_after_window": self._stat_recomputed_after_window,
+        }
+        if self._participants:
+            stats["by_plugin"] = {
+                name: {"submits": info["submits"], "joins": info["joins"]}
+                for name, info in self._participants.items()
+            }
+        return stats
+
+    def participants(self) -> list[dict[str, Any]]:
+        """Snapshot of the participants registry, sorted by ``first_seen``.
+
+        Populated only when callers pass ``plugin=`` to ``shared()``/``submit()``.
+        This is diagnostics, never behavior: nothing in submit()'s dedup/join
+        logic reads it, and no plugin is treated specially for having (or
+        lacking) an entry here. Each item is
+        ``{"plugin", "copy_id", "sdk_version", "first_seen", "submits", "joins"}``.
+        """
+        return [
+            {"plugin": name, **info}
+            for name, info in sorted(
+                self._participants.items(), key=lambda item: item[1]["first_seen"]
+            )
+        ]
+
+    def set_llm(
+        self,
+        llm: Callable[[str, str], Awaitable[str]],
+        *,
+        assessor_llm: Callable[[str, str], Awaitable[str]] | None = None,
+    ) -> None:
+        """Ops escape hatch: swap this engine's llm callback(s) at runtime.
+
+        For replacing a dead builder's closure on a shared engine — e.g. the
+        plugin that built the engine was hot-disabled/reloaded and its ``llm``
+        callable now points at torn-down state (see the "driver death" note in
+        SPEC) — without restarting the process. No auto-magic: nothing calls
+        this for you; an operator or a health-check script decides when and
+        whether to swap.
+
+        Args:
+            llm: Replaces the main llm callback used for ``process()``/``submit()``.
+            assessor_llm: If given, also replaces the assessor llm. Omit to
+                leave the current assessor (or main-llm fallback) untouched.
+        """
+        self._llm = llm
+        if assessor_llm is not None:
+            self._assessor_llm = assessor_llm
+        logger.info("SylanneEngine llm swapped via set_llm() for %s", self._data_dir)
+
     async def tick(
         self,
         session_id: str,
         flags: list[str] | None = None,
+        *,
+        force: bool = False,
     ) -> Surface:
-        """Advance session state without user input (background heartbeat)."""
+        """Advance session state without user input (background heartbeat).
+
+        Enforces a per-session ABSOLUTE MINIMUM interval:
+        ``config.tick_min_interval_seconds`` (default 45s). A call within that
+        interval of the session's last real tick returns the cached Surface
+        WITHOUT advancing state at all — no host mutation, no new snapshot.
+        This is not a heartbeat scheduler and it does not own any timer of its
+        own; it exists so that several co-resident plugins each running their
+        own independent ~60s heartbeat loop against the same shared engine
+        collapse to roughly one real tick per interval instead of N.
+
+        ``force=True`` bypasses the coalescer and always advances state. This
+        is a test/ops escape hatch, not a "heartbeat owner" role — nothing in
+        this engine grants special status to a forcing caller, and racing the
+        interval on purpose defeats the point of calling tick() at all.
+        """
         await self._ensure_started()
+        now_ts = time.time()
+        if not force:
+            cached = self._last_tick.get(session_id)
+            if cached is not None and now_ts - cached[0] < self._config.tick_min_interval_seconds:
+                return cached[1]
         async with self._session_lock(session_id):
             host = self._get_or_create_host(session_id)
             event = {
                 "text": "",
                 "confidence": 0.0,
                 "flags": flags or ["idle"],
-                "now": time.time(),
+                "now": now_ts,
                 "values": {},
             }
             result = host.on_request(event)
-            return self._to_surface(session_id, host, result)
+            surface = self._to_surface(session_id, host, result)
+        self._last_tick[session_id] = (now_ts, surface)
+        return surface
 
     async def state(self, session_id: str) -> Surface:
         """Get current session state without advancing the pipeline."""
@@ -339,6 +654,7 @@ class SylanneEngine:
         config: SylanneConfig | None = None,
         *,
         assessor_llm: Callable[[str, str], Awaitable[str]] | None = None,
+        plugin: str | None = None,
     ) -> SylanneEngine:
         """Return (and start) the process-shared engine for ``data_dir``.
 
@@ -361,6 +677,17 @@ class SylanneEngine:
         ``llm``/``embedding`` object logs a warning but reuses the original.
         The returned engine is already started (status == "running").
 
+        Every co-resident plugin gets the SAME full engine — there is no
+        driver/observer split. Call ``submit()`` (not ``process()``) so
+        duplicate deliveries of the same message across plugins dedup instead
+        of each paying for their own LLM call.
+
+        Args:
+            plugin: Optional caller identity string, purely for diagnostics —
+                recorded in ``engine.participants()`` (first attach logged at
+                INFO). Never gates behavior: identity observes, submit()'s
+                idempotency guarantees.
+
         Warning: the shared engine is event-loop affine. Do not drive it from a
         different event loop than the one used for the first shared() call. Do
         NOT use ``async with`` on a shared instance — the first context exit
@@ -368,9 +695,68 @@ class SylanneEngine:
         """
         from ._sharing import get_shared_engine
 
-        return await get_shared_engine(
+        engine = await get_shared_engine(
             data_dir, llm, embedding=embedding, config=config, assessor_llm=assessor_llm
         )
+        if plugin is not None:
+            engine._note_participant(plugin)
+        return engine
+
+    @classmethod
+    def peek_shared(cls, data_dir: str | Path) -> SylanneEngine | None:
+        """Return the live shared engine for ``data_dir`` if one exists, else None.
+
+        Public wrapper over the attach-only registry lookup: this NEVER builds
+        or starts an engine — use it (or ``wait_shared``) for a pure-listener
+        plugin that has no ``llm`` of its own and must never become the copy
+        that constructs the engine.
+        """
+        from ._sharing import peek_shared_engine
+
+        return peek_shared_engine(data_dir)
+
+    @classmethod
+    async def wait_shared(
+        cls,
+        data_dir: str | Path,
+        *,
+        timeout: float | None = None,
+        interval: float = 0.5,
+    ) -> SylanneEngine | None:
+        """Poll for a shared engine on ``data_dir`` until one appears or timeout.
+
+        For a listen-only plugin (no ``llm`` of its own) that may load before
+        whichever co-resident plugin will eventually build the engine. This is
+        a plain polling loop, not a wake-on-publish channel — a parked-future
+        wakeup protocol was considered and rejected: it can leak or drop
+        wakeups across vendored copies under different module names, while a
+        0.5s default poll is imperceptible for a chat heartbeat and needs no
+        new synchronization primitives shared across copies.
+
+        Returns the engine as soon as ``peek_shared`` sees one. Returns
+        ``None`` (after logging once at INFO) if ``timeout`` elapses with no
+        engine ever appearing — correct by construction: nobody has declared
+        compute for this data_dir yet.
+
+        Args:
+            timeout: Max seconds to wait. ``None`` waits forever.
+            interval: Seconds between polls. Default 0.5s.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = None if timeout is None else loop.time() + timeout
+        while True:
+            engine = cls.peek_shared(data_dir)
+            if engine is not None:
+                return engine
+            if deadline is not None and loop.time() >= deadline:
+                logger.info(
+                    "wait_shared(%s) timed out after %.1fs with no shared engine ever "
+                    "appearing on this data_dir",
+                    data_dir,
+                    timeout,
+                )
+                return None
+            await asyncio.sleep(interval)
 
     @classmethod
     async def release_shared(cls, data_dir: str | Path) -> None:
@@ -417,88 +803,18 @@ class SylanneEngine:
         return list_shared()
 
     @classmethod
-    def role(cls, data_dir: str | Path) -> str:
-        """This copy's cooperative role for the shared engine on ``data_dir``.
-
-        Returns ``"driver"``, ``"observer"``, or ``"unowned"``. When several
-        plugins each embed the SDK in one process, the first to build the engine
-        for a ``data_dir`` is the ``driver`` (it should wire incoming events to
-        ``process()``); every other plugin is an ``observer`` and should only
-        ``engine.on(...)`` and let the driver compute — so the deployment runs ONE
-        engine, not one per plugin. ``"unowned"`` means no engine exists yet.
-
-        This label is cooperative; ``shared()`` still returns the full engine to
-        all callers. For a handle that cannot drive at all, use ``acquire``.
-        """
-        from ._sharing import shared_role
-
-        return shared_role(data_dir)
-
-    @classmethod
     def shared_data_dir(cls, explicit: str | Path | None = None) -> Path:
         """Resolve the canonical host-shared ``data_dir`` for co-deployed plugins.
 
         Returns ``explicit`` if given, else ``$SYLANNE_DATA_DIR``, else
         ``~/.sylanne/shared`` — resolved and absolute, not created. Route every
-        plugin's ``shared``/``acquire`` call through this so independent plugins
-        converge on ONE engine instead of each defaulting to its own directory
-        (which would never dedup). See ``acquire`` for the driver/observer split.
+        plugin's ``shared()`` call through this so independent plugins converge
+        on ONE engine instead of each defaulting to its own directory (which
+        would never dedup).
         """
         from ._sharing import resolve_shared_data_dir
 
         return resolve_shared_data_dir(explicit)
-
-    @classmethod
-    async def acquire(
-        cls,
-        data_dir: str | Path,
-        llm: Callable[[str, str], Awaitable[str]] | None = None,
-        embedding: Callable[[str], Awaitable[list[float]]] | None = None,
-        config: SylanneConfig | None = None,
-        *,
-        assessor_llm: Callable[[str, str], Awaitable[str]] | None = None,
-        as_observer: bool = False,
-    ) -> AcquireResult:
-        """Acquire the process-shared engine for ``data_dir`` WITH a role.
-
-        Like ``shared()``, but instead of handing every caller the full engine it
-        returns an :class:`AcquireResult` reflecting this copy's role:
-
-        - The first plugin to acquire a ``data_dir`` builds the engine and becomes
-          the ``"driver"``: ``result.engine`` is the full SylanneEngine — drive it.
-        - Every other co-resident plugin becomes an ``"observer"``:
-          ``result.engine`` is ``None`` and ``result.observer`` is an
-          :class:`ObserverView` that can ``on(...)``/read state but CANNOT
-          ``process()`` — so one engine serves the whole process, not one per
-          plugin. ``result.handle`` returns whichever you got.
-
-        Building the engine (driver path) requires ``llm`` — if none is given and
-        no engine exists yet, a clear ``ValueError`` is raised. Pass
-        ``as_observer=True`` for a pure-listener plugin that must NEVER drive even
-        if it loads first: it attaches to an existing driver's engine, or returns
-        role ``"unowned"`` (``engine``/``observer`` both ``None``) if no driver is
-        up yet — retry once one is. Role is fixed for the engine's lifetime;
-        restart to change the driver (no election, no hand-off).
-        """
-        from ._sharing import get_shared_engine, peek_shared_engine, shared_role
-
-        if as_observer:
-            # Pure observer: attach without ever building. No driver yet -> unowned.
-            existing = peek_shared_engine(data_dir)
-            if existing is None:
-                return AcquireResult("unowned", None, None)
-            return AcquireResult("observer", None, ObserverView(existing))
-
-        # Driver path (or attach to an engine another copy already built).
-        # get_shared_engine raises a clear ValueError if asked to build with no llm.
-        engine = await get_shared_engine(
-            data_dir, llm, embedding=embedding, config=config, assessor_llm=assessor_llm
-        )
-        if shared_role(data_dir) == "driver":
-            return AcquireResult("driver", engine, None)
-        # Another co-resident copy owns the engine: hand back a listen-only view so
-        # this plugin physically cannot drive a second compute stream.
-        return AcquireResult("observer", None, ObserverView(engine))
 
     # --- internal ---
 
@@ -528,6 +844,137 @@ class SylanneEngine:
                 pel_enabled=self._config.pel_core_enabled,
             )
         return self._hosts[session_id]
+
+    def _ctx_fingerprint(
+        self,
+        confidence: float | None,
+        flags: list[str] | None,
+        values: dict[str, float] | None,
+    ) -> tuple[Any, ...]:
+        """Hashable fingerprint of a submit() call's context, for divergence checks."""
+        return (
+            confidence,
+            tuple(sorted(flags)) if flags else (),
+            tuple(sorted((values or {}).items())),
+        )
+
+    def _prune_submissions(self) -> None:
+        """Lazily evict stale/overflow completed entries from the dedup table.
+
+        Runs at the top of every ``submit()`` call. Completed entries older
+        than ``submit_window_seconds`` are evicted; beyond that, completed
+        entries in excess of ``submit_max_entries`` are evicted oldest-first.
+        IN-FLIGHT entries (``done_at is None``) are never touched by either
+        rule — only a finished computation ages out.
+        """
+        cutoff = time.time() - self._config.submit_window_seconds
+        seen: set[int] = set()
+        completed: list[_Submission] = []
+        for entry in list(self._submissions.values()):
+            if id(entry) in seen:
+                continue
+            seen.add(id(entry))
+            if entry.done_at is None:
+                continue
+            if entry.done_at < cutoff:
+                self._evict_submission(entry)
+            else:
+                completed.append(entry)
+        overflow = len(completed) - self._config.submit_max_entries
+        if overflow > 0:
+            completed.sort(key=lambda e: e.done_at or 0.0)
+            for entry in completed[:overflow]:
+                self._evict_submission(entry)
+
+    def _evict_submission(self, entry: _Submission) -> None:
+        """Remove every key of ``entry`` from the live table into the recent-evicted LRU."""
+        for key in entry.keys:
+            if self._submissions.get(key) is entry:
+                del self._submissions[key]
+            self._recent_evicted[key] = None
+            self._recent_evicted.move_to_end(key)
+        while len(self._recent_evicted) > self._config.submit_max_entries:
+            self._recent_evicted.popitem(last=False)
+
+    def _on_submission_done(self, task: asyncio.Task[Surface]) -> None:
+        """Done-callback: stamp done_at, evict a failed task's keys immediately.
+
+        Always retrieves a failed task's exception here so it is never
+        reported as "exception never retrieved" even in the (rare) case where
+        every awaiter's own await got cancelled before reaching the result.
+        """
+        for entry in {id(e): e for e in self._submissions.values()}.values():
+            if entry.task is task:
+                entry.done_at = time.time()
+                if not task.cancelled() and task.exception() is not None:
+                    # Poison must not stick for the rest of the window.
+                    for key in entry.keys:
+                        if self._submissions.get(key) is entry:
+                            del self._submissions[key]
+                break
+
+    def _cancel_and_clear_submissions(self) -> None:
+        """Cancel every in-flight submit() task and drop the dedup tables.
+
+        Used on shutdown() and on loop-rebind (see ``_sharing.get_shared_engine``)
+        — tasks created on a now-dead event loop cannot be awaited further, and
+        letting a rebound engine keep pointing at them would hang the next
+        ``submit()`` that tries to join. Cheap and idempotent.
+        """
+        for entry in {id(e): e for e in self._submissions.values()}.values():
+            if not entry.task.done():
+                entry.task.cancel()
+        self._submissions.clear()
+        self._recent_evicted.clear()
+
+    def _note_participant(self, plugin: str) -> dict[str, Any]:
+        """Register (or fetch) ``plugin``'s participants-registry entry.
+
+        Diagnostics only — see ``participants()``/HARD RULE in module docs.
+        Logs once at INFO on first attach for a given plugin name.
+        """
+        info = self._participants.get(plugin)
+        if info is not None:
+            return info
+        try:
+            import importlib
+
+            from ._sharing import _self_identity
+
+            copy_id = _self_identity().get("copy_id")
+        except Exception:
+            copy_id = None
+        try:
+            sdk_version = getattr(
+                importlib.import_module(__package__ or "sylanne_core"), "__version__", "0+unknown"
+            )
+        except Exception:
+            sdk_version = "0+unknown"
+        info = {
+            "copy_id": copy_id,
+            "sdk_version": sdk_version,
+            "first_seen": time.time(),
+            "submits": 0,
+            "joins": 0,
+        }
+        self._participants[plugin] = info
+        logger.info("plugin %s attached to shared engine on %s", plugin, self._data_dir)
+        return info
+
+    def _note_submit_outcome(self, plugin: str | None, *, joined: bool) -> None:
+        """Increment ``plugin``'s submits/joins counter, if identity was given.
+
+        Diagnostics only: this is the only place submit() touches the
+        participants registry, and it never branches submit()'s own dedup/join
+        decision on anything read from it.
+        """
+        if plugin is None:
+            return
+        info = self._note_participant(plugin)
+        if joined:
+            info["joins"] += 1
+        else:
+            info["submits"] += 1
 
     def _build_telemetry_sink(self) -> DistillationSink | None:
         """Construct the shared distillation sink if opted in, else None.
@@ -587,83 +1034,3 @@ class SylanneEngine:
         from .adapter import to_surface
 
         return to_surface(session_id, host, raw, diagnostics=self._config.diagnostics)
-
-
-class ObserverView:
-    """A listen-only handle to a shared engine for a non-driver plugin.
-
-    When several plugins co-deploy in one process, only the driver runs
-    computation; every other plugin gets an ``ObserverView`` whose surface does
-    not bind ``process()``/``tick()``/``inject()`` — those methods are simply not
-    here. It can subscribe to the driver's output via ``on()``, read a session's
-    surface via ``state()``, and check ``health()``/``status``. This makes "one
-    engine, the rest listen" the path of least resistance: a plugin holding a
-    view cannot *accidentally* start a second compute stream.
-
-    It is a cooperative guardrail, not a security boundary: co-deployed plugins
-    share one trusted process, and the underlying engine is still reachable via
-    ``view._engine`` if a caller goes out of its way. The point is to stop honest
-    mistakes, not a hostile copy.
-
-    Obtain one from ``SylanneEngine.acquire(...)`` (the observer path); do not
-    construct it directly.
-    """
-
-    __slots__ = ("_engine",)
-
-    def __init__(self, engine: SylanneEngine) -> None:
-        self._engine = engine
-
-    @property
-    def role(self) -> str:
-        return "observer"
-
-    @property
-    def status(self) -> EngineStatus:
-        return self._engine.status
-
-    def on(self, listener: Callable[[str, Surface], Any]) -> None:
-        """Subscribe to the driver's per-``process()`` surface pushes."""
-        self._engine.on(listener)
-
-    def off(self, listener: Callable[[str, Surface], Any]) -> None:
-        """Unsubscribe a previously registered listener."""
-        self._engine.off(listener)
-
-    async def state(self, session_id: str) -> Surface:
-        """Read a session's current surface without advancing the pipeline."""
-        return await self._engine.state(session_id)
-
-    def exists(self, session_id: str) -> bool:
-        """Check whether a session exists without creating it."""
-        return self._engine.exists(session_id)
-
-    def health(self) -> HealthStatus:
-        """Engine health snapshot (shared with the driver)."""
-        return self._engine.health()
-
-
-@dataclass(frozen=True)
-class AcquireResult:
-    """Outcome of ``SylanneEngine.acquire``: the caller's role and its handle.
-
-    Exactly one of ``engine``/``observer`` is set for a live role:
-
-    - ``role == "driver"``   -> ``engine`` is the full SylanneEngine, ``observer`` None.
-    - ``role == "observer"`` -> ``observer`` is an ObserverView, ``engine`` None.
-    - ``role == "unowned"``  -> both None (only from ``acquire(as_observer=True)``
-      when no driver exists yet).
-    """
-
-    role: str
-    engine: SylanneEngine | None
-    observer: ObserverView | None
-
-    @property
-    def handle(self) -> SylanneEngine | ObserverView | None:
-        """Whichever handle you got: the engine (driver) or the view (observer)."""
-        return self.engine if self.engine is not None else self.observer
-
-    @property
-    def is_driver(self) -> bool:
-        return self.role == "driver"
