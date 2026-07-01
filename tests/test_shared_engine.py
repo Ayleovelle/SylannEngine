@@ -374,187 +374,6 @@ class TestShutdownFlushError:
         assert any("flush failed" in r.message for r in caplog.records)
 
 
-class TestRole:
-    @pytest.mark.asyncio
-    async def test_unowned_before_any_build(self, tmp_path: Path):
-        assert SylanneEngine.role(tmp_path) == "unowned"
-
-    @pytest.mark.asyncio
-    async def test_builder_is_driver(self, tmp_path: Path):
-        await SylanneEngine.shared(tmp_path, llm=_llm())
-        # The copy that built the engine is the driver.
-        assert SylanneEngine.role(tmp_path) == "driver"
-
-    @pytest.mark.asyncio
-    async def test_reacquire_same_copy_stays_driver(self, tmp_path: Path):
-        # A single installed copy acquiring twice is still the driver — there is
-        # only one plugin, so it drives. Observer-ness needs a *different* copy.
-        await SylanneEngine.shared(tmp_path, llm=_llm())
-        await SylanneEngine.shared(tmp_path, llm=_llm())
-        assert SylanneEngine.role(tmp_path) == "driver"
-
-    @pytest.mark.asyncio
-    async def test_foreign_builder_is_observer(self, tmp_path: Path):
-        from sylanne_core._sharing import _cell, _make_key, _self_identity
-
-        await SylanneEngine.shared(tmp_path, llm=_llm())
-        key = _make_key(tmp_path)
-        real_id = _self_identity()["copy_id"]
-        # Simulate the engine having been built by a different co-resident copy
-        # (a second vendored plugin). This copy must then read as an observer.
-        _cell.builders[key] = "foreign-copy-deadbeef"
-        try:
-            assert SylanneEngine.role(tmp_path) == "observer"
-        finally:
-            # Restore our real id so the autouse registry reset can reclaim the
-            # entry (clear_shared_registry skips foreign-built live entries).
-            _cell.builders[key] = real_id
-
-    @pytest.mark.asyncio
-    async def test_unowned_after_release(self, tmp_path: Path):
-        await SylanneEngine.shared(tmp_path, llm=_llm())
-        await SylanneEngine.release_shared(tmp_path)
-        assert SylanneEngine.role(tmp_path) == "unowned"
-
-    @pytest.mark.asyncio
-    async def test_unknown_copy_id_reads_observer_when_live(self, tmp_path: Path, monkeypatch):
-        # If this copy's identity cannot be resolved, it must never claim driver
-        # over a live engine someone else owns — fail safe to observer.
-        from sylanne_core import _sharing
-
-        await SylanneEngine.shared(tmp_path, llm=_llm())
-        monkeypatch.setattr(_sharing, "_self_identity", lambda: {})
-        assert SylanneEngine.role(tmp_path) == "observer"
-
-
-class TestAcquire:
-    @pytest.mark.asyncio
-    async def test_first_acquire_is_driver(self, tmp_path: Path):
-        from sylanne_core import AcquireResult
-
-        result = await SylanneEngine.acquire(tmp_path, llm=_llm())
-        assert isinstance(result, AcquireResult)
-        assert result.role == "driver"
-        assert result.is_driver is True
-        assert isinstance(result.engine, SylanneEngine)
-        assert result.observer is None
-        assert result.handle is result.engine
-        assert result.engine.status == "running"
-        # The driver handle can actually drive.
-        surface = await result.engine.process("s1", "hi")
-        assert surface["session_id"] == "s1"
-
-    @pytest.mark.asyncio
-    async def test_foreign_owner_yields_observer_view(self, tmp_path: Path):
-        from sylanne_core import ObserverView
-        from sylanne_core._sharing import _cell, _make_key, _self_identity
-
-        # An engine already owned by another co-resident copy.
-        await SylanneEngine.shared(tmp_path, llm=_llm())
-        key = _make_key(tmp_path)
-        real_id = _self_identity()["copy_id"]
-        _cell.builders[key] = "foreign-copy-deadbeef"
-        try:
-            result = await SylanneEngine.acquire(tmp_path, llm=_llm())
-            assert result.role == "observer"
-            assert result.engine is None
-            assert isinstance(result.observer, ObserverView)
-            assert result.handle is result.observer
-            # Structurally listen-only: the driving methods are simply absent.
-            assert not hasattr(result.observer, "process")
-            assert not hasattr(result.observer, "tick")
-            assert not hasattr(result.observer, "inject")
-            assert not hasattr(result.observer, "shutdown")
-            # But it can listen and read.
-            assert hasattr(result.observer, "on")
-            assert result.observer.status == "running"
-            assert result.observer.role == "observer"
-        finally:
-            _cell.builders[key] = real_id
-
-    @pytest.mark.asyncio
-    async def test_as_observer_unowned_when_no_driver(self, tmp_path: Path):
-        result = await SylanneEngine.acquire(tmp_path, as_observer=True)
-        assert result.role == "unowned"
-        assert result.engine is None
-        assert result.observer is None
-        assert result.handle is None
-
-    @pytest.mark.asyncio
-    async def test_as_observer_attaches_to_existing_driver(self, tmp_path: Path):
-        from sylanne_core import ObserverView
-
-        await SylanneEngine.shared(tmp_path, llm=_llm())  # a driver is up
-        result = await SylanneEngine.acquire(tmp_path, as_observer=True)
-        assert result.role == "observer"
-        assert isinstance(result.observer, ObserverView)
-        assert result.observer.status == "running"
-
-    @pytest.mark.asyncio
-    async def test_driver_path_without_llm_and_no_engine_raises(self, tmp_path: Path):
-        # acquire() without as_observer is the driver path; building needs an llm.
-        with pytest.raises(ValueError, match="llm is required"):
-            await SylanneEngine.acquire(tmp_path)
-
-    @pytest.mark.asyncio
-    async def test_acquire_without_llm_attaches_to_existing(self, tmp_path: Path):
-        first = await SylanneEngine.shared(tmp_path, llm=_llm())
-        # No llm, but an engine already exists -> attach (same copy -> driver).
-        result = await SylanneEngine.acquire(tmp_path)
-        assert result.role == "driver"
-        assert result.engine is first
-
-    @pytest.mark.asyncio
-    async def test_observer_view_receives_driver_pushes(self, tmp_path: Path):
-        # The whole point: one engine computes, the observer just listens.
-        driver = (await SylanneEngine.acquire(tmp_path, llm=_llm())).engine
-        view = (await SylanneEngine.acquire(tmp_path, as_observer=True)).observer
-        assert view is not None and driver is not None
-
-        received: list[tuple[str, object]] = []
-        view.on(lambda sid, surf: received.append((sid, surf)))
-
-        await driver.process("s1", "hello")
-        assert len(received) == 1
-        assert received[0][0] == "s1"
-
-        # The observer can read the session the driver advanced, without driving.
-        assert view.exists("s1") is True
-        snap = await view.state("s1")
-        assert snap["session_id"] == "s1"
-
-    @pytest.mark.asyncio
-    async def test_observer_survives_driver_release(self, tmp_path: Path):
-        # The "one plugin is disabled while others keep running" case — and the
-        # exact shape of the prior audit's resurrection BLOCKER. An observer must
-        # not crash, must stay unable to drive, and must not open a write path.
-        driver = (await SylanneEngine.acquire(tmp_path, llm=_llm())).engine
-        view = (await SylanneEngine.acquire(tmp_path, as_observer=True)).observer
-        assert driver is not None and view is not None
-        await driver.process("s1", "hi")
-
-        await SylanneEngine.release_shared(tmp_path)  # driver plugin shuts down
-        assert driver.status == "closed"
-
-        # The view still references the (now closed) engine: no crash, still no
-        # driving methods, and the registry is free again (role -> unowned).
-        assert view.status == "closed"
-        assert not hasattr(view, "process")
-        # on() does not crash, but registering on a released engine is a dead drop
-        # (the listener list is on the closed object and can never fire again);
-        # the observer must re-acquire to receive pushes — there is no auto-rebind.
-        view.on(lambda sid, surf: None)
-        # The write path is closed too: reading state() on a released shared engine
-        # refuses to rehydrate a host (resurrection guard) instead of silently
-        # rebuilding it from disk. Re-acquire is the only correct path forward.
-        with pytest.raises(RuntimeError, match="released"):
-            await view.state("s1")
-        assert SylanneEngine.role(tmp_path) == "unowned"
-        # A fresh acquire rebuilds a NEW engine (not the released one).
-        rebuilt = await SylanneEngine.acquire(tmp_path, llm=_llm())
-        assert rebuilt.is_driver and rebuilt.engine is not driver
-
-
 class TestSharedDataDir:
     def test_explicit_wins(self, tmp_path: Path, monkeypatch):
         monkeypatch.setenv("SYLANNE_DATA_DIR", str(tmp_path / "from_env"))
@@ -586,9 +405,167 @@ class TestSharedDataDir:
 
     @pytest.mark.asyncio
     async def test_resolved_dir_converges_to_one_engine(self, tmp_path: Path):
-        # Two acquisitions routed through the resolved path hit one engine.
+        # Two shared() calls routed through the resolved path hit one engine.
         d = SylanneEngine.shared_data_dir(tmp_path / "host")
-        a = await SylanneEngine.acquire(d, llm=_llm())
-        b = await SylanneEngine.acquire(d, llm=_llm())
-        assert a.engine is b.engine
+        a = await SylanneEngine.shared(d, llm=_llm())
+        b = await SylanneEngine.shared(d, llm=_llm())
+        assert a is b
         assert len(SylanneEngine.list_shared()) == 1
+
+
+class TestPreSubmitBuilderWarning:
+    """3.0.0: attaching to an engine built by a pre-3.0 copy (no submit()) must
+    warn loudly — this is the KS4 fix, adapted from the deleted TestRole/
+    TestAcquire pattern of faking a foreign co-resident copy directly in the
+    rendezvous cell (poking cell.registry/cell.builders)."""
+
+    @pytest.mark.asyncio
+    async def test_engine_without_submit_warns_on_attach(self, tmp_path: Path, caplog):
+        import weakref
+
+        from sylanne_core._sharing import _cell, _Entry, _make_key
+
+        class _Pre3Engine:
+            """Stand-in for an engine built by a pre-3.0 sylanne_core copy:
+            has no submit() at all."""
+
+            status = "running"
+
+        key = _make_key(tmp_path)
+        loop = asyncio.get_running_loop()
+        fake_engine = _Pre3Engine()
+        entry = _Entry(fake_engine, SylanneConfig(), _llm(), None, weakref.ref(loop))
+        with _cell.lock:
+            _cell.registry[key] = entry
+        try:
+            with caplog.at_level("WARNING", logger="sylanne_core"):
+                got = await SylanneEngine.shared(tmp_path, llm=_llm())
+            assert got is fake_engine  # attaches to the existing (submit-less) engine
+            assert any("submit() dedup is UNAVAILABLE" in r.message for r in caplog.records)
+        finally:
+            with _cell.lock:
+                _cell.registry.pop(key, None)
+                _cell.builders.pop(key, None)
+
+    @pytest.mark.asyncio
+    async def test_engine_with_submit_does_not_warn(self, tmp_path: Path, caplog):
+        # Sanity counterpart: a normal 3.0 engine (has submit()) never trips it.
+        await SylanneEngine.shared(tmp_path, llm=_llm())
+        with caplog.at_level("WARNING", logger="sylanne_core"):
+            await SylanneEngine.shared(tmp_path, llm=_llm())
+        assert not any("submit() dedup is UNAVAILABLE" in r.message for r in caplog.records)
+
+
+class TestPre2CopyScanWarning:
+    """嫁接B: the one-shot sys.modules scan for pre-2.0 copies (KS4 sibling —
+    these cannot reach the rendezvous cell at all, so the only mitigation is a
+    loud diagnostic naming them)."""
+
+    @pytest.mark.asyncio
+    async def test_pre2_copy_in_sys_modules_warns(self, monkeypatch, caplog):
+        import sys
+        import types
+
+        from sylanne_core import _sharing
+
+        fake = types.ModuleType("vendored_sylanne_core")
+        fake.__version__ = "1.0.0"  # type: ignore[attr-defined]
+        fake.__file__ = "C:/fake/vendored_sylanne_core/__init__.py"  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "vendored_sylanne_core", fake)
+        monkeypatch.setattr(_sharing, "_SCANNED_FOR_OLD_COPIES", False)
+
+        with caplog.at_level("WARNING", logger="sylanne_core"):
+            _sharing._scan_for_pre2_copies()
+
+        assert any(
+            "pre-2.0 sylanne_core copy" in r.message and "vendored_sylanne_core" in r.message
+            for r in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_scan_runs_only_once_per_process(self, monkeypatch, caplog):
+        import sys
+        import types
+
+        from sylanne_core import _sharing
+
+        fake = types.ModuleType("vendored_sylanne_core")
+        fake.__version__ = "1.0.0"  # type: ignore[attr-defined]
+        fake.__file__ = "C:/fake/vendored_sylanne_core/__init__.py"  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "vendored_sylanne_core", fake)
+        monkeypatch.setattr(_sharing, "_SCANNED_FOR_OLD_COPIES", False)
+
+        with caplog.at_level("WARNING", logger="sylanne_core"):
+            _sharing._scan_for_pre2_copies()
+            caplog.clear()
+            _sharing._scan_for_pre2_copies()  # second call: guarded, must be silent
+        assert not any("pre-2.0 sylanne_core copy" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_current_version_copy_does_not_warn(self, monkeypatch, caplog):
+        from sylanne_core import _sharing
+
+        monkeypatch.setattr(_sharing, "_SCANNED_FOR_OLD_COPIES", False)
+        with caplog.at_level("WARNING", logger="sylanne_core"):
+            _sharing._scan_for_pre2_copies()
+        assert not any("pre-2.0 sylanne_core copy" in r.message for r in caplog.records)
+
+
+class TestPeekAndWaitShared:
+    def test_peek_none_when_absent(self, tmp_path: Path):
+        assert SylanneEngine.peek_shared(tmp_path) is None
+
+    @pytest.mark.asyncio
+    async def test_peek_returns_live_engine_without_building(self, tmp_path: Path):
+        assert SylanneEngine.peek_shared(tmp_path) is None
+        assert SylanneEngine.is_shared(tmp_path) is False  # peek alone never builds
+        built = await SylanneEngine.shared(tmp_path, llm=_llm())
+        assert SylanneEngine.peek_shared(tmp_path) is built
+
+    @pytest.mark.asyncio
+    async def test_wait_shared_timeout_returns_none(self, tmp_path: Path):
+        result = await SylanneEngine.wait_shared(tmp_path, timeout=0.2, interval=0.05)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_wait_shared_resolves_once_another_task_builds(self, tmp_path: Path):
+        async def build_later() -> None:
+            await asyncio.sleep(0.1)
+            await SylanneEngine.shared(tmp_path, llm=_llm())
+
+        builder_task = asyncio.create_task(build_later())
+        try:
+            result = await SylanneEngine.wait_shared(tmp_path, timeout=5.0, interval=0.02)
+        finally:
+            await builder_task
+        assert result is not None
+        assert result.status == "running"
+
+
+class TestSetLlm:
+    @pytest.mark.asyncio
+    async def test_set_llm_swaps_main_callback(self, tmp_path: Path, caplog):
+        old, new = _llm(), _llm()
+        engine = SylanneEngine(tmp_path, llm=old)
+        await engine.start()
+        await engine.process("s1", "hello")
+        assert old.call_count == 1
+        with caplog.at_level("INFO", logger="sylanne_core"):
+            engine.set_llm(new)
+        await engine.process("s1", "hello again")
+        assert new.call_count == 1
+        assert old.call_count == 1  # the dead builder's closure is never touched again
+        assert any("llm swapped" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_set_llm_only_swaps_assessor_when_given(self, tmp_path: Path):
+        main = _llm()
+        assessor_old, assessor_new = _llm(), _llm()
+        engine = SylanneEngine(tmp_path, llm=main, assessor_llm=assessor_old)
+        await engine.start()
+        await engine.process("s1", "hi")
+        assert assessor_old.call_count == 1
+        engine.set_llm(main, assessor_llm=assessor_new)
+        await engine.process("s1", "hi again")
+        assert assessor_new.call_count == 1
+        assert assessor_old.call_count == 1

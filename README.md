@@ -7,8 +7,8 @@
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
-[![Version](https://img.shields.io/badge/Version-2.3.2-green.svg)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/Tests-434_passed-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/Version-3.0.0-green.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Tests-650+_passed-brightgreen.svg)]()
 [![Zero Dependencies](https://img.shields.io/badge/Lite_Tier-Zero_Dependencies-orange.svg)]()
 
 **[标准规范](SPEC.md)** · **[开发者指南](AGENT_GUIDE.md)** · **[更新日志](CHANGELOG.md)** · **[Paper (EN)](docs/resonance_field_paper_en.pdf)** · **[Paper (中文)](docs/resonance_field_paper_zh.pdf)**
@@ -64,6 +64,19 @@ Prediction error is all you need — for living.
 
 ## 安装
 
+**首选：共享 venv 装依赖**（同宿主多插件场景下的一等公民路径）：
+
+```
+# requirements.txt
+sylanne-core>=3,<4
+```
+
+```python
+from sylanne_core import SylanneEngine, SylanneConfig
+```
+
+单插件、无共享需求也可以直接 vendor 一份：
+
 ```bash
 git submodule add https://github.com/Ayleovelle/SylannEngine.git deps/sylannengine
 ```
@@ -78,18 +91,36 @@ from sylanne_core import SylanneEngine, SylanneConfig
 
 ## 快速开始
 
-```python
-engine = SylanneEngine(
-    data_dir="./data/sylannengine",
-    llm=your_llm_callback,   # async (system_prompt, user_prompt) -> str
-    config=SylanneConfig(),
-)
-await engine.start()
+多插件同宿主的标准写法——`shared()` 拿共享引擎，`submit()` 当前门：
 
-surface = await engine.process(session_id="user_123", text="你好")
+```python
+engine = await SylanneEngine.shared(
+    SylanneEngine.shared_data_dir(),
+    llm=your_llm_callback,   # async (system_prompt, user_prompt) -> str
+    plugin="my_plugin",      # 可选，仅用于诊断（participants()），不影响去重
+)
+
+surface = await engine.submit(
+    session_id="user_123",
+    text=event.raw_text,                       # 传平台原始文本，或下面传 msg_id
+    msg_id=event.message_obj.message_id,        # 强烈建议：稳定 id，跨插件精确去重
+)
 
 action = surface["decision"]["action"]   # "express" / "withdraw" / "hold" / ...
 warmth = surface["state"]["valence"]["warmth"]  # 0.0 ~ 1.0
+```
+
+同一条消息被多个共存插件各自 `submit()` 一次，只有第一个真算，其余 join 同一个 `Surface`——
+不依赖谁先加载、谁自称什么角色。单插件场景也可以直接构造：
+
+```python
+engine = SylanneEngine(
+    data_dir="./data/sylannengine",
+    llm=your_llm_callback,
+    config=SylanneConfig(),
+)
+await engine.start()
+surface = await engine.process(session_id="user_123", text="你好")
 ```
 
 ---
@@ -400,17 +431,21 @@ python run_all.py 1 4 8  # 指定编号
 
 | 方法 | 说明 |
 |------|------|
-| `SylanneEngine.acquire(data_dir, llm, ..., as_observer=False)` | 按角色获取共享实例，返回 `AcquireResult`（driver / observer） |
-| `await SylanneEngine.shared(data_dir, llm, ...)` | 按 data_dir 取进程内共享实例 |
-| `await SylanneEngine.release_shared(data_dir)` | 释放共享实例 |
+| `await SylanneEngine.shared(data_dir, llm, ..., plugin=None)` | 按 data_dir 取进程内共享实例；`plugin` 仅诊断用 |
+| `await submit(session_id, text, *, msg_id=None, dedup=True, plugin=None, **ctx)` | **共享引擎的前门**：同一消息被多个插件提交只算一次，join 同一个 Surface |
+| `submit_stats()` | 去重计数器快照（computed / joined / recomputed_after_window） |
+| `participants()` | 诊断专用身份登记表（从不参与去重判断） |
+| `set_llm(llm, *, assessor_llm=None)` | 运维逃生口：热替换 llm 回调 |
+| `SylanneEngine.peek_shared(data_dir)` | 只读探活，永不建引擎 |
+| `await SylanneEngine.wait_shared(data_dir, *, timeout=None)` | 轮询等待某个插件先建好共享引擎 |
+| `await SylanneEngine.release_shared(data_dir)` | 释放共享实例（进程级运维操作，不要在插件 terminate 里调） |
 | `SylanneEngine.shared_data_dir(explicit=None)` | 解析规范化的共享 data_dir |
-| `SylanneEngine.role(data_dir)` | 协作角色标签（driver / observer） |
 | `SylanneEngine.is_shared(data_dir)` | 检查该 data_dir 是否存在共享实例 |
 | `SylanneEngine.list_shared()` | 列出所有共享引擎 |
 | `SylanneEngine.clear_shared_registry()` | 清除共享注册表（仅测试隔离用） |
-| `await process(session_id, text, **ctx)` | 处理文本，返回 Surface |
+| `await process(session_id, text, **ctx)` | 直接处理文本，返回 Surface（不去重，见下方"advanced"说明） |
 | `state(session_id)` | 查询当前状态（不触发计算） |
-| `await tick(session_id)` | 空闲心跳 |
+| `await tick(session_id, *, force=False)` | 空闲心跳，带每 session 45s 最小间隔收敛 |
 | `reset(session_id)` | 重置会话状态 |
 | `destroy(session_id)` | 销毁会话 |
 | `exists(session_id)` | 检查会话是否存在 |
@@ -418,36 +453,49 @@ python run_all.py 1 4 8  # 指定编号
 | `on(listener)` / `off(listener)` | 推送监听 |
 | `health()` | 健康检查 |
 
-完整接口见 [SPEC.md](SPEC.md)。
+完整接口见 [SPEC.md](SPEC.md)，多插件集成细节见 [AGENT_GUIDE.md](AGENT_GUIDE.md) §1。
 
-### 共享实例
+### 共享实例 + submit()
 
 > [!WARNING]
-> 多个下游插件如果各自 `SylanneEngine(...)` 指向**同一 data_dir**，会对同一用户重复计算、重复调 LLM，且各自 flush 互相覆盖（**丢更新**）。务必使用 `SylanneEngine.shared()` 共享实例。
+> 多个下游插件如果各自 `SylanneEngine(...)` 指向**同一 data_dir**，会对同一用户重复计算、重复调 LLM，且各自 flush 互相覆盖（**丢更新**）。务必使用 `SylanneEngine.shared()` 共享实例；且要用 `submit()` 而非 `process()` 当前门，否则实例虽然只有一个，计算还是跑了 N 次。
 
 ```python
 # 所有下游约定同一 data_dir，总是拿到同一个已启动实例
 engine = await SylanneEngine.shared(data_dir="./data/sylannengine", llm=your_llm_fn)
 same   = await SylanneEngine.shared(data_dir="./data/sylannengine", llm=your_llm_fn)
-assert same is engine   # 一份计算、一次 LLM 调用
+assert same is engine
 
-# 应用关闭时显式释放（会 flush 落盘）
-await SylanneEngine.release_shared("./data/sylannengine")
+# N 个插件对同一条消息各自 submit()，只算一次
+surface = await engine.submit("user_123", raw_text, msg_id=event.message_obj.message_id)
 ```
 
-**规则：**
+**submit() 去重规则（3.0.0）：**
+
+| 场景 | 行为 |
+|------|------|
+| 多插件对同一 `session_id` + 同 `msg_id`（或同文本）提交 | 第一个真算，其余 join 同一个 `Surface`，不管谁先加载 |
+| 同 `msg_id` 但文本不同 | 仍 join 第一次的结果，打一次 WARNING（消息 id 复用是危险模式） |
+| 同文本但 `msg_id` 不同 | 视为真重复，重新计算 |
+| `submit_window_seconds`（默认 10s）之外的相同键 | 重新计算（`recomputed_after_window`） |
+| `dedup=False` | 等价直接 `process()`，不进去重表 |
+
+`participants()` / `submit_stats()` 是纯诊断——传不传 `plugin=` 都不影响去重结果。
+
+**规则（`shared()` 本身）：**
 
 | 场景 | 行为 |
 |------|------|
 | 同一 data_dir **显式传入**不同 config | 抛 `SharedEngineConflictError` |
 | 自读 `sylanne.config.json` 出现差异（文件被改/跨版本副本） | 仅警告并复用运行中的配置（重启生效），不崩后来者 |
-| 同一 data_dir 传入不同 `llm`/`embedding`/`assessor_llm` | 警告并复用原实例 |
+| 同一 data_dir 传入不同 `llm`/`embedding`/`assessor_llm` | 警告并复用原实例（可用 `set_llm()` 事后热替换） |
 | 直接 `SylanneEngine(...)` 构造但目标 data_dir 已有共享实例 | 软警告（不阻断，但你大概率在重复创建） |
 
 **注意事项：**
 - 共享实例是 **event-loop 亲和**的——只在首次获取它的事件循环里使用，不要跨 loop/线程共享
 - 不要对共享实例用 `async with`——首次退出会替所有持有者关闭引擎
-- 没有 atexit 自动刷写，必须显式 `release_shared()`
+- `release_shared()` 是**进程级运维操作**（应用整体关闭时调），不是插件生命周期钩子——**不要在插件的 `terminate()` 里调**，那会替所有共存插件把引擎一起关掉
+- 没有 atexit 自动刷写，必须在进程关闭路径显式 `release_shared()`
 
 ```python
 # 排查：当前进程里有哪些共享引擎在跑
@@ -456,7 +504,7 @@ SylanneEngine.is_shared("./data/x")  # True / False
 ```
 
 > [!TIP]
-> **插件开发者**：不要自己 `SylanneEngine(...)`，用 `SylanneEngine.shared(data_dir, llm)` 就行。约定一个统一的 data_dir，所有插件共享同一实例，零额外配置。
+> **插件开发者**：不要自己 `SylanneEngine(...)`，用 `SylanneEngine.shared(data_dir, llm)` + `submit()` 就行。约定一个统一的 data_dir，所有插件共享同一实例、同一去重表，零额外配置，也不用管自己是不是"第一个加载的"。
 
 ---
 
@@ -526,7 +574,7 @@ SylannEngine/
 │       └── ...                      # HDC, HGT, 自创生, 相变等
 ├── experiments/                 # 12 项实验验证
 ├── training/                    # V3 SYLANN 训练代码与规范
-├── tests/                       # 434 单元测试
+├── tests/                       # 650+ 单元测试
 └── docs/                        # 论文 + 规范
 ```
 
