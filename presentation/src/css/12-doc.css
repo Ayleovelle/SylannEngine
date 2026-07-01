@@ -1,27 +1,32 @@
 /* ════════════════════════════════════════════
    DOC · 文档阅读页（SPEC / 开发者指南，Markdown 构建期转 HTML）
-   套用现有设计 token；正文不挂 .r 揭示类，避免卡 opacity:0。
+   阅读环境纪律：正文回墨色、每种元素只留一个藕荷信号、
+   左缘与 pagehead 对齐（单一左轨）。正文不挂 .r 揭示类。
    ════════════════════════════════════════════ */
-.docbody{font-family:var(--font-body);font-size:1.02rem;line-height:1.82;color:var(--text-muted);
-  font-weight:450;max-width:78ch;margin:0 auto;padding:0 clamp(20px,5vw,56px)}
+.docbody{font-family:var(--font-body);font-size:1.02rem;line-height:1.82;color:var(--text-body);
+  max-width:78ch;margin:0;padding:0}
 
-/* 标题 */
+/* 双 H1 修复：pagehead 已有页题，markdown 自带的首个 H1 隐藏 */
+.docbody>h1:first-child{display:none}
+
+/* 标题 —— 层级靠墨色和字重，不靠染色 */
 .docbody h1,.docbody h2,.docbody h3,.docbody h4{font-family:var(--font-head);color:var(--text);
   font-weight:700;letter-spacing:.01em;scroll-margin-top:90px}
 .docbody h1{font-size:clamp(1.8rem,4vw,2.7rem);line-height:1.08;margin:0 0 1.4rem}
 .docbody h2{font-size:clamp(1.4rem,3vw,2rem);margin:2.8rem 0 1rem;padding-top:1.6rem;
   border-top:1px solid var(--line2)}
-.docbody h3{font-size:1.22rem;margin:1.9rem 0 .7rem;color:var(--accent-d)}
-.docbody h4{font-size:1.04rem;margin:1.4rem 0 .5rem;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--text-faint);font-family:var(--font-mono);font-weight:600}
+.docbody h3{font-size:1.22rem;margin:1.9rem 0 .7rem}
+.docbody h4{font-size:.98rem;margin:1.4rem 0 .5rem;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--text-muted);font-family:var(--font-mono);font-weight:600}
 
 /* 正文 */
 .docbody p{margin:.9rem 0}
 .docbody strong,.docbody b{color:var(--text);font-weight:600}
 .docbody em{font-style:italic}
-.docbody a{color:var(--accent-d);text-decoration:none;border-bottom:1px solid transparent;
+/* 链接是正文里唯一的藕荷信号：文本级藕荷 + 常显淡染下划线 */
+.docbody a{color:var(--accent-text);text-decoration:none;border-bottom:1px solid var(--m-300);
   transition:border-color .2s ease,color .2s ease}
-.docbody a:hover{color:var(--accent);border-bottom-color:var(--accent-d)}
+.docbody a:hover{color:var(--accent-d);border-bottom-color:var(--accent-d)}
 .docbody hr{border:0;height:1px;background:var(--line2);margin:2.2rem 0}
 
 /* 列表 */
@@ -29,12 +34,14 @@
 .docbody li{margin:.4rem 0}
 .docbody li>ul,.docbody li>ol{margin:.3rem 0 .3rem 1.2rem}
 
-/* 行内代码 */
-.docbody code{font-family:var(--font-mono);font-size:.88em;background:var(--glow);
-  color:var(--accent-d);padding:.1em .42em;border-radius:4px;word-break:break-word}
+/* 行内代码 —— 中性墨面小片，把藕荷让给链接和表格首列 */
+.docbody code{font-family:var(--font-mono);font-size:.88em;background:rgba(26,26,26,.05);
+  color:var(--text);padding:.1em .42em;border-radius:4px;word-break:break-word}
+[data-theme="dark"] .docbody code{background:rgba(255,255,255,.07)}
 
-/* 代码块 */
-.docbody pre{background:var(--card-solid);border:1px solid var(--card-border);border-radius:12px;
+/* 代码块 —— 3px 藕荷左缘，归入 spine/comms/callout 同一家族 */
+.docbody pre{background:var(--card-solid);border:1px solid var(--card-border);
+  border-left:3px solid var(--accent);border-radius:12px;
   padding:1.2rem 1.3rem;margin:1.3rem 0;overflow-x:auto;line-height:1.62}
 .docbody pre code{background:none;color:var(--text);padding:0;font-size:.85rem;border-radius:0;
   white-space:pre;word-break:normal}
@@ -45,14 +52,14 @@
   border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .docbody th,.docbody td{padding:.6rem .9rem;text-align:left;border-bottom:1px solid var(--line2);
   border-right:1px solid var(--line2)}
-.docbody th{background:var(--glow);color:var(--text);font-weight:600;font-family:var(--font-mono);
+.docbody th{background:var(--m-100);color:var(--text);font-weight:600;font-family:var(--font-mono);
   font-size:.84rem;letter-spacing:.02em}
-.docbody td{color:var(--text-muted);vertical-align:top}
-/* 表格里的代码（方法名/签名/字段）做成扎眼的 code chip，不再糊成淡淡一团 */
+.docbody td{color:var(--text-body);vertical-align:top}
+/* 表格里的代码（方法名/签名/字段）做成扎眼的 code chip */
 .docbody td code{font-size:.86rem;background:var(--card-solid);border:1px solid var(--card-border);
   color:var(--text);padding:.16em .5em;border-radius:6px;white-space:nowrap}
-/* 首列通常是方法名/字段名——再重一点，藕荷主色，一眼能扫 */
-.docbody td:first-child code{color:var(--accent-d);font-weight:600;background:var(--glow);
+/* 首列通常是方法名/字段名——文本级藕荷，一眼能扫且过 AA */
+.docbody td:first-child code{color:var(--accent-text);font-weight:600;background:var(--m-100);
   border-color:transparent}
 .docbody tr:last-child td{border-bottom:none}
 .docbody th:last-child,.docbody td:last-child{border-right:none}
@@ -80,8 +87,8 @@ html.no-mermaid .docbody .mermaid{opacity:.5;font-family:var(--font-mono);font-s
   line-height:1.4;transition:transform var(--motion-ui) var(--motion-ease),border-color var(--motion-ui) ease,box-shadow var(--motion-ui) ease,color var(--motion-ui) ease}
 .docbody .doc-toc a::after{content:'→';position:absolute;top:50%;right:1rem;transform:translateY(-50%);
   font-family:var(--font-head);color:var(--text-faint);transition:transform var(--motion-ui) ease,color var(--motion-ui) ease}
-.docbody .doc-toc a:hover{transform:translateY(-2px);border-color:var(--accent);color:var(--accent-d);
-  box-shadow:0 12px 30px rgba(0,0,0,.1)}
+.docbody .doc-toc a:hover{transform:translateY(-2px);border-color:var(--accent);color:var(--accent-text);
+  box-shadow:var(--shadow-md)}
 .docbody .doc-toc a:hover::after{transform:translateY(-50%) translateX(3px);color:var(--accent-d)}
 
 /* 移动端 */
