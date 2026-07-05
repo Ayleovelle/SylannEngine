@@ -762,7 +762,7 @@ class SylanneConfig:
     persistence_fsync: bool = True     # 持久化是否 fsync
     tick_drift_cap: float = 0.05       # 单次人格漂移上限
     locale: str = "zh"                 # 语言（影响评估器 prompt）
-    force_backend: str | None = None   # 强制计算后端（None / "torch" / "cupy" / "numpy" / "python"）
+    force_backend: str | None = None   # 覆盖后端探测（None/"torch"/"cupy"/"numpy"/"python"）；被接受并校验、写入 DimensionProfile.backend，但该字段在当前接线下无任何读取者（HGT 的 numpy 加速开关硬编码读本地 _HAS_NUMPY，不读 profile.backend），故对计算无可观测影响；保留此参数位是因为下游插件在构造时会显式传 force_backend="python"
     training_data_sink: bool = False   # 启用后写本地蒸馏语料（离线 student 训练用）
     training_data_path: str | None = None  # 语料文件名（默认 "distill_corpus.jsonl"）
     training_data_salt: str = ""       # 会话哈希的本地盐（空 = 进程随机盐）

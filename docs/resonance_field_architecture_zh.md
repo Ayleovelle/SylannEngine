@@ -1,6 +1,11 @@
 # 共振场架构 — 中文技术规范
 ## SylannEngine v2.0 情感计算标准
 
+> ⚠️ 历史文档：本文描述 2.5 之前已移除的迭代共振场架构（六机制：Kuramoto 相位耦合、
+> Hopfield 吸引子、自由能最小化、谐波身份、回声状态库、单纯形高阶耦合，
+> 于 `29b402a` 删除），仅作历史留档，不代表现行引擎架构。
+> 现行架构见 [theoretical_spec.md](theoretical_spec.md) 与 [SPEC.md](../SPEC.md)。
+
 ---
 
 ## 1. 设计哲学
