@@ -5,11 +5,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.4.1] — 2026-07-06
+
+纯打包/文档补丁版，无任何运行时代码改动；API 与 2.4.0 完全一致。
+
+### 打包
+
+- `pyproject.toml` 新增 `[tool.hatch.build.targets.sdist]` 白名单（`only-include`），
+  源码分发包（sdist）从 ~21.7MB 收敛到 ~0.4MB。hatchling 默认按 VCS 跟踪文件全收，
+  会把 `presentation/`（官网静态站）、`.codegraph/`（二进制索引库）、`docs/` 论文 PDF 等
+  一并塞进 sdist；2.4.0 首发因发布流程 checkout 的 tag 早于本修复，其 sdist 未受益，
+  故补发 2.4.1。wheel 一直是干净的（由 `packages = ["sylanne_core"]` 控制），不受影响。
+- 新增 `.github/workflows/publish.yml`：`push tags v*` + `workflow_dispatch` 触发，
+  发布前校验 tag / `pyproject` / `__version__` 三处版本号一致，经 PyPI Trusted Publishing
+  （OIDC，免 API token）上架。
+
 ### 文档
 
 - README.md / AGENT_GUIDE.md 的安装指引在钉版本示例（`sylanne-core>=2.4,<3`）旁补充了
-  PyPI 上架前的等价 GitHub 安装命令（`pip install "sylanne-core @ git+..."`），避免在包尚未
-  发布到 PyPI 时误导下游直接 `pip install sylanne-core` 会失败。
+  PyPI 上架前的等价 GitHub 安装命令（`pip install "sylanne-core @ git+..."`）。
 
 ## [2.4.0] — 2026-07-02
 
