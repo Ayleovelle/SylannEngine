@@ -1,5 +1,13 @@
 # Resonance Field — Formal Mathematical Specification
 
+> ⚠️ **Historical document**: This describes the iterative resonance field
+> architecture (six mechanisms: Kuramoto phase coupling, Hopfield attractors,
+> free-energy minimization, harmonic identity, echo-state reservoir, simplicial
+> higher-order coupling) that was removed prior to v2.5 (commit `29b402a`).
+> It is kept for historical reference only and does not describe the current
+> engine. For the current architecture, see
+> [theoretical_spec.md](theoretical_spec.md) and [SPEC.md](../SPEC.md).
+
 ## 1. Simplicial Topology
 
 ### 1.1 Complete 6-Simplex Δ⁶
