@@ -5,6 +5,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### 文档
+
+- README.md / AGENT_GUIDE.md 的安装指引在钉版本示例（`sylanne-core>=2.4,<3`）旁补充了
+  PyPI 上架前的等价 GitHub 安装命令（`pip install "sylanne-core @ git+..."`），避免在包尚未
+  发布到 PyPI 时误导下游直接 `pip install sylanne-core` 会失败。
+
 ## [2.4.0] — 2026-07-02
 
 ### 💥 撤回 driver/observer 角色层（发布前，从未进入任何 tag），改用 single-fire submit()

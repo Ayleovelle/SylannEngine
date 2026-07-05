@@ -33,6 +33,10 @@
 sylanne-core>=2.4,<3
 ```
 
+> 尚未上架 PyPI 前，等价的 GitHub 安装命令：
+> `pip install "sylanne-core @ git+https://github.com/Ayleovelle/SylannEngine.git@v2.4.0"`
+> 上架后无缝切回上面钉版本的 `requirements.txt` 写法。
+
 Pin 纪律很重要：一个共享 venv 只有一份最终生效的版本（`pip install` 是 last-write-wins），
 混着写 `sylanne-core==2.3.2` 和 `sylanne-core>=2.4` 在同一台机器的不同插件里，最后装出来的是
 其中一个版本，另一批插件调 2.4.0 新增的方法（如 `submit()`）会直接 `AttributeError`。统一写
