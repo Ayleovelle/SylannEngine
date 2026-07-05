@@ -5,6 +5,47 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-07-06
+
+诚实化地基版：拆净 2.5 前架构退役后遗留的死代码，全面文档校真。零 Surface 变更、
+零行为变化（固定输入下所有确定性字段字节级一致，经 stash 对比 main 实测）；API 与 2.4.1 完全一致。
+
+### 内部清理（零行为变化）
+
+- 拆除死机制桩类 `_Kuramoto` / `_Plasticity` / `_FreeEnergy`
+  （`sylanne_core/compute/deterministic_fusion.py`）：三者是 v2.5 迭代共振核心退役后留下的
+  惰性占位符——`_Plasticity.update()` 函数体即 `return None`，`_Kuramoto` 只剩几个从未被
+  真实动力学读取的字段，`_FreeEnergy._precision` 写入即黑洞。清点确认全仓库零消费者、
+  零测试直接断言这三者的内部字段。同步删除 `ResonanceSpine.apply_personality()` /
+  `feedback()`（`resonance_integration.py`）里写向这些死字段的 personality/meta-learner
+  reach-in，以及 `MetaLearner`（`meta_learner.py`）里重复的 `kuramoto_k1` seed 公式/边界/
+  常量表条目。`resonate()` 的 mean-field 融合本体与 `sync_order` 数值计算逐字未动——原先
+  经 `_coupling.kuramoto._order` 中转的缓存直接改为存在融合器自身字段
+  （`_last_sync_order`），验证 `resonate()` 输出与改动前逐字段比对完全一致。
+  `_Broadcast`/`topology_gate`/`_Complex`（`active_channels`）不在本次范围内，原样保留。
+  config.py 公开面未暴露过这些名字，无需 DeprecationWarning。
+- 删除 `DeterministicFusion` 的四个活写死读幽灵参数（`_hopfield_strength` / `_identity_inertia`
+  / `_identity_max_norm` / `_max_attractors`）：每次 `apply_personality` / `switch_tier` 都写入，
+  但 `resonate` / `inject` / `observe` 零读取。删除写入线、字段本体与 `to_dict` 输出键；
+  `from_dict` 对老 snapshot 里的这些键静默忽略，保证向后兼容。
+- 删除 `set_criticality` 死写线：`_Coupling.set_criticality` 是显式 no-op；删除方法本体与
+  `resonance_integration.py` 的两处调用。`emergence.py` 的 criticality 计算与读侧消费者完整保留。
+
+### 文档校真（无代码逻辑改动）
+
+- `force_backend`：更正为「被接受并校验、写入 `DimensionProfile.backend`，但该字段当前无任何
+  读取者（`HGT._use_numpy` 硬编码读 `_HAS_NUMPY`），故对计算无可观测影响；参数位保留是因为
+  下游插件构造时传 `force_backend="python"`」。删除此前「max 档静默降级为 numpy」「仅影响 HGT
+  numpy 加速决策」等不实表述（`config.py` / `SPEC.md` / `docs/theoretical_spec.md` 三处同步）。
+- `docs/theoretical_spec.md` / `SPEC.md`：耦合通道数校真为全档恒 42（= n_modules×(n_modules−1)，
+  n_modules=7；档位差异体现在向量维度 8/16/128，非拓扑复杂度）；§11.3 移除 max 档 GPU / <5ms
+  表述（torch 路径已随 `29b402a` 删除，全档 CPU）；新增 Kuramoto 墓志铭一节；Φ 明确标注为
+  two-component 近似（空间相关×时间连贯），非划分近似的严格 IIT，不蹭 IIT 合法性。
+- `computation_spine.py` 模块 docstring：max 档「GPU 加速」→ numpy（GPU 路径已移除），
+  并标注 `ComputationSpine` 自 v2.5 起冻结。
+- 四个 2.5 前的 `docs/resonance_field_*` / `docs/max_tier_workflow.md` 加历史横幅（引 `29b402a`），
+  标明描述的是已移除的迭代共振场架构、仅作历史留档；`README.md` 文档索引同步修正指向现行 spec。
+
 ## [2.4.1] — 2026-07-06
 
 纯打包/文档补丁版，无任何运行时代码改动；API 与 2.4.0 完全一致。

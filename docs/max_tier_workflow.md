@@ -1,3 +1,11 @@
+> ⚠️ **Historical document**: This describes the iterative resonance field
+> architecture (six mechanisms: Kuramoto phase coupling, Hopfield attractors,
+> free-energy minimization, harmonic identity, echo-state reservoir, simplicial
+> higher-order coupling) and the GPU/torch path for the `max` tier, both
+> removed prior to v2.5 (commit `29b402a`). It is kept for historical reference
+> only and does not describe the current engine. For the current architecture,
+> see [theoretical_spec.md](theoretical_spec.md) and [SPEC.md](../SPEC.md).
+
 ```mermaid
 ---
 title: "SylannEngine MAX Tier — Resonance Field Computation Flow"
