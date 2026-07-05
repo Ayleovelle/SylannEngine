@@ -71,6 +71,10 @@ Prediction error is all you need — for living.
 sylanne-core>=2.4,<3
 ```
 
+> 尚未上架 PyPI 前，等价的 GitHub 安装命令：
+> `pip install "sylanne-core @ git+https://github.com/Ayleovelle/SylannEngine.git@v2.4.0"`
+> 上架后无缝切回上面钉版本的 `requirements.txt` 写法。
+
 ```python
 from sylanne_core import SylanneEngine, SylanneConfig
 ```
