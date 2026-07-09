@@ -495,18 +495,21 @@ class TestA4Convergence:
         spine.process("exciting news!", 1.0)
         spine.process("more excitement!", 2.0)
         initial_state = spine.expression.state()
-        initial_drive = initial_state.get("drive", initial_state.get("accumulator", 0.0))
+        # v2.6.0 T3-silence: assert on the REAL state key ``pressure`` (the old
+        # "drive"/"accumulator" keys never existed, so this test was vacuous).
+        assert "pressure" in initial_state
+        initial_pressure = initial_state["pressure"]
 
         # Idle: process empty strings (triggers silence_lowers_threshold)
         for i in range(50):
             spine.process("", float(i + 3))
 
         final_state = spine.expression.state()
-        final_drive = final_state.get("drive", final_state.get("accumulator", 0.0))
+        final_pressure = final_state["pressure"]
 
-        # Drive should have decayed
-        assert final_drive <= initial_drive + 0.01, (
-            f"Expression drive did not decay: {initial_drive:.4f} -> {final_drive:.4f}"
+        # Pressure must not grow while idle (it decays / holds).
+        assert final_pressure <= initial_pressure + 0.01, (
+            f"Expression pressure did not decay: {initial_pressure:.4f} -> {final_pressure:.4f}"
         )
 
 
