@@ -263,7 +263,7 @@ def render_diagnostics(
     vector_summary = kernel._vector_summary()
     body = kernel.body.to_dict()
     risk_score = kernel._risk_score()
-    return {
+    out: dict[str, Any] = {
         "life_principle": "I'm living a life by design",
         "load": body["mortality"]["load"],
         "interruption_budget": body["immunity"]["interruption_budget"],
@@ -300,6 +300,15 @@ def render_diagnostics(
         },
         "hot_pool": kernel.hot_pool.diagnostics(),
     }
+    # v2.6.0 T2 Gate A: additive emotion-label shadow key, present ONLY when the
+    # affect feature is enabled and a label has been resolved — so diagnostics stay
+    # byte-identical (deep-equal) when off. Diagnostic-only; never reaches the prompt
+    # fragment. Coexists with (does not replace) Surface.pad.label — the supersede/
+    # deprecate decision is deferred to T6.
+    label_shadow = kernel.affect_label_shadow()
+    if label_shadow is not None:
+        out["affect_label_shadow"] = label_shadow
+    return out
 
 
 # ---------------------------------------------------------------------------
