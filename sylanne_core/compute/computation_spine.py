@@ -213,6 +213,8 @@ class ComputationSpine:
         "_pad_projector_cache",
         # PEL-Core enable flag (config-gated; default off)
         "_pel_enabled",
+        # v2.6.0 affect-dynamics E-law shadow enable flag (config-gated; default off)
+        "_affect_enabled",
     )
 
     def __init__(
@@ -221,6 +223,7 @@ class ComputationSpine:
         profile: DimensionProfile | None = None,
         *,
         pel_enabled: bool = False,
+        affect_enabled: bool = False,
     ):
         if profile is None:
             from ..config import build_profile
@@ -228,6 +231,7 @@ class ComputationSpine:
             profile = build_profile("lite")
         self._profile = profile
         self._pel_enabled = pel_enabled
+        self._affect_enabled = affect_enabled
         hdc_dim = profile.hdc_dim
         if plugin is not None:
             hdc_dim = getattr(plugin, "_cfg_int", lambda k, d: d)(
@@ -240,6 +244,7 @@ class ComputationSpine:
             similarity_fn=self._hdc_similarity,
             scar_mlp_passes=profile.scar_mlp_passes,
             pel_enabled=pel_enabled,
+            affect_enabled=affect_enabled,
         )
         self.sheaf = ScarSheaf(n0=profile.stalk_dim)
         self.boundary = AutopoieticBoundary(
@@ -401,6 +406,11 @@ class ComputationSpine:
 
         # PEL-Core: derive latent attractor prior from personality (no-op off).
         self.engine.scar_state.set_pel_priors(personality)
+
+        # v2.6.0 affect E-law: feed the same normalized personality as traits +
+        # neutral relationship 0.5 (no canonical R signal is plumbed yet). No-op
+        # unless affect_dynamics_enabled & 8-dim core; shadow-only, never base.
+        self.engine.scar_state.set_affect_params(personality, relationship=0.5)
 
         # Void detection threshold: neurotic = lower threshold (detects absence easily)
         # Range: 0.1 (very neurotic) to 0.6 (very stable)
@@ -578,6 +588,16 @@ class ComputationSpine:
         # Arousal modulates expression drive accumulation rate
         if arousal > 0.7:
             self.expression.accumulate(arousal * 0.2, dt=0.5)
+
+        # v2.6.0 Gate A: fast-channel appraisal onto the *shadow* E (diagnostic
+        # only; never touches base). Fail-closed — a bug in projection/gain must
+        # not escape the per-turn path (t1-audit #1). No-op unless affect enabled.
+        try:
+            self.engine.scar_state.apply_affect_appraisal_shadow(
+                valence, arousal, wound_risk, intent
+            )
+        except Exception:  # pragma: no cover - diagnostic path, must never crash a turn
+            logger.debug("affect-shadow appraisal (computation) skipped", exc_info=True)
 
     def apply_social_signals(self, signals: SocialSignals | None) -> None:
         """应用社交场信号到 L7 表达层和 L3 虚空-伤痕引擎。"""
@@ -1230,13 +1250,19 @@ class ComputationSpine:
 
             if "scar" in engine_data:
                 self.engine.scar_state = ScarredState.from_dict(
-                    engine_data["scar"], pel_enabled=self._pel_enabled
+                    engine_data["scar"],
+                    pel_enabled=self._pel_enabled,
+                    affect_enabled=self._affect_enabled,
                 )
                 if self._pel_enabled and not self.engine.scar_state.pel_active():
                     # Legacy snapshot (no "pel"): re-init the latent core from
                     # personality so a PEL-configured spine stays consistent.
                     self.engine.scar_state._pel_enabled = True
                     self.engine.scar_state.set_pel_priors(self._personality)
+                # v2.6.0 affect: traits/relationship are never persisted — re-supply
+                # them from the restored personality so the shadow survives reload.
+                if self._affect_enabled:
+                    self.engine.scar_state.set_affect_params(self._personality, relationship=0.5)
             if "void" in engine_data:
                 self.engine.void_space.from_dict(engine_data["void"])
             if "social_void" in engine_data:

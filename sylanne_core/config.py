@@ -228,6 +228,14 @@ class SylanneConfig:
             behaviour is byte-identical to today. When True, the engine's
             8-dim emotion core (lite tier) evolves via the PEL latent
             micro-circuit instead. Additive and snapshot-migration-safe.
+        affect_dynamics_enabled: Opt in to the v2.6.0 affect-dynamics E-law
+            *shadow* (Gate A). Default False — nothing changes. When True, the
+            8-dim emotion core additionally computes a parallel "shadow" E via
+            the E-law (wall-clock decay-to-Phi_eq + saturating appraisal update)
+            purely for diagnostics/telemetry: it is logged and buffered but
+            NEVER written into ``base``, never read by ``observe()``, and never
+            enters the prompt. Snapshot-migration-safe. Takeover (writing base)
+            is a separate later flag (T3), not this one.
         submit_window_seconds: How long a COMPLETED ``submit()`` entry stays
             joinable before it is pruned (default 10s). A duplicate submission
             for the same key inside this window joins the cached result instead
@@ -255,6 +263,7 @@ class SylanneConfig:
     training_data_path: str | None = None
     training_data_salt: str = ""
     pel_core_enabled: bool = False
+    affect_dynamics_enabled: bool = False
     submit_window_seconds: float = 10.0
     submit_max_entries: int = 1024
     tick_min_interval_seconds: float = 45.0

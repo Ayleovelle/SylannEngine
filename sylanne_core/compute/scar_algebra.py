@@ -12,14 +12,18 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import statistics
 from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any
 
+from . import affect_dynamics, affect_projection
 from .pel_core import N as _PEL_N
 from .pel_core import PELCore
+
+logger = logging.getLogger("sylanne_core")
 
 # D-3/D-7: wound/feedback steps never advance the PEL latent ``mu``. When PEL is
 # active they apply a cheap, bounded affine bias on ``base`` instead of the
@@ -155,6 +159,15 @@ class ScarredState:
         # ``_pel is None`` => legacy MLP path runs and behaviour is byte-identical.
         "_pel",
         "_pel_enabled",
+        # v2.6.0 affect-dynamics E-law shadow (Gate A: computed + logged, NEVER
+        # written into ``base``; ``observe()`` never reads it; discarded at T3
+        # promotion). ``_affect_enabled`` off => byte-identical legacy.
+        "_affect_enabled",
+        "_affect_traits",
+        "_relationship",
+        "_affect_shadow_base",
+        "_e_last_wall_ts",
+        "_last_affect_shadow",
     )
 
     def __init__(
@@ -164,6 +177,7 @@ class ScarredState:
         mlp_passes: int = 1,
         *,
         pel_enabled: bool = False,
+        affect_enabled: bool = False,
     ):
         self.n_dims = n_dims
         self.wound_threshold = wound_threshold
@@ -197,6 +211,16 @@ class ScarredState:
         # built by ``set_pel_priors`` and only for the frozen 8-dim emotion space.
         self._pel_enabled: bool = pel_enabled
         self._pel: PELCore | None = None
+        # v2.6.0 affect E-law shadow. ``_affect_enabled`` is construction-time (from
+        # config, mirrors ``_pel_enabled``); traits/relationship arrive later via
+        # ``set_affect_params`` (mirrors ``set_pel_priors``). Shadow buffer + affect
+        # wall-clock + last diagnostic snapshot are all diagnostic-only.
+        self._affect_enabled: bool = affect_enabled
+        self._affect_traits: dict[str, float] = {}
+        self._relationship: float = 0.5
+        self._affect_shadow_base: list[float] | None = None
+        self._e_last_wall_ts: float = 0.0
+        self._last_affect_shadow: dict[str, Any] | None = None
 
     def set_healing_rates(
         self, t_raw: int, t_closing: int, t_scarred: int, neuroticism: float = 0.5
@@ -280,6 +304,97 @@ class ScarredState:
         if not self._pel_enabled or self.n_dims != _PEL_N:
             return
         self._pel = PELCore.from_personality(personality, base=list(self.base))
+
+    # ------------------------------------------------------------------
+    # v2.6.0 affect-dynamics E-law shadow (Gate A: shadow-only, never touches base)
+    # ------------------------------------------------------------------
+
+    def set_affect_params(self, traits: dict[str, float], relationship: float = 0.5) -> None:
+        """注入 E 律人格 traits + 关系相位（影子期只喂 shadow 计算，绝不碰 base）。
+
+        镜像 ``set_pel_priors`` 的注入位（由 apply_personality 调用），随人格覆盖幂等重设。
+        traits/relationship **不落盘**——复原后由 apply_personality 重新注入（PEL must-fix #3 同型）。
+        relationship 缺省 0.5（canonical 尚无关系相位标量接线；真实 R 是后续 T3/T4 跟进项）。
+        """
+        self._affect_traits = dict(traits) if traits else {}
+        r = float(relationship)
+        self._relationship = r if math.isfinite(r) and 0.0 <= r <= 1.0 else 0.5
+
+    def _affect_active(self) -> bool:
+        """影子仅对 8 维情感核生效（affect_dynamics 全按 N_DIMS=8 立式，pro/max 核跳过）。"""
+        return self._affect_enabled and self.n_dims == affect_dynamics.N_DIMS
+
+    def _record_affect_shadow(self, source: str, matched: str | None = None) -> dict[str, Any]:
+        """构建影子诊断快照 + 落 debug 日志（散度 = 影子 E 与真实 base 的 L2 距离）。"""
+        shadow = self._affect_shadow_base if self._affect_shadow_base is not None else list(self.base)
+        divergence = math.sqrt(sum((shadow[i] - self.base[i]) ** 2 for i in range(self.n_dims)))
+        diag: dict[str, Any] = {
+            "source": source,
+            "intent_class": matched,
+            "divergence_l2": divergence,
+            "shadow": list(shadow),
+        }
+        self._last_affect_shadow = diag
+        logger.debug("affect-shadow[%s] div=%.4f intent=%s", source, divergence, matched)
+        return diag
+
+    def _affect_decay_shadow(self, timestamp: float) -> None:
+        """影子 E 的墙钟惰性衰减（Gate A：只动 ``_affect_shadow_base``，绝不碰 ``base``）。
+
+        用 affect 层自有墙钟 ``_e_last_wall_ts``（不复用会被 feedback() 清零的 ``_last_step_time``），
+        仅在真实墙钟 timestamp>0 且有前次基准时推进；懒初始化影子 = base 快照。decay 是仿射 lerp、
+        仿射等变，故 base 留原生 (-1,1) 帧，只把 Φ_eq 折回 native（Phase 0 已证等价）。异常自吞、
+        绝不外逃主回合（写入点在未守护的每回合主路上，t1-audit #1）。
+        """
+        if not self._affect_active() or not (timestamp > 0.0):
+            return
+        try:
+            if self._affect_shadow_base is None:
+                self._affect_shadow_base = list(self.base)
+            prev = self._e_last_wall_ts
+            self._e_last_wall_ts = float(timestamp)
+            if not (prev > 0.0):
+                return
+            dt = float(timestamp) - prev
+            if not (dt > 0.0):
+                return
+            eq_native = affect_dynamics.from_unit_interval(
+                affect_dynamics.equilibrium(self._affect_traits, self._relationship)
+            )
+            scarload = [self.scar_density(d) for d in range(self.n_dims)]
+            h_secs = affect_dynamics.half_lives(self._affect_traits, scarload)
+            self._affect_shadow_base = affect_dynamics.decay(
+                self._affect_shadow_base, eq_native, h_secs, dt
+            )
+            self._record_affect_shadow("decay")
+        except Exception:  # pragma: no cover - fail-closed, diagnostic path only
+            logger.debug("affect-shadow decay skipped (exception)", exc_info=True)
+
+    def apply_affect_appraisal_shadow(
+        self, valence: float, arousal: float, wound_risk: float, intent: str | None
+    ) -> dict[str, Any] | None:
+        """快通道 appraisal 对影子 E 的饱和更新（Gate A：只动 ``_affect_shadow_base``，绝不碰 ``base``）。
+
+        由两个 assessor 写入点在既有手写规则之后调用。投影 → gain_vector(traits) → 饱和更新，
+        全程折进 [0,1] 折回 native（saturating_update 非仿射等变，必须整体折进折出）。返回诊断快照
+        （命中意图类、影子-base 散度）供落日志；未启用/非 8 维返回 None。调用方仍须 try/except
+        兜底（本方法内也自吞，双保险不外逃主回合）。
+        """
+        if not self._affect_active():
+            return None
+        try:
+            if self._affect_shadow_base is None:
+                self._affect_shadow_base = list(self.base)
+            a_k, matched = affect_projection.project_appraisal(valence, arousal, wound_risk, intent)
+            gain = affect_dynamics.gain_vector(self._affect_traits)
+            affect_dynamics.validate_gain(gain)  # fail-closed：越界抛→本地兜底落日志
+            unit = affect_dynamics.to_unit_interval(self._affect_shadow_base)
+            updated = affect_dynamics.saturating_update(unit, a_k, gain)
+            self._affect_shadow_base = affect_dynamics.from_unit_interval(updated)
+            return self._record_affect_shadow("appraisal", matched=matched)
+        except Exception:  # pragma: no cover - fail-closed, diagnostic path only
+            logger.debug("affect-shadow appraisal skipped (exception)", exc_info=True)
+            return None
 
     def healing_duration(
         self,
@@ -483,6 +598,10 @@ class ScarredState:
         Returns:
             诊断字典，包含调制后输入、新伤痕、愈合维度等信息
         """
+        # v2.6.0 Gate A: E-law wall-clock decay of the *shadow* E (diagnostic only,
+        # NEVER touches base). No-op unless affect_enabled & 8-dim & real timestamp.
+        self._affect_decay_shadow(timestamp)
+
         if heal:
             self._tick += 1
 
@@ -711,14 +830,26 @@ class ScarredState:
         # Absent entirely when PEL is off => byte-identical legacy snapshots.
         if self._pel is not None:
             out["pel"] = self._pel.to_dict()
+        # v2.6.0 affect: only the affect wall-clock survives restart (shadow buffer +
+        # traits are re-supplied via apply_personality, never persisted). Emitted ONLY
+        # when affect is enabled => byte-identical legacy snapshots when off.
+        if self._affect_enabled:
+            out["e_last_wall_ts"] = self._e_last_wall_ts
         return out
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], *, pel_enabled: bool = False) -> ScarredState:
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        *,
+        pel_enabled: bool = False,
+        affect_enabled: bool = False,
+    ) -> ScarredState:
         state = cls(
             n_dims=data["n_dims"],
             wound_threshold=data["wound_threshold"],
             pel_enabled=pel_enabled,
+            affect_enabled=affect_enabled,
         )
         state.base = list(data["base"])
         state.scars = [Scar.from_dict(s) for s in data.get("scars", [])]
@@ -735,6 +866,8 @@ class ScarredState:
         state._recent_scar_ticks = data.get("recent_scar_ticks", [])
         # Time-aware healing
         state._last_step_time = data.get("last_step_time", 0.0)
+        # v2.6.0 affect wall-clock (additive; old snapshots default 0.0).
+        state._e_last_wall_ts = data.get("e_last_wall_ts", 0.0)
         # PEL-Core: migration-safe restore, GATED ON THE HOST'S CONFIG FLAG
         # (``pel_enabled``), never on snapshot contents (must-fix #3). A present
         # "pel" sub-key alone must NOT re-enable PEL when the caller has the flag

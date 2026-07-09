@@ -20,6 +20,7 @@ Module mapping (injection index → computation unit):
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections import deque
@@ -52,6 +53,8 @@ from .void_scar_engine import VoidScarEngine
 
 if TYPE_CHECKING:
     from ..config import DimensionProfile
+
+logger = logging.getLogger("sylanne_core")
 
 _TIMING_WINDOW = 50
 
@@ -119,11 +122,19 @@ class ResonanceSpine:
         "_meta_learner",
         # PEL-Core enable flag (config-gated; default off)
         "_pel_enabled",
+        # v2.6.0 affect-dynamics E-law shadow enable flag (config-gated; default off)
+        "_affect_enabled",
         # PEL-Core D-10: last non-semantic assessor-advisable gate signal
         "_last_assessor_advisable",
     )
 
-    def __init__(self, profile: DimensionProfile | None = None, *, pel_enabled: bool = False):
+    def __init__(
+        self,
+        profile: DimensionProfile | None = None,
+        *,
+        pel_enabled: bool = False,
+        affect_enabled: bool = False,
+    ):
         if profile is None:
             from ..config import build_profile
 
@@ -131,6 +142,7 @@ class ResonanceSpine:
         self._profile = profile
         self._tier = profile.mode
         self._pel_enabled = pel_enabled
+        self._affect_enabled = affect_enabled
 
         # Resonance field + emergence
         self._field = create_deterministic_fusion(n_modules=7, tier=self._tier)
@@ -146,6 +158,7 @@ class ResonanceSpine:
             similarity_fn=self._hdc_similarity,
             scar_mlp_passes=profile.scar_mlp_passes,
             pel_enabled=pel_enabled,
+            affect_enabled=affect_enabled,
         )
         self._sheaf = ScarSheaf(n0=profile.stalk_dim)
         self._hgt = HeterogeneousGraphTransformer(
@@ -260,6 +273,9 @@ class ResonanceSpine:
         # PEL-Core: derive the latent attractor prior pi / W_gen / precisions from
         # personality (no-op unless PEL enabled on the 8-dim core).
         self._engine.scar_state.set_pel_priors(personality)
+        # v2.6.0 affect E-law: same normalized personality as traits + neutral
+        # relationship 0.5. No-op unless affect_dynamics_enabled & 8-dim; shadow-only.
+        self._engine.scar_state.set_affect_params(personality, relationship=0.5)
         self._engine.void_space._detection_threshold = 0.6 - neuroticism * 0.5
         self._engine.void_space.set_cooldown(openness)
         self._gate.precision = 0.3 + neuroticism * 0.5
@@ -663,6 +679,18 @@ class ResonanceSpine:
             for void in self._engine.void_space.voids[:3]:
                 void.pressure *= max(0.5, 1.0 - valence * 0.3)
 
+        # v2.6.0 Gate A: fast-channel appraisal onto the *shadow* E (diagnostic
+        # only; never touches base — so it CANNOT affect the observe() below).
+        # Fail-closed: a bug here must never crash the live per-turn path.
+        try:
+            intent = assessment.get("intent")
+            intent_s = str(intent) if intent is not None else None
+            self._engine.scar_state.apply_affect_appraisal_shadow(
+                valence, arousal, wound_risk, intent_s
+            )
+        except Exception:  # pragma: no cover - diagnostic path, must never crash a turn
+            logger.debug("affect-shadow appraisal (resonance) skipped", exc_info=True)
+
         # ``process()`` already populated VoidScarEngine's observe() cache; the
         # mutations above (scar base + void pressure) happen after that, so the
         # cache must be dropped for the upcoming ``observe()`` to see the LLM read.
@@ -1056,9 +1084,14 @@ class ResonanceSpine:
 
             if "scar" in engine_data:
                 self._engine.scar_state = ScarredState.from_dict(
-                    engine_data["scar"], pel_enabled=self._pel_enabled
+                    engine_data["scar"],
+                    pel_enabled=self._pel_enabled,
+                    affect_enabled=self._affect_enabled,
                 )
                 self._restore_pel_after_scar()
+                # v2.6.0 affect: re-supply never-persisted traits from personality.
+                if self._affect_enabled:
+                    self._engine.scar_state.set_affect_params(self._personality, relationship=0.5)
             if "void" in engine_data:
                 self._engine.void_space.from_dict(engine_data["void"])
         if "boundary" in data:
