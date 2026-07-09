@@ -117,6 +117,16 @@ def render_prompt_fragment(
         f"[sylanne_proactive_source] decision={proactive['decision']}; body_need={proactive['drivers']['body_need']}; relationship_continuity={proactive['drivers']['relationship_continuity']}; constraints=current_user_sovereignty_first,no_private_memory_recall",
         f"[sylanne_prompt_context_bus] primary={bus['primary']}; posture={bus['posture']}; fragments={','.join(bus['fragments'])}; policy={bus['policy']}",
     ]
+    # v2.6.0 T6 (Gate B): splice the hysteretic emotion-label shadow into the prompt
+    # fragment as a weak style hint. Append-only (canonical render has no budget /
+    # eviction — §6.2 is a plugin-fork artifact). Gated on takeover so the fragment
+    # is byte-identical when off. Coexists with (does NOT replace) Surface.pad.label.
+    affect_label = kernel.affect_label_shadow()
+    if affect_label and getattr(kernel.computation, "_affect_takeover", False):
+        extra_fragments.append(
+            f"[sylanne_affect_label] emotion={affect_label}; "
+            "constraints=weak_style_hint_only,coexists_with_pad_label,no_persona_rewrite"
+        )
     base = (
         f"Sylanne body: action={decision['action']}; reason={reason}; keep user sovereignty first.\n{relational_fragment}\n{memory_fragment}\n{self_fragment}\n"
         + "\n".join(extra_fragments)
