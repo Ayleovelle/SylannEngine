@@ -172,6 +172,10 @@ def saturating_update(e: list[float], a_k: list[float], gain: list[float]) -> li
 
     [a]₊=max(a,0)、[a]₋=max(−a,0) 均非负幅度；正向拉向 1、负向拉向 0，近边界降幅→0。
     G_i∈(0,1] 由 validate_gain 保证；此处仍夹 [0,1] + 消毒非有限，防浮点/NaN 漏出。
+
+    ⚠ 值域契约：本式硬编 0/1 上下界（``1-E``/``E`` 因子），**非仿射等变**——喂入的 E 必须已在
+    单位区间 [0,1]。接 ``ScarredState.base``（tanh (-1,1)）时**必须**先 ``to_unit_interval`` 再
+    ``from_unit_interval``，不可走 ``decay`` 那种只 remap 均衡点的仿射捷径（设计 v26-upgrade-path §1）。
     """
     out = [0.0] * N_DIMS
     for i in range(N_DIMS):
@@ -183,6 +187,32 @@ def saturating_update(e: list[float], a_k: list[float], gain: list[float]) -> li
     return out
 
 
+# ===========================================================================
+# 值域适配器（Phase 0）—— [0,1] ↔ (-1,1) tanh 存储帧
+# ===========================================================================
+# 情感核 E 即 ``ScarredState.base``，由 tanh 写入（scar_algebra.py:391/397、pel_core），实际
+# 值域 (-1,1)；而本模块 decay/saturating_update 均以 E∈[0,1] 立式（反吸收态、饱和因子都按 [0,1]
+# 定义）。接入前必须过此适配器把 base 折进单位区间、算完再折回，否则语义系统性偏置（设计
+# v26-upgrade-path §1，红队 e-core "domain mismatch" BLOCKER）。两个适配器在 [-1,1]/[0,1] 内
+# 严格互逆（往返恒等，见 tests/test_affect_domain_adapter）。
+
+def to_unit_interval(base: list[float]) -> list[float]:
+    """tanh 存储帧 (-1,1) → 单位区间 [0,1]：E_unit = (base+1)/2。
+
+    非有限值消毒为中性 0.5；末端夹 [0,1]（越界的复原快照/浮点毛刺不外溢）。逐元素映射，
+    对任意长度列表安全（不硬编 N_DIMS，供 base 维数即 8 的情感核直接用）。
+    """
+    return [_clamp01(_finite((x + 1.0) * 0.5, 0.5)) for x in base]
+
+
+def from_unit_interval(e: list[float]) -> list[float]:
+    """单位区间 [0,1] → tanh 存储帧 (-1,1)：base = 2·E_unit − 1（``to_unit_interval`` 的逆）。
+
+    非有限值消毒为中性 0.0；末端夹 [-1,1]。与 ``to_unit_interval`` 在各自值域内严格互逆。
+    """
+    return [_clamp(_finite(2.0 * x - 1.0, 0.0), -1.0, 1.0) for x in e]
+
+
 __all__ = [
     "N_DIMS",
     "equilibrium",
@@ -190,6 +220,8 @@ __all__ = [
     "gain_vector",
     "decay",
     "saturating_update",
+    "to_unit_interval",
+    "from_unit_interval",
     "validate_gain",
     "validate_scalar_params",
 ]
