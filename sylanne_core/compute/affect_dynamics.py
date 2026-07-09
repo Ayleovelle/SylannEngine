@@ -213,6 +213,81 @@ def from_unit_interval(e: list[float]) -> list[float]:
     return [_clamp(_finite(2.0 * x - 1.0, 0.0), -1.0, 1.0) for x in e]
 
 
+# ===========================================================================
+# 慢通道（T5）：poignancy 漏桶 → 反思触发 → 锚回弹 macro 漂移（纯函数）
+# ===========================================================================
+# 设计 §4.2/§8（含 v26-upgrade-path §2 T5）。全部纯函数、无状态；有状态编排（漏桶累积、
+# 反思冷却、回滚环、原子提交）在 AlphaKernel。κ/μ/ρ 良定域复用 validate_scalar_params。
+# 刻骨质量的维权重：强调 valence/tension/repair（受伤相关维），warmth/arousal 次之。
+_POIGNANCY_DIM_W: tuple[float, ...] = (0.5, 0.5, 1.0, 1.0, 0.3, 1.0, 0.4, 0.6)
+
+
+def poignancy_magnitude(a_k: list[float]) -> float:
+    """一次 appraisal 的"刻骨"质量 ≥ 0：受伤相关维加权的 L2 范数（§4.2）。"""
+    return math.sqrt(
+        sum((_POIGNANCY_DIM_W[i] * _finite(a_k[i], 0.0)) ** 2 for i in range(N_DIMS))
+    )
+
+
+def poignancy_update(pi: float, inflow: float, mu: float, dt_ticks: float = 1.0) -> float:
+    """poignancy 漏桶：π ← π·(1−μ)^dt + inflow，夹 ≥0（§4.2）。
+
+    μ 为每 tick 泄漏率 ∈ (0,1)；inflow 为本回合注入的刻骨质量（≥0）。dt_ticks 为经过的 tick 数
+    （长静默多漏）。非有限消毒；负 inflow 视作 0。
+    """
+    p = max(0.0, _finite(pi, 0.0))
+    leak = float((1.0 - _clamp01(mu)) ** max(0.0, _finite(dt_ticks, 1.0)))
+    return max(0.0, p * leak + max(0.0, _finite(inflow, 0.0)))
+
+
+def reflection_ready(
+    pi: float, theta: float, now: float, last_reflection_wall: float, cooldown_secs: float
+) -> bool:
+    """π 越阈 θ 且距上次反思墙钟冷却已过 ⇒ 可反思（§4.2；墙钟冷却，非 tick 冷却）。"""
+    if not (_finite(pi, 0.0) >= theta):
+        return False
+    if last_reflection_wall <= 0.0:
+        return True
+    return (float(now) - float(last_reflection_wall)) >= float(cooldown_secs)
+
+
+def scarload_decay(scarload: list[float], rate: float) -> list[float]:
+    """scarload 自愈：逐维朝 0 收缩 s ← s·(1−rate)（§2.2 self-heal 钩子——half_lives 只读不减）。"""
+    r = _clamp01(rate)
+    return [max(0.0, _finite(s, 0.0)) * (1.0 - r) for s in scarload]
+
+
+def q_dc(dialogue_quality_ema: float, s_ref: float = 0.5) -> float:
+    """对话质量条件化的漂移门 ∈ [0,1]：质量越高越放行 macro 漂移（缺失回落 s_ref）。"""
+    return _clamp01(_finite(dialogue_quality_ema, s_ref))
+
+
+def drift_step(anchor: float, value: float, direction: float, eta: float, rho: float) -> float:
+    """单步 macro 漂移增量：Δ = η·dir − ρ·(value − anchor)（锚回弹，§4.2/§8）。
+
+    dir 为归一化漂移方向 ∈ [−1,1]（由刻骨事件方向给出，见 kernel）；η 步长；ρ 锚回弹收缩率——
+    朝**不可变 anchor**（非自适应 set_point）回拉，防越漂/防自适应基线追信号（z-gate 失败模式）。
+    """
+    return eta * _finite(direction, 0.0) - rho * (_finite(value, 0.0) - _finite(anchor, 0.0))
+
+
+def validate_slowchannel_params(
+    theta: float, mu: float, eta: float, rho: float, cooldown_secs: float
+) -> None:
+    """慢通道参数良定域：θ>0、μ∈(0,1)、η∈(0,1)、ρ∈(0,1)、cooldown≥0（越界 fail-closed）。"""
+    if not (theta > 0.0):
+        raise ValueError(f"reflection θ={theta} 须 >0")
+    # μ/ρ 复用 validate_scalar_params 的 (0,1) 断言；η 单独查（用 kappa 位凑合会误导）。
+    if not (0.0 < mu < 1.0):
+        raise ValueError(f"μ={mu} 须 ∈ (0,1)")
+    if not (0.0 < eta < 1.0):
+        raise ValueError(f"η={eta} 须 ∈ (0,1)")
+    if not (0.0 < rho < 1.0):
+        raise ValueError(f"ρ={rho} 须 ∈ (0,1)")
+    if cooldown_secs < 0.0:
+        raise ValueError(f"cooldown={cooldown_secs} 须 ≥0")
+
+
 __all__ = [
     "N_DIMS",
     "equilibrium",
@@ -224,4 +299,11 @@ __all__ = [
     "from_unit_interval",
     "validate_gain",
     "validate_scalar_params",
+    "poignancy_magnitude",
+    "poignancy_update",
+    "reflection_ready",
+    "scarload_decay",
+    "q_dc",
+    "drift_step",
+    "validate_slowchannel_params",
 ]

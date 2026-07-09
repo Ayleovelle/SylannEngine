@@ -24,6 +24,7 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Any, Callable
 
+from . import affect_projection
 from .autopoiesis import AutopoieticBoundary
 from .bounded_dict import BoundedDict
 from .hdc import HDCEncoder
@@ -42,6 +43,7 @@ from .personality import (
 from .phase_transition import PhaseTransitionExpression
 from .predictive_coding import PredictiveCodingGate
 from .relational_sheaf import ScarSheaf
+from .slow_channel import SlowChannel
 from .void_scar_engine import VoidScarEngine
 
 if TYPE_CHECKING:
@@ -217,6 +219,8 @@ class ComputationSpine:
         "_affect_enabled",
         # v2.6.0 T3 E-law takeover flag (config-gated; default off)
         "_affect_takeover",
+        # v2.6.0 T5 slow channel (poignancy -> reflection -> macro drift; default off)
+        "_slow_channel",
     )
 
     def __init__(
@@ -227,6 +231,7 @@ class ComputationSpine:
         pel_enabled: bool = False,
         affect_enabled: bool = False,
         affect_takeover: bool = False,
+        affect_slowchannel: bool = False,
     ):
         if profile is None:
             from ..config import build_profile
@@ -236,6 +241,7 @@ class ComputationSpine:
         self._pel_enabled = pel_enabled
         self._affect_enabled = affect_enabled
         self._affect_takeover = affect_takeover
+        self._slow_channel = SlowChannel(active=affect_slowchannel)
         hdc_dim = profile.hdc_dim
         if plugin is not None:
             hdc_dim = getattr(plugin, "_cfg_int", lambda k, d: d)(
@@ -613,6 +619,14 @@ class ComputationSpine:
                 )
             except Exception:  # pragma: no cover - diagnostic path, must never crash a turn
                 logger.debug("affect-shadow appraisal (computation) skipped", exc_info=True)
+
+        # v2.6.0 T5: feed the slow channel one poignant appraisal (no-op when off).
+        if self._slow_channel.active:
+            try:
+                a_k, _ = affect_projection.project_appraisal(valence, arousal, wound_risk, intent)
+                self._slow_channel.observe(a_k)
+            except Exception:  # pragma: no cover - fail-closed
+                logger.debug("slow-channel observe (computation) skipped", exc_info=True)
 
     def apply_social_signals(self, signals: SocialSignals | None) -> None:
         """应用社交场信号到 L7 表达层和 L3 虚空-伤痕引擎。"""
@@ -1054,25 +1068,37 @@ class ComputationSpine:
         # marker is popped here, and _last_drift_time still advances on a bypass, so
         # repeated fast turns are dt-scaled down rather than blowing the 30s budget.
         timestamp = self._last_process_time
+        # v2.6.0 T5: slow-channel reflection (own poignancy threshold + wall-clock
+        # cooldown; atomic via the same write path). Bypasses the early returns so
+        # the reapply propagates when it fires.
+        reflected = self._slow_channel.maybe_reflect(
+            self._embodiment_traits,
+            timestamp,
+            self._drift_tick,
+            dialogue_quality=float(result.get("dialogue_quality", 0.5)),
+            oscillation_detector=self._oscillation_detector,
+            drift_attribution=self._drift_attribution,
+        )
         dt = timestamp - self._last_drift_time
         has_explicit_feedback = result.pop("_consume_dialogue_quality", False)
-        if dt < self._drift_min_interval and not has_explicit_feedback:
+        if dt < self._drift_min_interval and not has_explicit_feedback and not reflected:
             self._drift_tick += 1
             return
         self._last_drift_time = timestamp
 
         signals = self._signal_extractor.extract(result)
-        if not signals:
+        if not signals and not reflected:
             self._drift_tick += 1
             return
-        compute_embodiment_drift(
-            self._embodiment_traits,
-            signals,
-            self._drift_tick,
-            oscillation_detector=self._oscillation_detector,
-            drift_attribution=self._drift_attribution,
-            dt=dt,
-        )
+        if signals:
+            compute_embodiment_drift(
+                self._embodiment_traits,
+                signals,
+                self._drift_tick,
+                oscillation_detector=self._oscillation_detector,
+                drift_attribution=self._drift_attribution,
+                dt=dt,
+            )
         self._drift_tick += 1
 
         # Check if any trait changed significantly since last apply
