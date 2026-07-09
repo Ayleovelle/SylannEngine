@@ -51,7 +51,8 @@ class TestBaseVersion:
 
 class TestFeedbackMonotonicity:
     def test_zero_timestamp_does_not_clobber_clock(self) -> None:
-        st = ScarredState(n_dims=8)
+        # The monotonicity fix is GATED on affect_enabled (byte-identical off).
+        st = ScarredState(n_dims=8, affect_enabled=True)
         st.step(_EV, timestamp=1000.0)
         assert st._last_step_time == 1000.0
         # feedback-style call: timestamp=0.0 must NOT reset the healing clock.
@@ -61,11 +62,18 @@ class TestFeedbackMonotonicity:
         st.step(_EV, timestamp=2000.0)
         assert st._last_step_time == 2000.0
 
+    def test_off_preserves_legacy_clobber(self) -> None:
+        # affect OFF => exact legacy behavior: ts=0 (feedback) still zeroes the clock.
+        st = ScarredState(n_dims=8)  # affect disabled
+        st.step(_EV, timestamp=1000.0)
+        st.step(_EV, timestamp=0.0)
+        assert st._last_step_time == 0.0   # legacy byte-identical (unconditional assign)
+
     def test_silence_bonus_survives_feedback(self) -> None:
         # Build a scar, then interleave a feedback (ts=0) between two real steps
         # separated by a long silence. With the fix, the second real step still
         # grants silence-bonus healing (clock not zeroed by feedback).
-        kept = ScarredState(n_dims=8)
+        kept = ScarredState(n_dims=8, affect_enabled=True)
         kept.wound_threshold = 0.05
         kept.step([1.0] * 8, timestamp=100.0)          # form scars
         ticks_before = [s.ticks_in_stage for s in kept.scars]

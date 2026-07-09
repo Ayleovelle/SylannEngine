@@ -307,6 +307,17 @@ class SylanneConfig:
             raise ValueError("submit_max_entries must be >= 1")
         if self.tick_min_interval_seconds < 0:
             raise ValueError("tick_min_interval_seconds must be >= 0")
+        # v2.6.0 flag compatibility: takeover writes base and needs the E-law machinery
+        # (traits/adapter) that affect_dynamics_enabled turns on; it also cannot coexist
+        # with PEL-Core, which independently OWNS base evolution (PEL's readout would
+        # overwrite the E-law decay every tick — red-team finding #1).
+        if self.affect_v26_takeover and not self.affect_dynamics_enabled:
+            raise ValueError("affect_v26_takeover requires affect_dynamics_enabled")
+        if self.affect_v26_takeover and self.pel_core_enabled:
+            raise ValueError(
+                "affect_v26_takeover is not supported together with pel_core_enabled "
+                "(both own base evolution)"
+            )
 
     def profile(self) -> DimensionProfile:
         """Build the dimension profile for this config's mode."""

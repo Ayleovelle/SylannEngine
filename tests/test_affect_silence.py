@@ -77,3 +77,18 @@ class TestLiveSpineWiring:
         long_gap = self._drive_after_gap(takeover=False, gap=7200.0)
         short_gap = self._drive_after_gap(takeover=False, gap=1.0)
         assert long_gap == short_gap
+
+    def test_silence_gated_off_when_affect_disabled(self) -> None:
+        # red-team #2: takeover flag set but affect_dynamics_enabled False -> silence
+        # must NOT fire (gate on the full predicate takeover AND affect_active, not
+        # takeover alone). Construct the spine directly to bypass config validation.
+        def drive(gap: float) -> float:
+            sp = ResonanceSpine(
+                profile=build_profile("lite"), affect_enabled=False, affect_takeover=True
+            )
+            sp.apply_personality(_TRAITS)
+            sp.process("在吗", timestamp=100.0)
+            sp.process("在吗", timestamp=100.0 + gap)
+            return sp._expression_drive
+
+        assert drive(7200.0) == drive(1.0)   # silence has zero effect (gated off)

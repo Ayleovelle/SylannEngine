@@ -131,9 +131,11 @@ class TraitMemory:
     - 被 OscillationDetector 监控以防止震荡
     """
 
-    __slots__ = ("value", "fast_ema", "slow_ema", "set_point", "anchor", "_frozen_ticks")
+    __slots__ = (
+        "value", "fast_ema", "slow_ema", "set_point", "anchor", "_frozen_ticks", "_persist_anchor"
+    )
 
-    def __init__(self, initial: float = 0.5):
+    def __init__(self, initial: float = 0.5, *, persist_anchor: bool = False):
         self.value = initial
         self.fast_ema = 0.0  # 快速 EMA：近期趋势方向信号
         self.slow_ema = 0.0  # 慢速 EMA：长期基线方向信号
@@ -142,6 +144,8 @@ class TraitMemory:
         # 刻意**不**让 anchor 追 value——否则重演 z-gate "自适应基线追信号" 失败模式。
         self.anchor = initial
         self._frozen_ticks = 0  # 冻结计数器：震荡检测后暂停漂移
+        # v2.6.0 T5: 仅在慢通道启用时把 anchor 落盘（红队 #4：关时快照字节一致）。
+        self._persist_anchor = persist_anchor
 
     def update(self, raw_delta: float) -> float:
         """应用一次漂移增量，使用 Dual-EMA 共识逻辑。
@@ -190,13 +194,17 @@ class TraitMemory:
 
     def to_dict(self) -> dict[str, float]:
         """序列化为字典，用于持久化存储。"""
-        return {
+        out = {
             "value": round(self.value, 6),
             "fast_ema": round(self.fast_ema, 6),
             "slow_ema": round(self.slow_ema, 6),
             "set_point": round(self.set_point, 6),
-            "anchor": round(self.anchor, 6),
         }
+        # v2.6.0 T5: anchor only when the slow channel opted in — off => byte-identical
+        # legacy snapshots (red-team #4), mirroring ScarredState's e_ver/e_last_wall_ts.
+        if self._persist_anchor:
+            out["anchor"] = round(self.anchor, 6)
+        return out
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TraitMemory:
@@ -205,9 +213,13 @@ class TraitMemory:
         tm.fast_ema = float(data.get("fast_ema", 0.0))
         tm.slow_ema = float(data.get("slow_ema", 0.0))
         tm.set_point = float(data.get("set_point", tm.value))
-        # v2.6.0 T5: legacy snapshots (no anchor) fall back to value — the true
-        # origin is unknown for pre-anchor state, so anchor to where it landed.
-        tm.anchor = float(data.get("anchor", tm.value))
+        # v2.6.0 T5: a present anchor means the slow channel was persisting it — keep
+        # doing so on round-trip. Legacy snapshots (no anchor) fall back to value.
+        if "anchor" in data:
+            tm.anchor = float(data["anchor"])
+            tm._persist_anchor = True
+        else:
+            tm.anchor = tm.value
         return tm
 
 
