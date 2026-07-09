@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from . import affect_dynamics, affect_output_contract
 from .attention import focus_information_flood
 from .body import SCHEMA_VERSION, AlphaBodyState
 from .computation_spine import ComputationSpine
@@ -125,6 +126,9 @@ class AlphaKernel:
     hot_pool: HotPool = field(default_factory=HotPool)
     _last_computation_result: dict[str, Any] = field(default_factory=dict)
     _cached_vector_summary: dict[str, float] | None = field(default=None, repr=False)
+    # v2.6.0 T2: hysteretic emotion-label shadow (diagnostic only; re-derived each
+    # real tick, never persisted). None until the first tick with affect enabled.
+    _affect_label_state: Any = field(default=None, repr=False, compare=False)
     # Unresolved emotional pressure (allostatic threshold bias for proactive reach-out).
     # Asymmetric-leak scalar: spikes on a hurtful/negative read, leaks slowly, clears
     # when soothed or after a successful reach-out. Lowers reach_out's need_contact
@@ -288,6 +292,9 @@ class AlphaKernel:
         # reach_out threshold — a bruising exchange brings her back sooner than flat
         # silence. Only biases the threshold; _guard still gates every outward action.
         self._update_affect_debt(assessment)
+        # v2.6.0 T2 Gate A: resolve a hysteretic emotion-label shadow from E, once
+        # per real tick (diagnostic only; never touches body/prompt/persistence).
+        self._update_affect_label()
         collapse_record = self.hot_pool.tick(body=self.body, spine=self.computation)
         if collapse_record is not None:
             self._apply_collapse(collapse_record)
@@ -626,6 +633,32 @@ class AlphaKernel:
         discrete state_vector.
         """
         return self.computation.engine.observe()
+
+    def _update_affect_label(self) -> None:
+        """v2.6.0 T2 Gate A: resolve a hysteretic emotion label from E (diagnostic).
+
+        Reads ``observe()`` (the real base), folds into the unit interval, and
+        resolves a circumplex label with per-dim hysteresis. Gated on the same
+        ``affect_dynamics_enabled`` flag as the E-law shadow (via scar_state) and
+        on the 8-dim canonical core. Fail-closed — never crashes a tick; NEVER
+        writes base/body/prompt/persistence.
+        """
+        scar = self.computation.engine.scar_state
+        if not getattr(scar, "_affect_enabled", False) or scar.n_dims != affect_dynamics.N_DIMS:
+            return
+        try:
+            overlay = self._computation_emotion_overlay()
+            e_native = [float(overlay.get(f"dim_{d}", 0.0)) for d in range(scar.n_dims)]
+            e_unit = affect_dynamics.to_unit_interval(e_native)
+            _label, state = affect_output_contract.resolve_label(e_unit, self._affect_label_state)
+            self._affect_label_state = state
+        except Exception:  # pragma: no cover - diagnostic path, must never crash a tick
+            logger.debug("affect label shadow skipped", exc_info=True)
+
+    def affect_label_shadow(self) -> str | None:
+        """The last resolved emotion-label shadow, or None (affect off / not yet ticked)."""
+        state = self._affect_label_state
+        return state.label if state is not None else None
 
     def _host_payload(self, decision: dict[str, Any], guard: dict[str, Any]) -> dict[str, Any]:
         return render_host_payload(self, decision, guard)
