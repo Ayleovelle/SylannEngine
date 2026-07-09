@@ -844,6 +844,7 @@ class SylanneEngine:
             pel_enabled=self._config.pel_core_enabled,
             affect_enabled=self._config.affect_dynamics_enabled,
             affect_takeover=self._config.affect_v26_takeover,
+            affect_slowchannel=self._config.affect_slowchannel_enabled,
         )
 
     async def _get_or_create_host(self, session_id: str) -> SylanneHost:

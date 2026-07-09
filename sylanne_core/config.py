@@ -245,6 +245,14 @@ class SylanneConfig:
             mid-turn falls through to the old hand-rules for that turn. This is an
             INTENDED behaviour change (not byte-identical) whose acceptance bar is
             warmth behavioural calibration — do not enable without it.
+        affect_slowchannel_enabled: Opt in to the v2.6.0 slow channel (Gate C).
+            Default False. When True, poignant appraisals accumulate a leaky
+            "poignancy" bucket on the spine; crossing the threshold (plus a
+            wall-clock cooldown) fires a bounded, anchor-rebounding MACRO DRIFT of
+            the Embodiment personality traits, committed atomically through the
+            existing drift write-path with a rollback ring. Irreversible authority
+            (personality change), so ships off; the appraisal->trait map and the
+            reflection constants are documented calibration priors.
         submit_window_seconds: How long a COMPLETED ``submit()`` entry stays
             joinable before it is pruned (default 10s). A duplicate submission
             for the same key inside this window joins the cached result instead
@@ -274,6 +282,7 @@ class SylanneConfig:
     pel_core_enabled: bool = False
     affect_dynamics_enabled: bool = False
     affect_v26_takeover: bool = False
+    affect_slowchannel_enabled: bool = False
     submit_window_seconds: float = 10.0
     submit_max_entries: int = 1024
     tick_min_interval_seconds: float = 45.0

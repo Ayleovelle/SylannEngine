@@ -27,7 +27,9 @@ from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from .._numeric import _coerce_float
+from . import affect_projection
 from . import pel_core as _pel_core  # module ref so SEMANTIC_PRIOR stays monkeypatchable
+from .slow_channel import SlowChannel
 from .autopoiesis import AutopoieticBoundary
 from .bounded_dict import BoundedDict
 from .deterministic_fusion import create_deterministic_fusion
@@ -129,6 +131,8 @@ class ResonanceSpine:
         "_affect_enabled",
         # v2.6.0 T3 E-law takeover flag (config-gated; default off)
         "_affect_takeover",
+        # v2.6.0 T5 slow channel (poignancy -> reflection -> macro drift; default off)
+        "_slow_channel",
         # PEL-Core D-10: last non-semantic assessor-advisable gate signal
         "_last_assessor_advisable",
     )
@@ -140,6 +144,7 @@ class ResonanceSpine:
         pel_enabled: bool = False,
         affect_enabled: bool = False,
         affect_takeover: bool = False,
+        affect_slowchannel: bool = False,
     ):
         if profile is None:
             from ..config import build_profile
@@ -150,6 +155,7 @@ class ResonanceSpine:
         self._pel_enabled = pel_enabled
         self._affect_enabled = affect_enabled
         self._affect_takeover = affect_takeover
+        self._slow_channel = SlowChannel(active=affect_slowchannel)
 
         # Resonance field + emergence
         self._field = create_deterministic_fusion(n_modules=7, tier=self._tier)
@@ -558,25 +564,38 @@ class ResonanceSpine:
         # marker is popped here, and _last_drift_time still advances on a bypass, so
         # repeated fast turns are dt-scaled down rather than blowing the 30s budget.
         timestamp = self._last_process_time
+        # v2.6.0 T5: slow-channel reflection fires on its OWN poignancy threshold +
+        # wall-clock cooldown, independent of the per-signal drift rate limit. When it
+        # fires it mutates traits atomically via the same write path — so it bypasses
+        # the early returns below to let the reapply propagate.
+        reflected = self._slow_channel.maybe_reflect(
+            self._embodiment_traits,
+            timestamp,
+            self._drift_tick,
+            dialogue_quality=float(result.get("dialogue_quality", 0.5)),
+            oscillation_detector=self._oscillation_detector,
+            drift_attribution=self._drift_attribution,
+        )
         dt = timestamp - self._last_drift_time
         has_explicit_feedback = result.pop("_consume_dialogue_quality", False)
-        if dt < self._drift_min_interval and not has_explicit_feedback:
+        if dt < self._drift_min_interval and not has_explicit_feedback and not reflected:
             self._drift_tick += 1
             return
         self._last_drift_time = timestamp
 
         signals = self._signal_extractor.extract(result)
-        if not signals:
+        if not signals and not reflected:
             self._drift_tick += 1
             return
-        compute_embodiment_drift(
-            self._embodiment_traits,
-            signals,
-            self._drift_tick,
-            oscillation_detector=self._oscillation_detector,
-            drift_attribution=self._drift_attribution,
-            dt=dt,
-        )
+        if signals:
+            compute_embodiment_drift(
+                self._embodiment_traits,
+                signals,
+                self._drift_tick,
+                oscillation_detector=self._oscillation_detector,
+                drift_attribution=self._drift_attribution,
+                dt=dt,
+            )
         self._drift_tick += 1
 
         # Check if any trait changed significantly since last apply
@@ -707,6 +726,15 @@ class ResonanceSpine:
                 )
             except Exception:  # pragma: no cover - diagnostic path, must never crash a turn
                 logger.debug("affect-shadow appraisal (resonance) skipped", exc_info=True)
+
+        # v2.6.0 T5: feed the slow channel one poignant appraisal (no-op when off).
+        # Fail-closed — must never crash the live per-turn path.
+        if self._slow_channel.active:
+            try:
+                a_k, _ = affect_projection.project_appraisal(valence, arousal, wound_risk, intent_s)
+                self._slow_channel.observe(a_k)
+            except Exception:  # pragma: no cover - fail-closed
+                logger.debug("slow-channel observe (resonance) skipped", exc_info=True)
 
         # ``process()`` already populated VoidScarEngine's observe() cache; the
         # mutations above (scar base + void pressure) happen after that, so the
