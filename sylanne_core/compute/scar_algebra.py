@@ -168,6 +168,9 @@ class ScarredState:
         "_affect_shadow_base",
         "_e_last_wall_ts",
         "_last_affect_shadow",
+        # v2.6.0 T3 takeover: when True the E-law is AUTHORITATIVE (writes base):
+        # decay-to-Phi_eq at top of step + saturating appraisal replaces hand-rules.
+        "_affect_takeover",
         # v2.6.0 T-Persist: monotonic version of ``base`` (dormant — bumped on every
         # base mutation, never gates logic; reserved for future cross-writer detect).
         "_e_ver",
@@ -224,6 +227,7 @@ class ScarredState:
         self._affect_shadow_base: list[float] | None = None
         self._e_last_wall_ts: float = 0.0
         self._last_affect_shadow: dict[str, Any] | None = None
+        self._affect_takeover: bool = False
         self._e_ver: int = 0
 
     def set_healing_rates(
@@ -313,16 +317,20 @@ class ScarredState:
     # v2.6.0 affect-dynamics E-law shadow (Gate A: shadow-only, never touches base)
     # ------------------------------------------------------------------
 
-    def set_affect_params(self, traits: dict[str, float], relationship: float = 0.5) -> None:
-        """注入 E 律人格 traits + 关系相位（影子期只喂 shadow 计算，绝不碰 base）。
+    def set_affect_params(
+        self, traits: dict[str, float], relationship: float = 0.5, *, takeover: bool = False
+    ) -> None:
+        """注入 E 律人格 traits + 关系相位 + 夺权开关（由 apply_personality 调用）。
 
-        镜像 ``set_pel_priors`` 的注入位（由 apply_personality 调用），随人格覆盖幂等重设。
-        traits/relationship **不落盘**——复原后由 apply_personality 重新注入（PEL must-fix #3 同型）。
-        relationship 缺省 0.5（canonical 尚无关系相位标量接线；真实 R 是后续 T3/T4 跟进项）。
+        镜像 ``set_pel_priors`` 的注入位，随人格覆盖幂等重设。traits/relationship/takeover
+        **不落盘**——复原后由 apply_personality 重新注入（PEL must-fix #3 同型）。relationship
+        缺省 0.5（canonical 尚无关系相位标量接线；真实 R 是后续跟进项）。``takeover`` 由 config
+        经 spine 传入：True ⇒ T3 E 律夺权写 base；False ⇒ T1 影子（默认）。
         """
         self._affect_traits = dict(traits) if traits else {}
         r = float(relationship)
         self._relationship = r if math.isfinite(r) and 0.0 <= r <= 1.0 else 0.5
+        self._affect_takeover = bool(takeover)
 
     def _affect_active(self) -> bool:
         """影子仅对 8 维情感核生效（affect_dynamics 全按 N_DIMS=8 立式，pro/max 核跳过）。"""
@@ -342,19 +350,27 @@ class ScarredState:
         logger.debug("affect-shadow[%s] div=%.4f intent=%s", source, divergence, matched)
         return diag
 
-    def _affect_decay_shadow(self, timestamp: float) -> None:
-        """影子 E 的墙钟惰性衰减（Gate A：只动 ``_affect_shadow_base``，绝不碰 ``base``）。
+    def _affect_decay(self, timestamp: float) -> None:
+        """E 律墙钟惰性衰减，在 ``step()`` **顶部**（事件演化之前）应用。
 
-        用 affect 层自有墙钟 ``_e_last_wall_ts``（不复用会被 feedback() 清零的 ``_last_step_time``），
-        仅在真实墙钟 timestamp>0 且有前次基准时推进；懒初始化影子 = base 快照。decay 是仿射 lerp、
-        仿射等变，故 base 留原生 (-1,1) 帧，只把 Φ_eq 折回 native（Phase 0 已证等价）。异常自吞、
-        绝不外逃主回合（写入点在未守护的每回合主路上，t1-audit #1）。
+        - T1 影子（``_affect_takeover`` off）：衰减只动 ``_affect_shadow_base``，绝不碰 ``base``。
+        - T3 夺权（``_affect_takeover`` on）：衰减动**权威 base**——settle 先于事件写回（设计 §9），
+          杜绝"事件后衰减擦掉刚算出的回复"的双衰减禁忌（e-core #2 BLOCKER）。
+
+        用 affect 层自有墙钟 ``_e_last_wall_ts``（不复用被 feedback() 清零的 ``_last_step_time``），
+        仅在真实 timestamp>0 且有前次基准时推进；懒初始化影子 = base 快照。decay 仿射等变，故
+        base 留原生 (-1,1) 帧、只把 Φ_eq 折回 native（Phase 0 已证等价）。异常自吞、绝不外逃主回合。
         """
         if not self._affect_active() or not (timestamp > 0.0):
             return
         try:
-            if self._affect_shadow_base is None:
-                self._affect_shadow_base = list(self.base)
+            takeover = self._affect_takeover
+            if takeover:
+                cur = list(self.base)
+            else:
+                if self._affect_shadow_base is None:
+                    self._affect_shadow_base = list(self.base)
+                cur = self._affect_shadow_base
             prev = self._e_last_wall_ts
             self._e_last_wall_ts = float(timestamp)
             if not (prev > 0.0):
@@ -367,12 +383,40 @@ class ScarredState:
             )
             scarload = [self.scar_density(d) for d in range(self.n_dims)]
             h_secs = affect_dynamics.half_lives(self._affect_traits, scarload)
-            self._affect_shadow_base = affect_dynamics.decay(
-                self._affect_shadow_base, eq_native, h_secs, dt
-            )
+            decayed = affect_dynamics.decay(cur, eq_native, h_secs, dt)
+            if takeover:
+                self.base = decayed          # T3: authoritative base
+                self._e_ver += 1
+            else:
+                self._affect_shadow_base = decayed
             self._record_affect_shadow("decay")
         except Exception:  # pragma: no cover - fail-closed, diagnostic path only
-            logger.debug("affect-shadow decay skipped (exception)", exc_info=True)
+            logger.debug("affect decay skipped (exception)", exc_info=True)
+
+    def apply_affect_takeover(
+        self, valence: float, arousal: float, wound_risk: float, intent: str | None
+    ) -> bool:
+        """T3 夺权：快通道 appraisal 直接写**权威 base**（替代 assessor 手写意图规则）。
+
+        返回 True ⇒ 已接管本回合的语义快更新（调用方须跳过遗留手写规则）。返回 False ⇒ 未夺权
+        （未启用/非 8 维/或 E 律异常 fail-closed）——调用方回落遗留手写规则（assessor #2）。投影 →
+        gain → 饱和更新，折进 [0,1] 折回 native（saturating 非仿射等变）。
+        """
+        if not (self._affect_active() and self._affect_takeover):
+            return False
+        try:
+            a_k, matched = affect_projection.project_appraisal(valence, arousal, wound_risk, intent)
+            gain = affect_dynamics.gain_vector(self._affect_traits)
+            affect_dynamics.validate_gain(gain)  # 越界抛 → 下方兜底回落手写规则
+            unit = affect_dynamics.to_unit_interval(self.base)
+            updated = affect_dynamics.saturating_update(unit, a_k, gain)
+            self.base = affect_dynamics.from_unit_interval(updated)
+            self._e_ver += 1
+            self._record_affect_shadow("takeover", matched=matched)
+            return True
+        except Exception:
+            logger.debug("affect takeover failed; falling back to hand-rules", exc_info=True)
+            return False
 
     def apply_affect_appraisal_shadow(
         self, valence: float, arousal: float, wound_risk: float, intent: str | None
@@ -602,9 +646,10 @@ class ScarredState:
         Returns:
             诊断字典，包含调制后输入、新伤痕、愈合维度等信息
         """
-        # v2.6.0 Gate A: E-law wall-clock decay of the *shadow* E (diagnostic only,
-        # NEVER touches base). No-op unless affect_enabled & 8-dim & real timestamp.
-        self._affect_decay_shadow(timestamp)
+        # v2.6.0: E-law wall-clock decay at the TOP of step (before event evolution).
+        # Shadow-only under Gate A (never touches base); writes authoritative base
+        # under T3 takeover. No-op unless affect_enabled & 8-dim & real timestamp.
+        self._affect_decay(timestamp)
 
         if heal:
             self._tick += 1

@@ -41,6 +41,7 @@ class AlphaRuntime:
         *,
         pel_enabled: bool = False,
         affect_enabled: bool = False,
+        affect_takeover: bool = False,
     ):
         """初始化运行时，指定持久化根目录。
 
@@ -49,11 +50,13 @@ class AlphaRuntime:
             profile: 计算维度配置（lite/pro/max），传递给 kernel。
             pel_enabled: 是否启用 PEL-Core 情绪潜核（默认 False，行为字节一致）。
             affect_enabled: 是否启用 v2.6.0 情感动力学 E 律影子（默认 False，行为字节一致）。
+            affect_takeover: 是否启用 v2.6.0 E 律夺权写 base（默认 False，需 affect_enabled）。
         """
         self.root = Path(root)
         self._profile = profile
         self._pel_enabled = pel_enabled
         self._affect_enabled = affect_enabled
+        self._affect_takeover = affect_takeover
         self._save_count: int = 0
 
     def load(self, session_key: str, legacy: dict[str, Any] | None = None) -> AlphaKernel:
@@ -84,6 +87,7 @@ class AlphaRuntime:
                     profile=self._profile,
                     pel_enabled=self._pel_enabled,
                     affect_enabled=self._affect_enabled,
+                    affect_takeover=self._affect_takeover,
                 )
                 self.save(recovered)
                 return recovered
@@ -93,6 +97,7 @@ class AlphaRuntime:
                     profile=self._profile,
                     pel_enabled=self._pel_enabled,
                     affect_enabled=self._affect_enabled,
+                    affect_takeover=self._affect_takeover,
                 )
             return AlphaKernel.boot(
                 session_key=session_key,
@@ -100,6 +105,7 @@ class AlphaRuntime:
                 profile=self._profile,
                 pel_enabled=self._pel_enabled,
                 affect_enabled=self._affect_enabled,
+                affect_takeover=self._affect_takeover,
             )
         return AlphaKernel.boot(
             session_key=session_key,
@@ -107,6 +113,7 @@ class AlphaRuntime:
             profile=self._profile,
             pel_enabled=self._pel_enabled,
             affect_enabled=self._affect_enabled,
+            affect_takeover=self._affect_takeover,
         )
 
     def save(self, kernel: AlphaKernel) -> None:
@@ -145,6 +152,7 @@ class AlphaRuntime:
             profile=self._profile,
             pel_enabled=self._pel_enabled,
             affect_enabled=self._affect_enabled,
+            affect_takeover=self._affect_takeover,
         )
         self.save(kernel)
         return kernel

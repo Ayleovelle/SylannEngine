@@ -124,6 +124,8 @@ class ResonanceSpine:
         "_pel_enabled",
         # v2.6.0 affect-dynamics E-law shadow enable flag (config-gated; default off)
         "_affect_enabled",
+        # v2.6.0 T3 E-law takeover flag (config-gated; default off)
+        "_affect_takeover",
         # PEL-Core D-10: last non-semantic assessor-advisable gate signal
         "_last_assessor_advisable",
     )
@@ -134,6 +136,7 @@ class ResonanceSpine:
         *,
         pel_enabled: bool = False,
         affect_enabled: bool = False,
+        affect_takeover: bool = False,
     ):
         if profile is None:
             from ..config import build_profile
@@ -143,6 +146,7 @@ class ResonanceSpine:
         self._tier = profile.mode
         self._pel_enabled = pel_enabled
         self._affect_enabled = affect_enabled
+        self._affect_takeover = affect_takeover
 
         # Resonance field + emergence
         self._field = create_deterministic_fusion(n_modules=7, tier=self._tier)
@@ -274,8 +278,10 @@ class ResonanceSpine:
         # personality (no-op unless PEL enabled on the 8-dim core).
         self._engine.scar_state.set_pel_priors(personality)
         # v2.6.0 affect E-law: same normalized personality as traits + neutral
-        # relationship 0.5. No-op unless affect_dynamics_enabled & 8-dim; shadow-only.
-        self._engine.scar_state.set_affect_params(personality, relationship=0.5)
+        # relationship 0.5 + takeover flag. No-op unless affect_dynamics_enabled & 8-dim.
+        self._engine.scar_state.set_affect_params(
+            personality, relationship=0.5, takeover=self._affect_takeover
+        )
         self._engine.void_space._detection_threshold = 0.6 - neuroticism * 0.5
         self._engine.void_space.set_cooldown(openness)
         self._gate.precision = 0.3 + neuroticism * 0.5
@@ -659,8 +665,17 @@ class ResonanceSpine:
         # precision-weighted entry. The fast direct nudge is kept only for the legacy
         # path (PEL off, or SEMANTIC_PRIOR off). Wound injection + void pressure stay
         # live on both paths. (assessor->z fidelity under the e2 path is a ship red-line.)
+        # v2.6.0 T3: E-law takeover of the semantic fast update (writes base via the
+        # saturating appraisal). Returns True iff it took over -> the legacy direct
+        # nudge below is skipped. Off / fail-closed -> False -> legacy nudge runs.
+        intent = assessment.get("intent")
+        intent_s = str(intent) if intent is not None else None
+        took_over = self._engine.scar_state.apply_affect_takeover(
+            valence, arousal, wound_risk, intent_s
+        )
+
         direct_affect = not (_pel_core.SEMANTIC_PRIOR and self._engine.scar_state.pel_active())
-        if direct_affect:
+        if direct_affect and not took_over:
             base = self._engine.scar_state.base
             if n > 2 and abs(valence) > 1e-6:
                 base[2] = max(-1.0, min(1.0, base[2] + valence * gain))
@@ -679,17 +694,16 @@ class ResonanceSpine:
             for void in self._engine.void_space.voids[:3]:
                 void.pressure *= max(0.5, 1.0 - valence * 0.3)
 
-        # v2.6.0 Gate A: fast-channel appraisal onto the *shadow* E (diagnostic
-        # only; never touches base — so it CANNOT affect the observe() below).
-        # Fail-closed: a bug here must never crash the live per-turn path.
-        try:
-            intent = assessment.get("intent")
-            intent_s = str(intent) if intent is not None else None
-            self._engine.scar_state.apply_affect_appraisal_shadow(
-                valence, arousal, wound_risk, intent_s
-            )
-        except Exception:  # pragma: no cover - diagnostic path, must never crash a turn
-            logger.debug("affect-shadow appraisal (resonance) skipped", exc_info=True)
+        # v2.6.0 Gate A: fast-channel appraisal onto the *shadow* E (diagnostic only;
+        # never touches base). Skipped when takeover already wrote base. Fail-closed:
+        # a bug here must never crash the live per-turn path.
+        if not took_over:
+            try:
+                self._engine.scar_state.apply_affect_appraisal_shadow(
+                    valence, arousal, wound_risk, intent_s
+                )
+            except Exception:  # pragma: no cover - diagnostic path, must never crash a turn
+                logger.debug("affect-shadow appraisal (resonance) skipped", exc_info=True)
 
         # ``process()`` already populated VoidScarEngine's observe() cache; the
         # mutations above (scar base + void pressure) happen after that, so the
@@ -1089,9 +1103,11 @@ class ResonanceSpine:
                     affect_enabled=self._affect_enabled,
                 )
                 self._restore_pel_after_scar()
-                # v2.6.0 affect: re-supply never-persisted traits from personality.
+                # v2.6.0 affect: re-supply never-persisted traits + takeover flag.
                 if self._affect_enabled:
-                    self._engine.scar_state.set_affect_params(self._personality, relationship=0.5)
+                    self._engine.scar_state.set_affect_params(
+                        self._personality, relationship=0.5, takeover=self._affect_takeover
+                    )
             if "void" in engine_data:
                 self._engine.void_space.from_dict(engine_data["void"])
         if "boundary" in data:

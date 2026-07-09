@@ -236,6 +236,15 @@ class SylanneConfig:
             NEVER written into ``base``, never read by ``observe()``, and never
             enters the prompt. Snapshot-migration-safe. Takeover (writing base)
             is a separate later flag (T3), not this one.
+        affect_v26_takeover: Opt in to the v2.6.0 E-law TAKEOVER (Gate B). Default
+            False. Requires affect_dynamics_enabled. When True, the E-law becomes
+            authoritative on the 8-dim core: wall-clock decay-to-Phi_eq is applied
+            to ``base`` at the top of each step (before event evolution), and the
+            per-turn saturating appraisal update REPLACES the legacy intent
+            hand-rules at both assessor write-points. Fail-closed: any E-law error
+            mid-turn falls through to the old hand-rules for that turn. This is an
+            INTENDED behaviour change (not byte-identical) whose acceptance bar is
+            warmth behavioural calibration — do not enable without it.
         submit_window_seconds: How long a COMPLETED ``submit()`` entry stays
             joinable before it is pruned (default 10s). A duplicate submission
             for the same key inside this window joins the cached result instead
@@ -264,6 +273,7 @@ class SylanneConfig:
     training_data_salt: str = ""
     pel_core_enabled: bool = False
     affect_dynamics_enabled: bool = False
+    affect_v26_takeover: bool = False
     submit_window_seconds: float = 10.0
     submit_max_entries: int = 1024
     tick_min_interval_seconds: float = 45.0
