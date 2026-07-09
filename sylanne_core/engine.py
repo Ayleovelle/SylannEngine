@@ -842,6 +842,7 @@ class SylanneEngine:
                 profile=self._config.profile(),
                 telemetry_sink=self._telemetry_sink,
                 pel_enabled=self._config.pel_core_enabled,
+                affect_enabled=self._config.affect_dynamics_enabled,
             )
         return self._hosts[session_id]
 

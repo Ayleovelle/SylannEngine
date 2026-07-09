@@ -144,6 +144,7 @@ class AlphaKernel:
         profile: DimensionProfile | None = None,
         *,
         pel_enabled: bool = False,
+        affect_enabled: bool = False,
     ) -> AlphaKernel:
         """从零创建或从旧版数据迁移创建 kernel。"""
         if legacy is None:
@@ -152,7 +153,9 @@ class AlphaKernel:
             body, audit, turns = import_legacy_body(legacy)
             kernel = cls(session_key=session_key, body=body, audit=audit, turns=turns)
         if profile is not None:
-            kernel.computation = _DEFAULT_SPINE(profile=profile, pel_enabled=pel_enabled)
+            kernel.computation = _DEFAULT_SPINE(
+                profile=profile, pel_enabled=pel_enabled, affect_enabled=affect_enabled
+            )
             kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
         return kernel
 
@@ -163,6 +166,7 @@ class AlphaKernel:
         profile: DimensionProfile | None = None,
         *,
         pel_enabled: bool = False,
+        affect_enabled: bool = False,
     ) -> AlphaKernel:
         """从持久化快照恢复 kernel，对每个字段做类型安全的反序列化。"""
         kernel = cls(
@@ -180,7 +184,9 @@ class AlphaKernel:
             fallibility=_as_dict(snapshot.get("fallibility")),
         )
         if profile is not None:
-            kernel.computation = _DEFAULT_SPINE(profile=profile, pel_enabled=pel_enabled)
+            kernel.computation = _DEFAULT_SPINE(
+                profile=profile, pel_enabled=pel_enabled, affect_enabled=affect_enabled
+            )
             kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
         if "computation" in snapshot and isinstance(snapshot["computation"], dict):
             kernel.computation.from_dict(snapshot["computation"])

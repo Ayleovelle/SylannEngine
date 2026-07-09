@@ -86,6 +86,7 @@ class SylanneAlphaHost:
     profile: DimensionProfile | None = None
     telemetry_sink: DistillationSink | None = None
     pel_enabled: bool = False
+    affect_enabled: bool = False
     runtime: AlphaRuntime = field(init=False)
     kernel: AlphaKernel = field(init=False)
     _dirty: bool = field(init=False, default=False)
@@ -95,7 +96,10 @@ class SylanneAlphaHost:
 
     def __post_init__(self) -> None:
         self.runtime = AlphaRuntime(
-            Path(self.root), profile=self.profile, pel_enabled=self.pel_enabled
+            Path(self.root),
+            profile=self.profile,
+            pel_enabled=self.pel_enabled,
+            affect_enabled=self.affect_enabled,
         )
         self.kernel = self.runtime.load(self.session_key, legacy=self.legacy)
         self.kernel.set_telemetry(self.telemetry_sink)
