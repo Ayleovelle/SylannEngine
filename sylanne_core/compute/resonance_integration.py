@@ -57,6 +57,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("sylanne_core")
 
 _TIMING_WINDOW = 50
+# v2.6.0 T3-silence: wall-clock silence (seconds) at which the reach-out drive
+# saturates to 1.0. Calibration prior (30 min); awaits behavioural sign-off.
+_SILENCE_DRIVE_SCALE_S = 1800.0
 
 
 class ResonanceSpine:
@@ -526,7 +529,7 @@ class ResonanceSpine:
         )
 
         # === Extract expression decision from converged field ===
-        self._update_expression(resonance_meta, emergence, dt, hgt_decision)
+        self._update_expression(resonance_meta, emergence, dt, hgt_decision, now=timestamp)
 
         elapsed = time.perf_counter_ns() - t0
         self._timings.append(elapsed)
@@ -746,13 +749,15 @@ class ResonanceSpine:
         emergence: dict[str, Any],
         dt: float,
         hgt_decision: list[float],
+        now: float = 0.0,
     ) -> None:
         """Expression as bifurcation: escaping an attractor IS the expression event.
 
-        Three independent triggers (OR-gate — any one suffices):
+        Independent triggers (OR-gate — any one suffices):
         1. High surprise (predictive coding) — the input was unexpected
         2. Far from attractor (Hopfield) — the field is in novel territory
         3. Explosive sync (Kuramoto ignition) — modules suddenly cohere
+        4. (v2.6.0 T3-silence, behind takeover) long real-time silence — reach out
 
         This makes expression a genuine emergent phase transition.
         """
@@ -785,6 +790,14 @@ class ResonanceSpine:
         phi = emergence.get("phi", 0.0)
         meaning_gate = 0.3 + phi * 0.7
 
+        # Trigger 4 (v2.6.0 T3-silence, Gate B behind takeover): TRUE wall-clock
+        # silence adds a reach-out drive. Uncapped seconds (NOT the clamped dt).
+        # 0.0 when off / short silence — and since every other drive is >= 0,
+        # max(..., 0.0) == max(...), so this is byte-identical when disabled.
+        silence_drive = 0.0
+        if self._affect_takeover:
+            silence_drive = min(1.0, self._expression.wall_silence_seconds(now) / _SILENCE_DRIVE_SCALE_S)
+
         # OR-gate: max of independent triggers, gated by meaningfulness
         bifurcation_drive = (
             max(
@@ -792,6 +805,7 @@ class ResonanceSpine:
                 novelty_drive * 0.8,
                 ignition_drive,
                 raw_drive * 0.6,
+                silence_drive,
             )
             * meaning_gate
         )
@@ -801,6 +815,10 @@ class ResonanceSpine:
             bifurcation_drive *= 0.2
 
         self._expression_drive = bifurcation_drive
+
+        # Mark real activity AFTER reading silence (order matters: read-then-mark).
+        if self._affect_takeover and now > 0.0:
+            self._expression.mark_activity(now)
 
         # Threshold decays over silence (pressure builds)
         self._expression_threshold = max(0.15, self._expression_threshold - 0.015 * dt)
