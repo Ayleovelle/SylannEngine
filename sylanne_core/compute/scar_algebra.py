@@ -168,6 +168,9 @@ class ScarredState:
         "_affect_shadow_base",
         "_e_last_wall_ts",
         "_last_affect_shadow",
+        # v2.6.0 T-Persist: monotonic version of ``base`` (dormant — bumped on every
+        # base mutation, never gates logic; reserved for future cross-writer detect).
+        "_e_ver",
     )
 
     def __init__(
@@ -221,6 +224,7 @@ class ScarredState:
         self._affect_shadow_base: list[float] | None = None
         self._e_last_wall_ts: float = 0.0
         self._last_affect_shadow: dict[str, Any] | None = None
+        self._e_ver: int = 0
 
     def set_healing_rates(
         self, t_raw: int, t_closing: int, t_scarred: int, neuroticism: float = 0.5
@@ -639,6 +643,9 @@ class ScarredState:
             for _pass in range(self._mlp_passes):
                 self.base = self._evolve_base(self.base, modulated)
 
+        # v2.6.0 T-Persist: bump the dormant base version on every mutation.
+        self._e_ver += 1
+
         # Step 3: Scar formation (conditional, with session cap)
         existing_count = len(self.scars)
         new_scars = []
@@ -679,7 +686,13 @@ class ScarredState:
                 bonus_ticks = min(bonus_ticks, 10)  # cap at 10 bonus ticks
                 for _ in range(bonus_ticks):
                     self._heal_one_tick(existing_count, healed, _dim_counts)
-            self._last_step_time = timestamp
+            # v2.6.0 T-Persist (persist #1): only a REAL wall-clock advances the
+            # healing clock. feedback() calls step() with timestamp=0.0 ("no time
+            # signal"); the old unconditional assignment zeroed _last_step_time,
+            # which silently dropped the next real step's silence-bonus healing.
+            # Leave it untouched when timestamp<=0 (intentional pre-existing-bug fix).
+            if timestamp > 0:
+                self._last_step_time = timestamp
 
             for scar in self.scars[:existing_count]:
                 if scar.stage == HealingStage.FADED:
@@ -833,8 +846,10 @@ class ScarredState:
         # v2.6.0 affect: only the affect wall-clock survives restart (shadow buffer +
         # traits are re-supplied via apply_personality, never persisted). Emitted ONLY
         # when affect is enabled => byte-identical legacy snapshots when off.
+        # ``e_ver`` (dormant base version) rides the same enable gate.
         if self._affect_enabled:
             out["e_last_wall_ts"] = self._e_last_wall_ts
+            out["e_ver"] = self._e_ver
         return out
 
     @classmethod
@@ -866,8 +881,11 @@ class ScarredState:
         state._recent_scar_ticks = data.get("recent_scar_ticks", [])
         # Time-aware healing
         state._last_step_time = data.get("last_step_time", 0.0)
-        # v2.6.0 affect wall-clock (additive; old snapshots default 0.0).
+        # v2.6.0 affect wall-clock + dormant base version (additive; old snapshots
+        # default). from_dict then does one base mutation? No — restore never steps,
+        # so the restored _e_ver is exactly the persisted value.
         state._e_last_wall_ts = data.get("e_last_wall_ts", 0.0)
+        state._e_ver = int(data.get("e_ver", 0))
         # PEL-Core: migration-safe restore, GATED ON THE HOST'S CONFIG FLAG
         # (``pel_enabled``), never on snapshot contents (must-fix #3). A present
         # "pel" sub-key alone must NOT re-enable PEL when the caller has the flag

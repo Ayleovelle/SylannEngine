@@ -267,7 +267,7 @@ class SylanneEngine:
         await self._ensure_started()
         assessment = await self._assess(text) if self._config.assessor_enabled else None
         async with self._session_lock(session_id):
-            host = self._get_or_create_host(session_id)
+            host = await self._get_or_create_host(session_id)
             event = {
                 "text": text,
                 "confidence": (
@@ -549,7 +549,7 @@ class SylanneEngine:
             if cached is not None and now_ts - cached[0] < self._config.tick_min_interval_seconds:
                 return cached[1]
         async with self._session_lock(session_id):
-            host = self._get_or_create_host(session_id)
+            host = await self._get_or_create_host(session_id)
             event = {
                 "text": "",
                 "confidence": 0.0,
@@ -570,7 +570,7 @@ class SylanneEngine:
         # resurrection guard. _ensure_started is a no-op on a running engine.
         await self._ensure_started()
         async with self._session_lock(session_id):
-            host = self._get_or_create_host(session_id)
+            host = await self._get_or_create_host(session_id)
             surface = host.diagnostics()
             return self._to_surface(session_id, host, surface)
 
@@ -627,7 +627,7 @@ class SylanneEngine:
             )
         await self._ensure_started()
         async with self._session_lock(session_id):
-            host = self._get_or_create_host(session_id)
+            host = await self._get_or_create_host(session_id)
             from .compute.hot_pool import Influence
 
             influence = Influence(
@@ -832,19 +832,34 @@ class SylanneEngine:
             self._locks[session_id] = asyncio.Lock()
         return self._locks[session_id]
 
-    def _get_or_create_host(self, session_id: str) -> SylanneHost:
-        if session_id not in self._hosts:
-            from .compute import SylanneHost
+    def _build_host(self, session_id: str) -> SylanneHost:
+        """Construct a host (blocking cold-load disk IO happens in __post_init__)."""
+        from .compute import SylanneHost
 
-            self._hosts[session_id] = SylanneHost(
-                root=self._data_dir,
-                session_key=session_id,
-                profile=self._config.profile(),
-                telemetry_sink=self._telemetry_sink,
-                pel_enabled=self._config.pel_core_enabled,
-                affect_enabled=self._config.affect_dynamics_enabled,
-            )
-        return self._hosts[session_id]
+        return SylanneHost(
+            root=self._data_dir,
+            session_key=session_id,
+            profile=self._config.profile(),
+            telemetry_sink=self._telemetry_sink,
+            pel_enabled=self._config.pel_core_enabled,
+            affect_enabled=self._config.affect_dynamics_enabled,
+        )
+
+    async def _get_or_create_host(self, session_id: str) -> SylanneHost:
+        """Get the cached session host, cold-loading it off the event loop.
+
+        v2.6.0 T-Persist: first-touch construction reads the session snapshot from
+        disk synchronously (``SylanneAlphaHost.__post_init__`` -> ``AlphaRuntime.load``).
+        Hoist that blocking IO via ``asyncio.to_thread`` so a cold session does not
+        stall the loop. The dict insert stays on the loop thread (no cross-session
+        race); same-id concurrency is already serialized by the per-session lock,
+        so the post-await re-check simply joins a host built while we awaited.
+        """
+        host = self._hosts.get(session_id)
+        if host is None:
+            built = await asyncio.to_thread(self._build_host, session_id)
+            host = self._hosts.setdefault(session_id, built)
+        return host
 
     def _ctx_fingerprint(
         self,
