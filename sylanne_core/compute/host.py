@@ -87,6 +87,7 @@ class SylanneAlphaHost:
     telemetry_sink: DistillationSink | None = None
     pel_enabled: bool = False
     affect_enabled: bool = False
+    affect_takeover: bool = False
     runtime: AlphaRuntime = field(init=False)
     kernel: AlphaKernel = field(init=False)
     _dirty: bool = field(init=False, default=False)
@@ -100,6 +101,7 @@ class SylanneAlphaHost:
             profile=self.profile,
             pel_enabled=self.pel_enabled,
             affect_enabled=self.affect_enabled,
+            affect_takeover=self.affect_takeover,
         )
         self.kernel = self.runtime.load(self.session_key, legacy=self.legacy)
         self.kernel.set_telemetry(self.telemetry_sink)

@@ -215,6 +215,8 @@ class ComputationSpine:
         "_pel_enabled",
         # v2.6.0 affect-dynamics E-law shadow enable flag (config-gated; default off)
         "_affect_enabled",
+        # v2.6.0 T3 E-law takeover flag (config-gated; default off)
+        "_affect_takeover",
     )
 
     def __init__(
@@ -224,6 +226,7 @@ class ComputationSpine:
         *,
         pel_enabled: bool = False,
         affect_enabled: bool = False,
+        affect_takeover: bool = False,
     ):
         if profile is None:
             from ..config import build_profile
@@ -232,6 +235,7 @@ class ComputationSpine:
         self._profile = profile
         self._pel_enabled = pel_enabled
         self._affect_enabled = affect_enabled
+        self._affect_takeover = affect_takeover
         hdc_dim = profile.hdc_dim
         if plugin is not None:
             hdc_dim = getattr(plugin, "_cfg_int", lambda k, d: d)(
@@ -408,9 +412,11 @@ class ComputationSpine:
         self.engine.scar_state.set_pel_priors(personality)
 
         # v2.6.0 affect E-law: feed the same normalized personality as traits +
-        # neutral relationship 0.5 (no canonical R signal is plumbed yet). No-op
-        # unless affect_dynamics_enabled & 8-dim core; shadow-only, never base.
-        self.engine.scar_state.set_affect_params(personality, relationship=0.5)
+        # neutral relationship 0.5 (no canonical R signal is plumbed yet) + the
+        # takeover flag. No-op unless affect_dynamics_enabled & 8-dim core.
+        self.engine.scar_state.set_affect_params(
+            personality, relationship=0.5, takeover=self._affect_takeover
+        )
 
         # Void detection threshold: neurotic = lower threshold (detects absence easily)
         # Range: 0.1 (very neurotic) to 0.6 (very stable)
@@ -571,33 +577,42 @@ class ComputationSpine:
             for void in self.engine.void_space.voids[:3]:
                 void.pressure *= max(0.5, 1.0 - valence * 0.3)
 
-        # Intent-specific adjustments via scar base vector modulation
-        if intent == "撒娇":
-            # Coquettish intent → soften base state (reduce tension dims)
-            if len(self.engine.scar_state.base) > 3:
-                self.engine.scar_state.base[3] *= 0.85  # tension dim
-            if len(self.engine.scar_state.base) > 0:
-                self.engine.scar_state.base[0] = min(
-                    1.0, self.engine.scar_state.base[0] + 0.1
-                )  # warmth dim
-        elif intent == "生气":
-            # Anger → raise tension in base state
-            if len(self.engine.scar_state.base) > 3:
-                self.engine.scar_state.base[3] = min(1.0, self.engine.scar_state.base[3] + 0.2)
+        # v2.6.0 T3: E-law takeover of the semantic fast update. Returns True iff it
+        # wrote base (takeover on + no error) — then the legacy intent hand-rules are
+        # skipped. Off / fail-closed -> False -> hand-rules run (fail-closed to legacy).
+        took_over = self.engine.scar_state.apply_affect_takeover(
+            valence, arousal, wound_risk, intent
+        )
 
-        # Arousal modulates expression drive accumulation rate
+        # Intent-specific adjustments via scar base vector modulation (legacy path)
+        if not took_over:
+            if intent == "撒娇":
+                # Coquettish intent → soften base state (reduce tension dims)
+                if len(self.engine.scar_state.base) > 3:
+                    self.engine.scar_state.base[3] *= 0.85  # tension dim
+                if len(self.engine.scar_state.base) > 0:
+                    self.engine.scar_state.base[0] = min(
+                        1.0, self.engine.scar_state.base[0] + 0.1
+                    )  # warmth dim
+            elif intent == "生气":
+                # Anger → raise tension in base state
+                if len(self.engine.scar_state.base) > 3:
+                    self.engine.scar_state.base[3] = min(1.0, self.engine.scar_state.base[3] + 0.2)
+
+        # Arousal modulates expression drive accumulation rate (both paths)
         if arousal > 0.7:
             self.expression.accumulate(arousal * 0.2, dt=0.5)
 
-        # v2.6.0 Gate A: fast-channel appraisal onto the *shadow* E (diagnostic
-        # only; never touches base). Fail-closed — a bug in projection/gain must
-        # not escape the per-turn path (t1-audit #1). No-op unless affect enabled.
-        try:
-            self.engine.scar_state.apply_affect_appraisal_shadow(
-                valence, arousal, wound_risk, intent
-            )
-        except Exception:  # pragma: no cover - diagnostic path, must never crash a turn
-            logger.debug("affect-shadow appraisal (computation) skipped", exc_info=True)
+        # v2.6.0 Gate A: fast-channel appraisal onto the *shadow* E (diagnostic only,
+        # never touches base). Skipped when takeover already wrote base. Fail-closed —
+        # a bug in projection/gain must not escape the per-turn path (t1-audit #1).
+        if not took_over:
+            try:
+                self.engine.scar_state.apply_affect_appraisal_shadow(
+                    valence, arousal, wound_risk, intent
+                )
+            except Exception:  # pragma: no cover - diagnostic path, must never crash a turn
+                logger.debug("affect-shadow appraisal (computation) skipped", exc_info=True)
 
     def apply_social_signals(self, signals: SocialSignals | None) -> None:
         """应用社交场信号到 L7 表达层和 L3 虚空-伤痕引擎。"""
@@ -1259,10 +1274,12 @@ class ComputationSpine:
                     # personality so a PEL-configured spine stays consistent.
                     self.engine.scar_state._pel_enabled = True
                     self.engine.scar_state.set_pel_priors(self._personality)
-                # v2.6.0 affect: traits/relationship are never persisted — re-supply
-                # them from the restored personality so the shadow survives reload.
+                # v2.6.0 affect: traits/relationship/takeover are never persisted —
+                # re-supply them from the restored personality + config flags.
                 if self._affect_enabled:
-                    self.engine.scar_state.set_affect_params(self._personality, relationship=0.5)
+                    self.engine.scar_state.set_affect_params(
+                        self._personality, relationship=0.5, takeover=self._affect_takeover
+                    )
             if "void" in engine_data:
                 self.engine.void_space.from_dict(engine_data["void"])
             if "social_void" in engine_data:
