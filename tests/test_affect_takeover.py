@@ -13,10 +13,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from sylanne_core.compute import affect_dynamics
 from sylanne_core.compute.resonance_integration import ResonanceSpine
 from sylanne_core.compute.scar_algebra import ScarredState
-from sylanne_core.config import build_profile
+from sylanne_core.config import SylanneConfig, build_profile
 
 _TRAITS: dict[str, float] = {
     "warmth_bias": 0.6,
@@ -83,6 +85,28 @@ class TestAppraisalTakeover:
         assert st.base == before                                          # base untouched
 
 
+class TestDecayAtTopOrdering:
+    def test_event_survives_long_silence(self) -> None:
+        # e-core #2: decay is applied at the TOP of step(), BEFORE event evolution.
+        # After a huge silence gap the prior base has fully decayed toward equilibrium,
+        # so the resulting base must still be SHAPED BY THE EVENT (different events ->
+        # different base). If decay ran AFTER event evolution (the forbidden order), the
+        # event response would be pulled back to ~equilibrium and both would collapse
+        # to the same value — this test would then fail, catching the reintroduced bug.
+        def run(event: list[float]) -> list[float]:
+            st = ScarredState(n_dims=8, affect_enabled=True)
+            st.set_affect_params(_TRAITS, takeover=True)
+            st.step([0.0] * 8, timestamp=1000.0)          # seed the affect clock
+            st.step(event, timestamp=1000.0 + 1e7)         # ~116 days later + an event
+            return list(st.base)
+
+        b_pos = run([0.9] * 8)
+        b_neg = run([-0.9] * 8)
+        assert any(abs(a - b) > 1e-3 for a, b in zip(b_pos, b_neg, strict=True)), (
+            "event erased by silence -> decay ran after event evolution (wrong order)"
+        )
+
+
 class TestSpineTakeover:
     def _spine(self, *, takeover: bool) -> ResonanceSpine:
         sp = ResonanceSpine(
@@ -103,6 +127,19 @@ class TestSpineTakeover:
         assert sp._engine.scar_state._last_affect_shadow is not None
         assert sp._engine.scar_state._last_affect_shadow["source"] == "takeover"
 
+    def test_spine_fail_closed_falls_to_handrules(self, monkeypatch) -> None:
+        # assessor #2: when the E-law takeover errors mid-turn (bad gain), the spine's
+        # `if not took_over:` guard must fall through to the LEGACY path for that turn —
+        # exercised end-to-end through process(), not just the isolated ScarredState unit.
+        sp = self._spine(takeover=True)
+        monkeypatch.setattr(affect_dynamics, "gain_vector", lambda _t: [2.0] * 8)  # invalid
+        self._drive(sp)
+        scar = sp._engine.scar_state
+        # Takeover never completed (its diagnostic stamp would be "takeover"); legacy ran.
+        last = scar._last_affect_shadow
+        assert last is None or last.get("source") != "takeover"
+        assert all(-1.0 <= x <= 1.0 for x in scar.base)   # no crash, base still valid
+
     def test_takeover_changes_observed_emotion_vs_legacy(self) -> None:
         # Intended behaviour change (NOT byte-identical): same drive, on vs off,
         # must diverge in the observed base (documents the migration delta).
@@ -115,6 +152,35 @@ class TestSpineTakeover:
         assert any(
             abs(obs_on[f"dim_{d}"] - obs_off[f"dim_{d}"]) > 1e-6 for d in range(8)
         ), "takeover produced no observable delta vs legacy"
+
+
+class TestPelExclusion:
+    def test_takeover_inert_under_pel(self) -> None:
+        # red-team #1: PEL owns base evolution (its readout overwrites base each tick),
+        # so the E-law takeover must be INERT under PEL — else decay is dead on arrival.
+        st = ScarredState(n_dims=8, pel_enabled=True, affect_enabled=True)
+        st.set_pel_priors({"openness": 0.6, "neuroticism": 0.6, "extraversion": 0.5})
+        st.set_affect_params(_TRAITS, takeover=True)
+        assert st.pel_active()
+        st.step([0.1] * 8, timestamp=100.0)
+        before = list(st.base)
+        assert st.apply_affect_takeover(0.9, 0.7, 0.1, "撒娇") is False   # inert under PEL
+        assert st.base == before
+
+
+class TestConfigValidation:
+    def test_takeover_requires_affect_enabled(self) -> None:
+        with pytest.raises(ValueError):
+            SylanneConfig(affect_v26_takeover=True)   # affect_dynamics_enabled defaults False
+
+    def test_takeover_incompatible_with_pel(self) -> None:
+        with pytest.raises(ValueError):
+            SylanneConfig(
+                affect_v26_takeover=True, affect_dynamics_enabled=True, pel_core_enabled=True
+            )
+
+    def test_valid_takeover_config_accepted(self) -> None:
+        SylanneConfig(affect_v26_takeover=True, affect_dynamics_enabled=True)  # no raise
 
 
 class TestConfigThreading:

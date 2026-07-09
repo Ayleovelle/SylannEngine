@@ -307,7 +307,8 @@ class ComputationSpine:
         # Embodiment personality drift system
         self._signal_extractor = DriftSignalExtractor()
         self._embodiment_traits: dict[str, TraitMemory] = {
-            name: TraitMemory(0.5) for name in EMBODIMENT_TRAITS
+            name: TraitMemory(0.5, persist_anchor=self._slow_channel.active)
+            for name in EMBODIMENT_TRAITS
         }
         self._oscillation_detector = OscillationDetector()
         self._drift_attribution = DriftAttribution(maxlen=100)
@@ -1335,7 +1336,11 @@ class ComputationSpine:
         if "embodiment_traits" in data:
             for name, tm_data in data["embodiment_traits"].items():
                 if name in self._embodiment_traits and isinstance(tm_data, dict):
-                    self._embodiment_traits[name] = TraitMemory.from_dict(tm_data)
+                    tm = TraitMemory.from_dict(tm_data)
+                    # Re-assert anchor persistence from the live config flag, not the
+                    # snapshot, so enabling the slow channel takes effect immediately.
+                    tm._persist_anchor = self._slow_channel.active
+                    self._embodiment_traits[name] = tm
             self._last_embodiment_apply = {n: t.value for n, t in self._embodiment_traits.items()}
         if "drift_tick" in data:
             self._drift_tick = int(data["drift_tick"])

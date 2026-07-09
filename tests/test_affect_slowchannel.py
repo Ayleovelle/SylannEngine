@@ -118,6 +118,31 @@ class TestSlowChannel:
         assert all(tm.value == pytest.approx(0.5) for tm in traits.values())
 
 
+class TestAnchorPersistenceGating:
+    def test_anchor_absent_by_default(self) -> None:
+        # Byte-identical legacy snapshot: no 'anchor' key when the slow channel is off.
+        tm = TraitMemory(0.5)
+        assert "anchor" not in tm.to_dict()
+
+    def test_anchor_present_when_persisting(self) -> None:
+        tm = TraitMemory(0.5, persist_anchor=True)
+        tm.value = 0.7  # drift value; anchor stays at origin
+        d = tm.to_dict()
+        assert d["anchor"] == pytest.approx(0.5)
+        rt = TraitMemory.from_dict(d)
+        assert rt.anchor == pytest.approx(0.5) and rt._persist_anchor is True
+
+    def test_spine_embodiment_dicts_byte_identical_off(self) -> None:
+        # A spine with the slow channel OFF must serialize embodiment traits with no
+        # 'anchor' key (the whole point of gating it — red-team #4).
+        off = ResonanceSpine(profile=build_profile("lite"), affect_slowchannel=False)
+        for tm in off._embodiment_traits.values():
+            assert "anchor" not in tm.to_dict()
+        on = ResonanceSpine(profile=build_profile("lite"), affect_slowchannel=True)
+        for tm in on._embodiment_traits.values():
+            assert "anchor" in tm.to_dict()
+
+
 class TestSpineIntegration:
     def _run(self, *, slowchannel: bool) -> ResonanceSpine:
         sp = ResonanceSpine(profile=build_profile("lite"), affect_slowchannel=slowchannel)

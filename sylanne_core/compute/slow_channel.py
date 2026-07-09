@@ -57,6 +57,25 @@ def _clamp(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
 
 
+def _snapshot_traits(traits: dict[str, TraitMemory]) -> dict[str, Any]:
+    """Full per-trait snapshot for atomic rollback. Captures ``_frozen_ticks`` and the
+    immutable ``anchor`` explicitly — ``TraitMemory.to_dict`` may omit both (red-team #3),
+    so restoring via ``from_dict`` alone would silently un-freeze mid-cooldown traits and
+    reset the anchor."""
+    return {name: (tm.to_dict(), tm._frozen_ticks, tm.anchor) for name, tm in traits.items()}
+
+
+def _restore_traits(traits: dict[str, TraitMemory], snapshot: dict[str, Any]) -> None:
+    from .personality import TraitMemory
+
+    for name, (td, frozen, anchor) in snapshot.items():
+        if name in traits:
+            tm = TraitMemory.from_dict(td)
+            tm._frozen_ticks = frozen
+            tm.anchor = anchor
+            traits[name] = tm
+
+
 class SlowChannel:
     """有状态慢通道：poignancy 累积 + 反思触发 + 原子锚回弹 macro 漂移 + 回滚环。"""
 
@@ -106,16 +125,19 @@ class SlowChannel:
     ) -> bool:
         """越阈+冷却则原子提交一次反思漂移。返回 True=已提交。
 
-        原子性（drift #1）：先把当前特质态存入回滚环，再变异；``compute_embodiment_drift`` 抛异常
-        时从环快照逐特质自恢复，poignancy/pending 也不清（下次重试），绝不留半变异。
+        原子性（drift #1）：先把当前**特质**态（含 _frozen_ticks）存入回滚环，再变异；
+        ``compute_embodiment_drift`` 抛异常时从环快照逐特质自恢复，poignancy/pending 也不清
+        （下次重试），绝不留半变异的特质。**注意**：原子性只覆盖 ``traits``——传入的
+        OscillationDetector/DriftAttribution 是诊断累积器，失败时其记录不回滚（红队 #6-minor，
+        仅观测层，不影响特质正确性）。
         """
         from .personality import compute_embodiment_drift
 
         if not self.ready(now):
             return False
 
-        # 1) 先快照（原子提交的回滚点）——drift #1：变异前先备份。
-        snapshot = {name: tm.to_dict() for name, tm in traits.items()}
+        # 1) 先快照（原子提交的回滚点）——drift #1：变异前先备份（含 _frozen_ticks）。
+        snapshot = _snapshot_traits(traits)
 
         # 2) 质量条件化 + 锚回弹算 macro_deltas。方向 = 累积方向按事件数归一后夹 [-1,1]。
         q = affect_dynamics.q_dc(dialogue_quality)
@@ -139,11 +161,7 @@ class SlowChannel:
                 macro_deltas=macro_deltas,
             )
         except Exception:
-            from .personality import TraitMemory
-
-            for name, snap in snapshot.items():
-                if name in traits:
-                    traits[name] = TraitMemory.from_dict(snap)
+            _restore_traits(traits, snapshot)
             return False
 
         # 4) 成功：入环、清账、推进冷却。
@@ -159,12 +177,7 @@ class SlowChannel:
         """从环回滚最近一次已提交的反思漂移（外部撤销钩子）。返回 True=已回滚。"""
         if not self._ring:
             return False
-        from .personality import TraitMemory
-
-        snap = self._ring.pop()
-        for name, s in snap.items():
-            if name in traits:
-                traits[name] = TraitMemory.from_dict(s)
+        _restore_traits(traits, self._ring.pop())
         if self._reflection_count > 0:
             self._reflection_count -= 1
         return True

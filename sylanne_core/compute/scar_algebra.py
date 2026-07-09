@@ -364,7 +364,10 @@ class ScarredState:
         if not self._affect_active() or not (timestamp > 0.0):
             return
         try:
-            takeover = self._affect_takeover
+            # PEL owns base evolution (its read-out overwrites base each tick), so the
+            # E-law takeover-to-base is inert under PEL — fall back to shadow so decay
+            # is never silently discarded (red-team #1; config also rejects the combo).
+            takeover = self._affect_takeover and not self.pel_active()
             if takeover:
                 cur = list(self.base)
             else:
@@ -402,7 +405,7 @@ class ScarredState:
         （未启用/非 8 维/或 E 律异常 fail-closed）——调用方回落遗留手写规则（assessor #2）。投影 →
         gain → 饱和更新，折进 [0,1] 折回 native（saturating 非仿射等变）。
         """
-        if not (self._affect_active() and self._affect_takeover):
+        if not (self._affect_active() and self._affect_takeover) or self.pel_active():
             return False
         try:
             a_k, matched = affect_projection.project_appraisal(valence, arousal, wound_risk, intent)
@@ -688,8 +691,10 @@ class ScarredState:
             for _pass in range(self._mlp_passes):
                 self.base = self._evolve_base(self.base, modulated)
 
-        # v2.6.0 T-Persist: bump the dormant base version on every mutation.
-        self._e_ver += 1
+        # v2.6.0 T-Persist: bump the dormant base version on every mutation. Gated on
+        # _affect_enabled so the counter truly never moves off-flag (red-team #3-minor).
+        if self._affect_enabled:
+            self._e_ver += 1
 
         # Step 3: Scar formation (conditional, with session cap)
         existing_count = len(self.scars)
@@ -735,8 +740,10 @@ class ScarredState:
             # healing clock. feedback() calls step() with timestamp=0.0 ("no time
             # signal"); the old unconditional assignment zeroed _last_step_time,
             # which silently dropped the next real step's silence-bonus healing.
-            # Leave it untouched when timestamp<=0 (intentional pre-existing-bug fix).
-            if timestamp > 0:
+            # GATED on _affect_enabled (red-team #5): affect OFF keeps the exact legacy
+            # unconditional assignment (byte-identical); the fix engages only under the
+            # v2.6 affect feature.
+            if timestamp > 0 or not self._affect_enabled:
                 self._last_step_time = timestamp
 
             for scar in self.scars[:existing_count]:

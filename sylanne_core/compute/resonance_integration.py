@@ -227,7 +227,8 @@ class ResonanceSpine:
         # Embodiment personality drift system (ported from ComputationSpine)
         self._signal_extractor = DriftSignalExtractor()
         self._embodiment_traits: dict[str, TraitMemory] = {
-            name: TraitMemory(0.5) for name in EMBODIMENT_TRAITS
+            name: TraitMemory(0.5, persist_anchor=self._slow_channel.active)
+            for name in EMBODIMENT_TRAITS
         }
         self._oscillation_detector = OscillationDetector()
         self._drift_attribution = DriftAttribution(maxlen=100)
@@ -822,8 +823,13 @@ class ResonanceSpine:
         # silence adds a reach-out drive. Uncapped seconds (NOT the clamped dt).
         # 0.0 when off / short silence — and since every other drive is >= 0,
         # max(..., 0.0) == max(...), so this is byte-identical when disabled.
+        # Gated on the FULL affect predicate (takeover AND affect_enabled AND 8-dim),
+        # not takeover alone, so it never fires in configs the design excludes
+        # (affect off, or pro/max 16/128-dim cores) — red-team #2.
+        scar = self._engine.scar_state
+        silence_on = scar._affect_takeover and scar._affect_active()
         silence_drive = 0.0
-        if self._affect_takeover:
+        if silence_on:
             silence_drive = min(1.0, self._expression.wall_silence_seconds(now) / _SILENCE_DRIVE_SCALE_S)
 
         # OR-gate: max of independent triggers, gated by meaningfulness
@@ -845,7 +851,7 @@ class ResonanceSpine:
         self._expression_drive = bifurcation_drive
 
         # Mark real activity AFTER reading silence (order matters: read-then-mark).
-        if self._affect_takeover and now > 0.0:
+        if silence_on and now > 0.0:
             self._expression.mark_activity(now)
 
         # Threshold decays over silence (pressure builds)
@@ -1179,7 +1185,9 @@ class ResonanceSpine:
         if "embodiment_traits" in data:
             for name, tm_data in data["embodiment_traits"].items():
                 if name in self._embodiment_traits and isinstance(tm_data, dict):
-                    self._embodiment_traits[name] = TraitMemory.from_dict(tm_data)
+                    tm = TraitMemory.from_dict(tm_data)
+                    tm._persist_anchor = self._slow_channel.active
+                    self._embodiment_traits[name] = tm
         # Restore relationship deltas (reinitialize to avoid stale data)
         if "relationship_deltas" in data:
             self._relationship_deltas = BoundedDict(maxsize=200)
