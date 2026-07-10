@@ -832,6 +832,24 @@ class SylanneEngine:
             self._locks[session_id] = asyncio.Lock()
         return self._locks[session_id]
 
+    async def set_relationship(self, session_id: str, relationship: float) -> None:
+        """v26 D2：host 显式供给会话的关系相位标量 R ∈ [0,1]（标定呈报 D2 选项 a）。
+
+        R 的语义（"和这个人处到哪一步了"）由宿主定义，引擎只消费：情感均衡 Φ_eq 的
+        warmth 行随 R 上移（关系越深、常驻越暖）。仅在 affect_dynamics_enabled 开启时
+        有可观测效果；未调用时保持 0.5（今日行为）。越界抛 ValueError；设置随快照持久化。
+        """
+        r = float(relationship)
+        if not (0.0 <= r <= 1.0):
+            raise ValueError(f"relationship must be in [0,1], got {relationship!r}")
+        await self._ensure_started()
+        async with self._session_lock(session_id):
+            host = await self._get_or_create_host(session_id)
+            host.kernel.computation.set_relationship(r)
+            host._pending_snapshot = host.kernel.snapshot()
+            host._dirty = True
+            host._flush()
+
     def _build_host(self, session_id: str) -> SylanneHost:
         """Construct a host (blocking cold-load disk IO happens in __post_init__)."""
         from .compute import SylanneHost
@@ -846,6 +864,7 @@ class SylanneEngine:
             affect_takeover=self._config.affect_takeover,
             affect_slowchannel=self._config.affect_slowchannel_enabled,
             affect_plasticity=self._config.affect_plasticity_enabled,
+            affect_full_takeover=self._config.affect_full_takeover,
         )
 
     async def _get_or_create_host(self, session_id: str) -> SylanneHost:

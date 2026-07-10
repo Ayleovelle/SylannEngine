@@ -44,6 +44,7 @@ class AlphaRuntime:
         affect_takeover: bool = False,
         affect_slowchannel: bool = False,
         affect_plasticity: bool = False,
+        affect_full_takeover: bool = False,
     ):
         """初始化运行时，指定持久化根目录。
 
@@ -55,6 +56,7 @@ class AlphaRuntime:
             affect_takeover: 是否启用 v2.6.0 E 律夺权写 base（默认 False，需 affect_enabled）。
             affect_slowchannel: 是否启用 v2.6.0 慢通道人格 macro 漂移（默认 False，Gate C）。
             affect_plasticity: 是否启用 A.2 delta-rule 增益可塑性（默认 False，需 takeover）。
+            affect_full_takeover: 是否启用 E 律全权（默认 False，需 takeover，memo D1(b)）。
         """
         self.root = Path(root)
         self._profile = profile
@@ -63,6 +65,7 @@ class AlphaRuntime:
         self._affect_takeover = affect_takeover
         self._affect_slowchannel = affect_slowchannel
         self._affect_plasticity = affect_plasticity
+        self._affect_full_takeover = affect_full_takeover
         self._save_count: int = 0
 
     def load(self, session_key: str, legacy: dict[str, Any] | None = None) -> AlphaKernel:
@@ -96,6 +99,7 @@ class AlphaRuntime:
                     affect_takeover=self._affect_takeover,
                     affect_slowchannel=self._affect_slowchannel,
                     affect_plasticity=self._affect_plasticity,
+                    affect_full_takeover=self._affect_full_takeover,
                 )
                 self.save(recovered)
                 return recovered
@@ -108,6 +112,7 @@ class AlphaRuntime:
                     affect_takeover=self._affect_takeover,
                     affect_slowchannel=self._affect_slowchannel,
                     affect_plasticity=self._affect_plasticity,
+                    affect_full_takeover=self._affect_full_takeover,
                 )
             return AlphaKernel.boot(
                 session_key=session_key,
@@ -118,6 +123,7 @@ class AlphaRuntime:
                 affect_takeover=self._affect_takeover,
                 affect_slowchannel=self._affect_slowchannel,
                 affect_plasticity=self._affect_plasticity,
+                affect_full_takeover=self._affect_full_takeover,
             )
         return AlphaKernel.boot(
             session_key=session_key,
@@ -128,6 +134,7 @@ class AlphaRuntime:
             affect_takeover=self._affect_takeover,
             affect_slowchannel=self._affect_slowchannel,
             affect_plasticity=self._affect_plasticity,
+            affect_full_takeover=self._affect_full_takeover,
         )
 
     def save(self, kernel: AlphaKernel) -> None:
@@ -169,6 +176,7 @@ class AlphaRuntime:
             affect_takeover=self._affect_takeover,
             affect_slowchannel=self._affect_slowchannel,
             affect_plasticity=self._affect_plasticity,
+            affect_full_takeover=self._affect_full_takeover,
         )
         self.save(kernel)
         return kernel

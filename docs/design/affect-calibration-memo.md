@@ -1,7 +1,16 @@
-# 情感动力学标定呈报 —— 三个待拍板决策（v26 A.3/A.4）
+# 情感动力学标定呈报 —— 三个决策（v26 A.3/A.4）——**已裁决并落地**
 
 日期 2026-07-10 · 分支 `feat/v26-affect-dynamics` · harness：`experiments/exp02_warmth_calibration.py`
-（确定性、真实 takeover 代码路径，可复跑）。本文只呈事实与选项，**不替用户做主**。
+（确定性、真实代码路径，可复跑）。
+
+> **裁决记录（2026-07-10，用户授权 fable5 代拍："你做啊"）**：
+> **D1 = (b) E 律全权**（新 flag `affect_full_takeover`，默认关，需 takeover）+ (a) 的文档
+> 诚实化；**D2 = (a) host 显式供给**（`SylanneEngine.set_relationship(session_id, r)`）；
+> **D3 = (a) 零代码接受**（冷启动前几回合 Sylanne-Six 回落 0.5，随漂移自然个性化）。
+> 落地后 harness 实测（情景 A'）：全权下隔夜残留 tension 8h 仅 +0.105（混血 +0.166 恒定），
+> 且这残留正是 **scar 粘滞**（3 条 tension 伤痕×3 封顶）——C1 机制首次产品可观测；
+> h 敏感性从 <0.01 变为 0.253 vs 0.490（×0.5 vs ×2，2h）——**h 成为真实产品杠杆，
+> "时间治愈"可感**。原始选项分析保留如下，作为决策依据存档。
 
 ---
 

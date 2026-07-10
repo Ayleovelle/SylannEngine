@@ -38,9 +38,9 @@ _APOLOGY = dict(valence=0.5, arousal=0.5, wound=0.0, intent="道歉")
 _COAX = dict(valence=0.8, arousal=0.6, wound=0.0, intent="撒娇")
 
 
-def _fresh(ts: float = 1000.0) -> ScarredState:
+def _fresh(ts: float = 1000.0, *, full: bool = False) -> ScarredState:
     st = ScarredState(n_dims=8, affect_enabled=True)
-    st.set_affect_params(_TRAITS, takeover=True)
+    st.set_affect_params(_TRAITS, takeover=True, full_takeover=full)
     st.base = affect_dynamics.from_unit_interval(
         affect_dynamics.equilibrium(_TRAITS, 0.5)
     )  # 从均衡出发
@@ -83,12 +83,14 @@ def _residual(st: ScarredState) -> list[float]:
     return [u[i] - eq[i] for i in range(8)]
 
 
-def scenario_overnight(gap_hours: float, h_scale: float = 1.0) -> list[float]:
-    """吵架 ×3 → 静默 gap → 醒来残留。h_scale 缩放半衰期先验（敏感性分析）。"""
+def scenario_overnight(
+    gap_hours: float, h_scale: float = 1.0, *, full: bool = False
+) -> list[float]:
+    """吵架 ×3 → 静默 gap → 醒来残留。h_scale 缩放半衰期先验；full=D1(b) 全权对照。"""
     orig = affect_dynamics._H_BASE_MIN
     affect_dynamics._H_BASE_MIN = tuple(h * h_scale for h in orig)
     try:
-        st = _fresh()
+        st = _fresh(full=full)
         t_end = _fight(st, 1000.0)
         # 醒来一步 = E 律衰减（顶部）+ 遗留 MLP 主步演化——正是 D1 像差的观测点。
         st.step([0.0] * 8, timestamp=t_end + gap_hours * 3600.0)
@@ -131,6 +133,19 @@ def main() -> None:
     print("|---|" + "---|" * 8)
     for sc in (0.5, 1.0, 2.0):
         r = scenario_overnight(8.0, h_scale=sc)
+        print(f"| ×{sc:<3} | " + _fmt(r) + " |")
+
+    print("\n### 情景 A'（D1(b) 全权 affect_full_takeover=True）：同吵架，隔夜残留\n")
+    print("| 静默时长 | " + " | ".join(_DIMS) + " |")
+    print("|---|" + "---|" * 8)
+    for hrs in (0.5, 2.0, 8.0):
+        r = scenario_overnight(hrs, full=True)
+        print(f"| {hrs:>4.1f}h | " + _fmt(r) + " |")
+    print("\n（全权下 h 敏感性，2h 静默）\n")
+    print("| h 缩放 | " + " | ".join(_DIMS) + " |")
+    print("|---|" + "---|" * 8)
+    for sc in (0.5, 1.0, 2.0):
+        r = scenario_overnight(2.0, h_scale=sc, full=True)
         print(f"| ×{sc:<3} | " + _fmt(r) + " |")
 
     print("\n### 情景 B：吵架 → 2h → 一句道歉（同会话修复幅度）\n")

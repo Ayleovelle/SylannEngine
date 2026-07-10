@@ -47,6 +47,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `diagnostics=True` 且 affect 启用时，`diagnostics` 附只读键 `affect_label_shadow`（迟滞情绪标签）——
   仅诊断、不进 prompt，与既有 `Surface.pad.label` 并存。关闭时该键不出现（诊断面板字节一致）。
 
+#### 决策落地（2026-07-10，标定呈报 D1/D2/D3 裁决）
+
+- `affect_full_takeover`（**Gate B-full**，默认关，需 takeover）：E 律全权——主步
+  MLP/PEL 演化在 8 维核上旁路，base 只由衰减 + appraisal + 伤痕形成驱动。可观测常驻
+  情绪 = Φ_eq，半衰期先验成为活杠杆（"时间治愈"可感）；伤痕形成/粘滞不变，且 scar
+  粘滞首次产品可观测（受伤维度好得慢）。
+- `SylanneEngine.set_relationship(session_id, r)`（D2）：host 显式供给关系相位 R∈[0,1]，
+  Φ_eq 的 warmth 行随 R 上移；未调用保持 0.5（今日行为）；随快照持久化（additive，
+  affect 关时无新增键）。
+
 #### 修复（本轮附带，均 gated 在 affect 开关后以保关时字节一致）
 
 - `ScarredState.step()`：`feedback()`（`timestamp=0.0`）不再清零静默愈合墙钟（丢下一步的静默奖励

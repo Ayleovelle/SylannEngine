@@ -178,6 +178,9 @@ class ScarredState:
         "_affect_gain",
         "_affect_phi",
         "_affect_q_ema",
+        # v26 D1(b) full takeover: main-step MLP/PEL base evolution bypassed on the
+        # 8-dim core — base evolves only via decay + appraisal + wound scars.
+        "_affect_full",
         # v2.6.0 T-Persist: monotonic version of ``base`` (dormant — bumped on every
         # base mutation, never gates logic; reserved for future cross-writer detect).
         "_e_ver",
@@ -236,6 +239,7 @@ class ScarredState:
         self._last_affect_shadow: dict[str, Any] | None = None
         self._affect_takeover: bool = False
         self._affect_plasticity: bool = False
+        self._affect_full: bool = False
         self._affect_gain: list[float] | None = None
         self._affect_phi: list[float] = [0.0] * n_dims
         self._affect_q_ema: float = 0.5
@@ -335,6 +339,7 @@ class ScarredState:
         *,
         takeover: bool = False,
         plasticity: bool = False,
+        full_takeover: bool = False,
     ) -> None:
         """注入 E 律人格 traits + 关系相位 + 夺权/可塑性开关（由 apply_personality 调用）。
 
@@ -350,6 +355,7 @@ class ScarredState:
         self._relationship = r if math.isfinite(r) and 0.0 <= r <= 1.0 else 0.5
         self._affect_takeover = bool(takeover)
         self._affect_plasticity = bool(plasticity)
+        self._affect_full = bool(full_takeover)
 
     def _affect_active(self) -> bool:
         """影子仅对 8 维情感核生效（affect_dynamics 全按 N_DIMS=8 立式，pro/max 核跳过）。"""
@@ -741,7 +747,22 @@ class ScarredState:
         modulated = self.modulate(event)
 
         # Step 2: Base state evolution.
-        if self._pel is not None:
+        # v26 D1(b) FULL takeover: bypass the legacy MLP/PEL main-step evolution on
+        # the 8-dim core. base then evolves ONLY via the top-of-step E-law decay,
+        # the assessor appraisal (saturating update) and wound-terms — the
+        # observable resting mood becomes Phi_eq and h priors become live levers
+        # (calibration memo D1: the MLP attractor image previously dominated every
+        # observation point). Scar formation/healing below are untouched (they
+        # read `modulated`, not base). Gated: full ∧ takeover ∧ affect ∧ 8-dim ∧ 非PEL.
+        skip_evolution = (
+            self._affect_full
+            and self._affect_takeover
+            and self._affect_active()
+            and not self.pel_active()
+        )
+        if skip_evolution:
+            pass
+        elif self._pel is not None:
             if pel_ctx is not None:
                 # Main step: PEL latent free-energy descent + read-out -> base.
                 # PEL's K is internal and fixed; it ignores ``_mlp_passes`` (G3).
@@ -763,8 +784,9 @@ class ScarredState:
                 self.base = self._evolve_base(self.base, modulated)
 
         # v2.6.0 T-Persist: bump the dormant base version on every mutation. Gated on
-        # _affect_enabled so the counter truly never moves off-flag (red-team #3-minor).
-        if self._affect_enabled:
+        # _affect_enabled so the counter truly never moves off-flag (red-team #3-minor);
+        # skipped when full takeover bypassed the evolution (no mutation happened here).
+        if self._affect_enabled and not skip_evolution:
             self._e_ver += 1
 
         # Step 3: Scar formation (conditional, with session cap)
