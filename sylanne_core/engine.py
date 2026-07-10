@@ -1038,7 +1038,13 @@ class SylanneEngine:
         try:
             from .assessor import assess_text
 
-            result = await assess_text(text, self._assessor_llm or self._llm)
+            # v26 A.1：仅在 takeover（Gate B）开时向 LLM 直出 intent——Gate A/关闭态
+            # prompt 逐字节不变（intent 通电会点燃遗留手写意图规则、破影子期契约）。
+            result = await assess_text(
+                text,
+                self._assessor_llm or self._llm,
+                want_intent=self._config.affect_takeover,
+            )
             if result and result.pop("_degraded", False):
                 if self._status == "running":
                     self._status = "degraded"
