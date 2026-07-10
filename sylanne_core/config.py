@@ -262,6 +262,24 @@ class SylanneConfig:
             projection (derivation Lemma 6) — bad/adversarial quality signals
             cannot break E's boundedness. Learned gains persist across restarts
             and are decoupled from personality after initialization.
+        affect_full_takeover: Opt in to E-law FULL takeover (Gate B-full,
+            experimental; calibration memo D1 option b). Default False. Requires
+            affect_takeover. When True, the legacy MLP/PEL main-step base
+            evolution is BYPASSED on the 8-dim core: base evolves only via the
+            top-of-step wall-clock decay toward Phi_eq, the assessor appraisal
+            (saturating update), and wound scar formation (scars still form and
+            keep their stickiness role). Scoping disclosure: only the ASSESSOR
+            wound path's base perturbation is superseded (by the appraisal's
+            wound terms); the Gamma void-coupling wound vectors and feedback()
+            outcome vectors become mood-inert under full takeover (they still
+            form scars above threshold but no longer nudge base) — these are
+            semantics-blind internal vectors, which is exactly the channel this
+            flag exists to remove. Consequence: the observable resting mood IS
+            Phi_eq
+            (not the MLP attractor image) and the half-life priors become live
+            product levers ("time heals" becomes real). Without an assessor,
+            emotion moves only by decay + wounds — principled, since the HDC
+            main-step input is a semantics-blind hash.
         submit_window_seconds: How long a COMPLETED ``submit()`` entry stays
             joinable before it is pruned (default 10s). A duplicate submission
             for the same key inside this window joins the cached result instead
@@ -293,6 +311,7 @@ class SylanneConfig:
     affect_takeover: bool = False
     affect_slowchannel_enabled: bool = False
     affect_plasticity_enabled: bool = False
+    affect_full_takeover: bool = False
     submit_window_seconds: float = 10.0
     submit_max_entries: int = 1024
     tick_min_interval_seconds: float = 45.0
@@ -332,6 +351,11 @@ class SylanneConfig:
             raise ValueError(
                 "affect_plasticity_enabled requires affect_takeover "
                 "(plasticity learns the gains the takeover E-law applies)"
+            )
+        if self.affect_full_takeover and not self.affect_takeover:
+            raise ValueError(
+                "affect_full_takeover requires affect_takeover "
+                "(full takeover extends the E-law's authority to the main step)"
             )
 
     def profile(self) -> DimensionProfile:

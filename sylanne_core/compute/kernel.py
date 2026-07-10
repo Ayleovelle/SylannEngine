@@ -152,6 +152,7 @@ class AlphaKernel:
         affect_takeover: bool = False,
         affect_slowchannel: bool = False,
         affect_plasticity: bool = False,
+        affect_full_takeover: bool = False,
     ) -> AlphaKernel:
         """从零创建或从旧版数据迁移创建 kernel。"""
         if legacy is None:
@@ -167,6 +168,7 @@ class AlphaKernel:
                 affect_takeover=affect_takeover,
                 affect_slowchannel=affect_slowchannel,
                 affect_plasticity=affect_plasticity,
+                affect_full_takeover=affect_full_takeover,
             )
             kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
         return kernel
@@ -182,6 +184,7 @@ class AlphaKernel:
         affect_takeover: bool = False,
         affect_slowchannel: bool = False,
         affect_plasticity: bool = False,
+        affect_full_takeover: bool = False,
     ) -> AlphaKernel:
         """从持久化快照恢复 kernel，对每个字段做类型安全的反序列化。"""
         kernel = cls(
@@ -206,6 +209,7 @@ class AlphaKernel:
                 affect_takeover=affect_takeover,
                 affect_slowchannel=affect_slowchannel,
                 affect_plasticity=affect_plasticity,
+                affect_full_takeover=affect_full_takeover,
             )
             kernel.hot_pool = HotPool(n_dims=profile.emotion_dim, mode=profile.mode)
         if "computation" in snapshot and isinstance(snapshot["computation"], dict):
