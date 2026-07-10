@@ -368,12 +368,15 @@ class ScarredState:
             # E-law takeover-to-base is inert under PEL — fall back to shadow so decay
             # is never silently discarded (red-team #1; config also rejects the combo).
             takeover = self._affect_takeover and not self.pel_active()
+            # 入口夹回存储契约 [-1,1]：decay 是裸凸组合（定理 2 前提 u₀ 在界内），
+            # 对越界输入不自愈——from_dict 已在复原边界执行契约，此处是对未来
+            # 其它写入者的皮带（数学红队 composition fatal 的双闸修复）。
             if takeover:
-                cur = list(self.base)
+                cur = [min(1.0, max(-1.0, x)) for x in self.base]
             else:
                 if self._affect_shadow_base is None:
                     self._affect_shadow_base = list(self.base)
-                cur = self._affect_shadow_base
+                cur = [min(1.0, max(-1.0, x)) for x in self._affect_shadow_base]
             prev = self._e_last_wall_ts
             self._e_last_wall_ts = float(timestamp)
             if not (prev > 0.0):
@@ -918,7 +921,11 @@ class ScarredState:
             pel_enabled=pel_enabled,
             affect_enabled=affect_enabled,
         )
-        state.base = list(data["base"])
+        # base 的存储契约是 tanh 值域 [-1,1]（合法写入者只有 tanh 演化 / PEL 读出 /
+        # E 律折返，全部有界）。复原时硬性执行该契约：损坏/手改快照的越界值在此夹回，
+        # 否则会穿透 E 律衰减的凸组合前提（定理 2 需 u₀∈[0,1]）并永久越界（数学红队
+        # composition fatal：base=1.5 经 decay 得 1.49…，不变集失守）。合法快照恒等。
+        state.base = [min(1.0, max(-1.0, float(x))) for x in data["base"]]
         state.scars = [Scar.from_dict(s) for s in data.get("scars", [])]
         state._tick = data.get("tick", 0)
         state._t_raw = data.get("t_raw", 10)
