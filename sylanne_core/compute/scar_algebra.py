@@ -397,23 +397,28 @@ class ScarredState:
                     self._affect_shadow_base = list(self.base)
                 cur = [min(1.0, max(-1.0, x)) for x in self._affect_shadow_base]
             prev = self._e_last_wall_ts
-            self._e_last_wall_ts = float(timestamp)
+            ts = float(timestamp)
             if not (prev > 0.0):
+                self._e_last_wall_ts = ts   # 首次播种时钟；无衰减可施
                 return
-            dt = float(timestamp) - prev
+            dt = ts - prev
             if not (dt > 0.0):
-                return
+                return                       # 非单调/零间隔：时钟留在 prev，不回拨
             eq_native = affect_dynamics.from_unit_interval(
                 affect_dynamics.equilibrium(self._affect_traits, self._relationship)
             )
             scarload = [self.scar_density(d) for d in range(self.n_dims)]
             h_secs = affect_dynamics.half_lives(self._affect_traits, scarload)
             decayed = affect_dynamics.decay(cur, eq_native, h_secs, dt)
+            # 原子提交：状态与时钟同批落地（AD5——C 轨红队修订：此前时钟在易错计算
+            # **之前**推进，异常时时钟白走、该区间的衰减被永久静默丢弃；现在异常
+            # ⇒ 时钟留在 prev，恢复后的下一次成功衰减补齐全部真实间隔）。
             if takeover:
                 self.base = decayed          # T3: authoritative base
                 self._e_ver += 1
             else:
                 self._affect_shadow_base = decayed
+            self._e_last_wall_ts = ts
             self._record_affect_shadow("decay")
         except Exception:  # pragma: no cover - fail-closed, diagnostic path only
             logger.debug("affect decay skipped (exception)", exc_info=True)
