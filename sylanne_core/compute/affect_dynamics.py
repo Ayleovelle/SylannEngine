@@ -195,6 +195,65 @@ def saturating_update(e: list[float], a_k: list[float], gain: list[float]) -> li
 
 
 # ===========================================================================
+# Delta-rule 增益可塑性（v26 A.2，推导 §6 / 引理 6 投影契约）
+# ===========================================================================
+# G_{t+1} = Π_{[ε,1]}(G_t + α·δ_t·φ_t)：δ = clip(quality − q̂)，q̂ 为 quality 的 EMA
+# 基线，φ 为逐维资格迹（近期 |a| 活动的泄漏累积——只有参与了情绪反应的维度领赏罚，
+# 注 6.2 的信用分配结构件）。安全由投影 Π 保证（引理 6：定理 1–4 只用 G 的界），
+# 与学习信号质量无关。α 按注 6.1 时标排序取：α ≪ 典型 k·Δt_turn。学习态 G 一旦
+# 建立即与 T 解耦（人格漂移不再跳变 G——注 6.1 第三时标在 learned-G 下消失）。
+
+_GAIN_FLOOR: float = 0.05        # ε：投影下限（防增益死亡；ε>0 保 (A3)）
+_PLASTICITY_ALPHA: float = 0.0005  # α：学习率（时标排序 conformance 锚定：最慢典型维
+# k·Δt=ln2/(120·2min)·60s≈0.0029，α 留 ~5.8× 裕度。刻意冰川速度——人格毗邻态就该慢，
+# 持续超预期反馈下移动一个 0.1 的增益量级需 ~200 次显式 quality 反馈（数天活跃聊天）。
+_PHI_GAMMA: float = 0.6           # 资格迹保持率（泄漏 = 1−γ）
+_Q_EMA_BETA: float = 0.1          # quality 基线 EMA 步长
+
+
+def eligibility_update(phi: list[float], a_k: list[float]) -> list[float]:
+    """资格迹更新：φ ← clamp01(γ·φ + |a|)。逐维、非有限消毒、恒 ∈ [0,1]。"""
+    out = [0.0] * N_DIMS
+    for i in range(N_DIMS):
+        p = _finite(phi[i], 0.0) if i < len(phi) else 0.0
+        a = abs(_finite(a_k[i], 0.0)) if i < len(a_k) else 0.0
+        out[i] = _clamp01(_PHI_GAMMA * p + a)
+    return out
+
+
+def quality_baseline_update(q_hat: float, quality: float) -> float:
+    """quality 基线 EMA：q̂ ← (1−β)·q̂ + β·q。非有限消毒、恒 ∈ [0,1]。"""
+    qh = _clamp01(_finite(float(q_hat), 0.5))
+    q = _clamp01(_finite(float(quality), 0.5))
+    return _clamp01((1.0 - _Q_EMA_BETA) * qh + _Q_EMA_BETA * q)
+
+
+def plasticity_step(
+    gain: list[float],
+    quality: float,
+    q_hat: float,
+    phi: list[float],
+    alpha: float = _PLASTICITY_ALPHA,
+) -> list[float]:
+    """delta-rule 增益步：G ← Π_{[ε,1]}(G + α·δ·φ)，δ = clip(q − q̂, [−1,1])。
+
+    投影 Π 无条件执行（引理 6 的全部安全负担在此）；对抗/噪声 quality 序列下输出
+    恒 ∈ [ε,1] ⊂ (0,1]，`validate_gain` 恒通过。非有限一律消毒。
+    """
+    q = _clamp01(_finite(float(quality), 0.5))
+    qh = _clamp01(_finite(float(q_hat), 0.5))
+    delta = _clamp(q - qh, -1.0, 1.0)
+    a = _finite(float(alpha), 0.0)
+    out = [0.0] * N_DIMS
+    for i in range(N_DIMS):
+        g = _finite(gain[i], 0.5) if i < len(gain) else 0.5
+        p = _clamp01(_finite(phi[i], 0.0)) if i < len(phi) else 0.0
+        nxt = g + a * delta * p
+        out[i] = min(1.0, max(_GAIN_FLOOR, _finite(nxt, g)))   # Π_{[ε,1]}
+    return out
+
+
+# ===========================================================================
 # 值域适配器（Phase 0）—— [0,1] ↔ (-1,1) tanh 存储帧
 # ===========================================================================
 # 情感核 E 即 ``ScarredState.base``，由 tanh 写入（scar_algebra.py:391/397、pel_core），实际
@@ -304,6 +363,9 @@ __all__ = [
     "saturating_update",
     "to_unit_interval",
     "from_unit_interval",
+    "eligibility_update",
+    "quality_baseline_update",
+    "plasticity_step",
     "validate_gain",
     "validate_scalar_params",
     "poignancy_magnitude",

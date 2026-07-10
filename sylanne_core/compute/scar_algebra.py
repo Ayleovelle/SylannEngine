@@ -171,6 +171,13 @@ class ScarredState:
         # v2.6.0 T3 takeover: when True the E-law is AUTHORITATIVE (writes base):
         # decay-to-Phi_eq at top of step + saturating appraisal replaces hand-rules.
         "_affect_takeover",
+        # v26 A.2 delta-rule gain plasticity (Lemma 6 projection contract). Learned
+        # gain state survives restarts; None until first takeover use (lazy init
+        # from gain_vector(traits), then decoupled from T).
+        "_affect_plasticity",
+        "_affect_gain",
+        "_affect_phi",
+        "_affect_q_ema",
         # v2.6.0 T-Persist: monotonic version of ``base`` (dormant — bumped on every
         # base mutation, never gates logic; reserved for future cross-writer detect).
         "_e_ver",
@@ -228,6 +235,10 @@ class ScarredState:
         self._e_last_wall_ts: float = 0.0
         self._last_affect_shadow: dict[str, Any] | None = None
         self._affect_takeover: bool = False
+        self._affect_plasticity: bool = False
+        self._affect_gain: list[float] | None = None
+        self._affect_phi: list[float] = [0.0] * n_dims
+        self._affect_q_ema: float = 0.5
         self._e_ver: int = 0
 
     def set_healing_rates(
@@ -318,19 +329,27 @@ class ScarredState:
     # ------------------------------------------------------------------
 
     def set_affect_params(
-        self, traits: dict[str, float], relationship: float = 0.5, *, takeover: bool = False
+        self,
+        traits: dict[str, float],
+        relationship: float = 0.5,
+        *,
+        takeover: bool = False,
+        plasticity: bool = False,
     ) -> None:
-        """注入 E 律人格 traits + 关系相位 + 夺权开关（由 apply_personality 调用）。
+        """注入 E 律人格 traits + 关系相位 + 夺权/可塑性开关（由 apply_personality 调用）。
 
-        镜像 ``set_pel_priors`` 的注入位，随人格覆盖幂等重设。traits/relationship/takeover
+        镜像 ``set_pel_priors`` 的注入位，随人格覆盖幂等重设。traits/relationship/开关
         **不落盘**——复原后由 apply_personality 重新注入（PEL must-fix #3 同型）。relationship
         缺省 0.5（canonical 尚无关系相位标量接线；真实 R 是后续跟进项）。``takeover`` 由 config
-        经 spine 传入：True ⇒ T3 E 律夺权写 base；False ⇒ T1 影子（默认）。
+        经 spine 传入：True ⇒ T3 E 律夺权写 base；False ⇒ T1 影子（默认）。``plasticity``
+        （A.2）开启 delta-rule 增益学习；**不重置已学的 ``_affect_gain``**——人格重复注入
+        （关系覆盖/档位切换）不得清洗学习态。
         """
         self._affect_traits = dict(traits) if traits else {}
         r = float(relationship)
         self._relationship = r if math.isfinite(r) and 0.0 <= r <= 1.0 else 0.5
         self._affect_takeover = bool(takeover)
+        self._affect_plasticity = bool(plasticity)
 
     def _affect_active(self) -> bool:
         """影子仅对 8 维情感核生效（affect_dynamics 全按 N_DIMS=8 立式，pro/max 核跳过）。"""
@@ -412,16 +431,60 @@ class ScarredState:
             return False
         try:
             a_k, matched = affect_projection.project_appraisal(valence, arousal, wound_risk, intent)
-            gain = affect_dynamics.gain_vector(self._affect_traits)
+            gain = self._effective_gain()
             affect_dynamics.validate_gain(gain)  # 越界抛 → 下方兜底回落手写规则
             unit = affect_dynamics.to_unit_interval(self.base)
             updated = affect_dynamics.saturating_update(unit, a_k, gain)
             self.base = affect_dynamics.from_unit_interval(updated)
             self._e_ver += 1
+            # A.2：可塑性开启时更新资格迹——只有参与本轮情绪反应的维度在下一次
+            # quality 反馈到达时领赏罚（注 6.2 信用分配）。
+            if self._affect_plasticity:
+                self._affect_phi = affect_dynamics.eligibility_update(self._affect_phi, a_k)
             self._record_affect_shadow("takeover", matched=matched)
             return True
         except Exception:
             logger.debug("affect takeover failed; falling back to hand-rules", exc_info=True)
+            return False
+
+    def _effective_gain(self) -> list[float]:
+        """当前生效增益：可塑性开 ⇒ 学习态 G（懒初始化自 gain_vector(traits) 后与 T 解耦）；
+        关 ⇒ 每次由人格现算（遗留语义，人格漂移会即时移动 G）。"""
+        if self._affect_plasticity:
+            if self._affect_gain is None:
+                self._affect_gain = affect_dynamics.gain_vector(self._affect_traits)
+            return self._affect_gain
+        return affect_dynamics.gain_vector(self._affect_traits)
+
+    def apply_affect_quality(self, quality: float) -> bool:
+        """A.2 delta-rule 增益学习步（quality 为上一轮回复质量的滞后反馈 ∈ [0,1]）。
+
+        门：affect 活 ∧ takeover ∧ plasticity ∧ 非 PEL。δ = clip(q − q̂)，赏罚经资格迹
+        分配到近期活跃维；投影 Π_{[ε,1]} 无条件执行（引理 6——学习信号再错也破不了
+        定理 1–4）。基线 q̂ 在算完 δ 后推进。返回 True ⇒ 本步确实学习了。fail-closed。
+        """
+        if not (
+            self._affect_active()
+            and self._affect_takeover
+            and self._affect_plasticity
+            and not self.pel_active()
+        ):
+            return False
+        try:
+            if self._affect_gain is None:
+                self._affect_gain = affect_dynamics.gain_vector(self._affect_traits)
+            self._affect_gain = affect_dynamics.plasticity_step(
+                self._affect_gain, quality, self._affect_q_ema, self._affect_phi
+            )
+            self._affect_q_ema = affect_dynamics.quality_baseline_update(
+                self._affect_q_ema, quality
+            )
+            logger.debug(
+                "affect-plasticity q=%.3f q_ema=%.3f", float(quality), self._affect_q_ema
+            )
+            return True
+        except Exception:  # pragma: no cover - fail-closed, learning must never crash a turn
+            logger.debug("affect plasticity step skipped (exception)", exc_info=True)
             return False
 
     def apply_affect_appraisal_shadow(
@@ -905,6 +968,12 @@ class ScarredState:
         if self._affect_enabled:
             out["e_last_wall_ts"] = self._e_last_wall_ts
             out["e_ver"] = self._e_ver
+            # A.2：学习态（增益/资格迹/quality 基线）仅在可塑性开启时落盘——
+            # 学习到的 G 是必须跨重启延续的状态（区别于可由人格重导出的参数）。
+            if self._affect_plasticity and self._affect_gain is not None:
+                out["affect_gain"] = list(self._affect_gain)
+                out["affect_phi"] = list(self._affect_phi)
+                out["affect_q_ema"] = self._affect_q_ema
         return out
 
     @classmethod
@@ -945,6 +1014,18 @@ class ScarredState:
         # so the restored _e_ver is exactly the persisted value.
         state._e_last_wall_ts = data.get("e_last_wall_ts", 0.0)
         state._e_ver = int(data.get("e_ver", 0))
+        # A.2 学习态复原（additive；缺键 = 未学习过，懒初始化会重新从人格导出）。
+        # 增益经 Π_{[ε,1]} 语义夹回（复原边界执行学习态自己的域契约）。
+        raw_gain = data.get("affect_gain")
+        if isinstance(raw_gain, list) and len(raw_gain) == state.n_dims:
+            state._affect_gain = [min(1.0, max(0.05, float(x))) for x in raw_gain]
+        raw_phi = data.get("affect_phi")
+        if isinstance(raw_phi, list) and len(raw_phi) == state.n_dims:
+            state._affect_phi = [min(1.0, max(0.0, float(x))) for x in raw_phi]
+        try:
+            state._affect_q_ema = min(1.0, max(0.0, float(data.get("affect_q_ema", 0.5))))
+        except (TypeError, ValueError):
+            state._affect_q_ema = 0.5
         # PEL-Core: migration-safe restore, GATED ON THE HOST'S CONFIG FLAG
         # (``pel_enabled``), never on snapshot contents (must-fix #3). A present
         # "pel" sub-key alone must NOT re-enable PEL when the caller has the flag

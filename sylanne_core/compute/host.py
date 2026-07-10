@@ -89,6 +89,7 @@ class SylanneAlphaHost:
     affect_enabled: bool = False
     affect_takeover: bool = False
     affect_slowchannel: bool = False
+    affect_plasticity: bool = False
     runtime: AlphaRuntime = field(init=False)
     kernel: AlphaKernel = field(init=False)
     _dirty: bool = field(init=False, default=False)
@@ -104,6 +105,7 @@ class SylanneAlphaHost:
             affect_enabled=self.affect_enabled,
             affect_takeover=self.affect_takeover,
             affect_slowchannel=self.affect_slowchannel,
+            affect_plasticity=self.affect_plasticity,
         )
         self.kernel = self.runtime.load(self.session_key, legacy=self.legacy)
         self.kernel.set_telemetry(self.telemetry_sink)
