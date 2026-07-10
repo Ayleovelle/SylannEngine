@@ -5,7 +5,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### v2.6.0 情感动力学（affect-dynamics）—— 分阶段落地，**默认全关，字节一致**
+### 情感动力学（affect-dynamics，设计代号 v26）—— 分阶段落地，**默认全关，字节一致**
+
+> 版本号待发布时定：全部功能默认关、关时与 2.5 字节一致，净行为增量取决于后续 warmth
+> 标定与闸位提升，故本轮**不预先主张 2.6.0**（设计稿沿用内部代号 v26，与发布号解耦）。
 
 在 8 维情感核（`lite` 档）上引入双速情感动力学 E 律：墙钟惰性衰减到人格均衡 Φ_eq（慢/时间
 通道）+ 每轮 appraisal 饱和快更新（快/语义通道）。E 即 `ScarredState.base`（原地升级，非并行核）。
@@ -31,7 +34,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `affect_dynamics_enabled`（**Gate A**）：E 律**只算不写**——并行"影子"E 落日志/诊断，
   绝不写 `base`、不进 `observe()`、不进 prompt。
-- `affect_v26_takeover`（**Gate B**）：E 律**夺权**写权威 `base`——衰减在 `step()` 顶部先于事件
+- `affect_takeover`（**Gate B**）：E 律**夺权**写权威 `base`——衰减在 `step()` 顶部先于事件
   演化落地，饱和快更新替代 assessor 手写意图规则，异常 fail-closed 回落旧规则。需
   `affect_dynamics_enabled`，**与 `pel_core_enabled` 互斥**（`__post_init__` 校验，违背即 `ValueError`）。
 - `affect_slowchannel_enabled`（**Gate C**）：慢通道 poignancy→反思→锚回弹宏漂移（不可逆记忆写，
@@ -44,7 +47,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `diagnostics=True` 且 affect 启用时，`diagnostics` 附只读键 `affect_label_shadow`（迟滞情绪标签）——
   仅诊断、不进 prompt，与既有 `Surface.pad.label` 并存。关闭时该键不出现（诊断面板字节一致）。
 
-#### 修复（v2.6 附带，均 gated 在 affect 开关后以保关时字节一致）
+#### 修复（本轮附带，均 gated 在 affect 开关后以保关时字节一致）
 
 - `ScarredState.step()`：`feedback()`（`timestamp=0.0`）不再清零静默愈合墙钟（丢下一步的静默奖励
   愈合）——仅在 `affect_dynamics_enabled` 开时生效，关时保持旧的无条件赋值。

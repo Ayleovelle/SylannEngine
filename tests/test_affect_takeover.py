@@ -1,4 +1,4 @@
-"""v2.6.0 T3 契约：E 律**夺权**（Gate B，behind affect_v26_takeover，默认关）。
+"""v2.6.0 T3 契约：E 律**夺权**（Gate B，behind affect_takeover，默认关）。
 
 对照 docs/design/v26-upgrade-path.md §2 T3。守护：
 - takeover off ⇒ 影子语义不变、``apply_affect_takeover`` 返回 False、base 不被 E 律写；
@@ -6,7 +6,7 @@
   ``apply_affect_takeover`` 写 base 并返回 True（替代手写意图规则）；
 - fail-closed（assessor #2）：增益越界/投影异常 ⇒ 夺权返回 False，回落遗留手写规则，base 不崩；
 - 迁移：夺权 on vs off 的 observe() **不同**（这是**有意的行为变更**，非零变更）；
-- 配置贯通：SylanneConfig(affect_v26_takeover=True) → scar_state._affect_takeover。
+- 配置贯通：SylanneConfig(affect_takeover=True) → scar_state._affect_takeover。
 """
 
 from __future__ import annotations
@@ -171,16 +171,16 @@ class TestPelExclusion:
 class TestConfigValidation:
     def test_takeover_requires_affect_enabled(self) -> None:
         with pytest.raises(ValueError):
-            SylanneConfig(affect_v26_takeover=True)   # affect_dynamics_enabled defaults False
+            SylanneConfig(affect_takeover=True)   # affect_dynamics_enabled defaults False
 
     def test_takeover_incompatible_with_pel(self) -> None:
         with pytest.raises(ValueError):
             SylanneConfig(
-                affect_v26_takeover=True, affect_dynamics_enabled=True, pel_core_enabled=True
+                affect_takeover=True, affect_dynamics_enabled=True, pel_core_enabled=True
             )
 
     def test_valid_takeover_config_accepted(self) -> None:
-        SylanneConfig(affect_v26_takeover=True, affect_dynamics_enabled=True)  # no raise
+        SylanneConfig(affect_takeover=True, affect_dynamics_enabled=True)  # no raise
 
 
 class TestConfigThreading:

@@ -228,7 +228,7 @@ class SylanneConfig:
             behaviour is byte-identical to today. When True, the engine's
             8-dim emotion core (lite tier) evolves via the PEL latent
             micro-circuit instead. Additive and snapshot-migration-safe.
-        affect_dynamics_enabled: Opt in to the v2.6.0 affect-dynamics E-law
+        affect_dynamics_enabled: Opt in to the experimental affect-dynamics E-law
             *shadow* (Gate A). Default False — nothing changes. When True, the
             8-dim emotion core additionally computes a parallel "shadow" E via
             the E-law (wall-clock decay-to-Phi_eq + saturating appraisal update)
@@ -236,7 +236,7 @@ class SylanneConfig:
             NEVER written into ``base``, never read by ``observe()``, and never
             enters the prompt. Snapshot-migration-safe. Takeover (writing base)
             is a separate later flag (T3), not this one.
-        affect_v26_takeover: Opt in to the v2.6.0 E-law TAKEOVER (Gate B). Default
+        affect_takeover: Opt in to the E-law TAKEOVER (Gate B, experimental). Default
             False. Requires affect_dynamics_enabled. When True, the E-law becomes
             authoritative on the 8-dim core: wall-clock decay-to-Phi_eq is applied
             to ``base`` at the top of each step (before event evolution), and the
@@ -245,7 +245,7 @@ class SylanneConfig:
             mid-turn falls through to the old hand-rules for that turn. This is an
             INTENDED behaviour change (not byte-identical) whose acceptance bar is
             warmth behavioural calibration — do not enable without it.
-        affect_slowchannel_enabled: Opt in to the v2.6.0 slow channel (Gate C).
+        affect_slowchannel_enabled: Opt in to the affect slow channel (Gate C, experimental).
             Default False. When True, poignant appraisals accumulate a leaky
             "poignancy" bucket on the spine; crossing the threshold (plus a
             wall-clock cooldown) fires a bounded, anchor-rebounding MACRO DRIFT of
@@ -281,7 +281,7 @@ class SylanneConfig:
     training_data_salt: str = ""
     pel_core_enabled: bool = False
     affect_dynamics_enabled: bool = False
-    affect_v26_takeover: bool = False
+    affect_takeover: bool = False
     affect_slowchannel_enabled: bool = False
     submit_window_seconds: float = 10.0
     submit_max_entries: int = 1024
@@ -307,15 +307,15 @@ class SylanneConfig:
             raise ValueError("submit_max_entries must be >= 1")
         if self.tick_min_interval_seconds < 0:
             raise ValueError("tick_min_interval_seconds must be >= 0")
-        # v2.6.0 flag compatibility: takeover writes base and needs the E-law machinery
+        # affect flag compatibility: takeover writes base and needs the E-law machinery
         # (traits/adapter) that affect_dynamics_enabled turns on; it also cannot coexist
         # with PEL-Core, which independently OWNS base evolution (PEL's readout would
         # overwrite the E-law decay every tick — red-team finding #1).
-        if self.affect_v26_takeover and not self.affect_dynamics_enabled:
-            raise ValueError("affect_v26_takeover requires affect_dynamics_enabled")
-        if self.affect_v26_takeover and self.pel_core_enabled:
+        if self.affect_takeover and not self.affect_dynamics_enabled:
+            raise ValueError("affect_takeover requires affect_dynamics_enabled")
+        if self.affect_takeover and self.pel_core_enabled:
             raise ValueError(
-                "affect_v26_takeover is not supported together with pel_core_enabled "
+                "affect_takeover is not supported together with pel_core_enabled "
                 "(both own base evolution)"
             )
 

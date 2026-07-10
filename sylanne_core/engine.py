@@ -843,7 +843,7 @@ class SylanneEngine:
             telemetry_sink=self._telemetry_sink,
             pel_enabled=self._config.pel_core_enabled,
             affect_enabled=self._config.affect_dynamics_enabled,
-            affect_takeover=self._config.affect_v26_takeover,
+            affect_takeover=self._config.affect_takeover,
             affect_slowchannel=self._config.affect_slowchannel_enabled,
         )
 
