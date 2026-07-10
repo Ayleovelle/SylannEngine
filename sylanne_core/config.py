@@ -253,6 +253,15 @@ class SylanneConfig:
             existing drift write-path with a rollback ring. Irreversible authority
             (personality change), so ships off; the appraisal->trait map and the
             reflection constants are documented calibration priors.
+        affect_plasticity_enabled: Opt in to delta-rule gain plasticity (A.2,
+            experimental). Default False. Requires affect_takeover. When True,
+            the takeover E-law's per-dim gains G become LEARNED state:
+            G <- proj_[0.05,1](G + alpha*delta*phi) driven by lagged
+            dialogue_quality feedback, with an eligibility trace phi crediting
+            only recently-active dims. Safety is carried entirely by the
+            projection (derivation Lemma 6) — bad/adversarial quality signals
+            cannot break E's boundedness. Learned gains persist across restarts
+            and are decoupled from personality after initialization.
         submit_window_seconds: How long a COMPLETED ``submit()`` entry stays
             joinable before it is pruned (default 10s). A duplicate submission
             for the same key inside this window joins the cached result instead
@@ -283,6 +292,7 @@ class SylanneConfig:
     affect_dynamics_enabled: bool = False
     affect_takeover: bool = False
     affect_slowchannel_enabled: bool = False
+    affect_plasticity_enabled: bool = False
     submit_window_seconds: float = 10.0
     submit_max_entries: int = 1024
     tick_min_interval_seconds: float = 45.0
@@ -317,6 +327,11 @@ class SylanneConfig:
             raise ValueError(
                 "affect_takeover is not supported together with pel_core_enabled "
                 "(both own base evolution)"
+            )
+        if self.affect_plasticity_enabled and not self.affect_takeover:
+            raise ValueError(
+                "affect_plasticity_enabled requires affect_takeover "
+                "(plasticity learns the gains the takeover E-law applies)"
             )
 
     def profile(self) -> DimensionProfile:

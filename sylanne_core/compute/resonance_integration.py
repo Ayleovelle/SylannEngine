@@ -29,7 +29,6 @@ from typing import TYPE_CHECKING, Any
 from .._numeric import _coerce_float
 from . import affect_projection
 from . import pel_core as _pel_core  # module ref so SEMANTIC_PRIOR stays monkeypatchable
-from .slow_channel import SlowChannel
 from .autopoiesis import AutopoieticBoundary
 from .bounded_dict import BoundedDict
 from .deterministic_fusion import create_deterministic_fusion
@@ -51,6 +50,7 @@ from .personality import (
 from .phase_transition import PhaseTransitionExpression
 from .predictive_coding import PredictiveCodingGate
 from .relational_sheaf import ScarSheaf
+from .slow_channel import SlowChannel
 from .void_scar_engine import VoidScarEngine
 
 if TYPE_CHECKING:
@@ -131,6 +131,8 @@ class ResonanceSpine:
         "_affect_enabled",
         # v2.6.0 T3 E-law takeover flag (config-gated; default off)
         "_affect_takeover",
+        # v26 A.2 delta-rule gain plasticity flag (config-gated; default off)
+        "_affect_plasticity",
         # v2.6.0 T5 slow channel (poignancy -> reflection -> macro drift; default off)
         "_slow_channel",
         # PEL-Core D-10: last non-semantic assessor-advisable gate signal
@@ -145,6 +147,7 @@ class ResonanceSpine:
         affect_enabled: bool = False,
         affect_takeover: bool = False,
         affect_slowchannel: bool = False,
+        affect_plasticity: bool = False,
     ):
         if profile is None:
             from ..config import build_profile
@@ -155,6 +158,7 @@ class ResonanceSpine:
         self._pel_enabled = pel_enabled
         self._affect_enabled = affect_enabled
         self._affect_takeover = affect_takeover
+        self._affect_plasticity = affect_plasticity
         self._slow_channel = SlowChannel(active=affect_slowchannel)
 
         # Resonance field + emergence
@@ -290,7 +294,10 @@ class ResonanceSpine:
         # v2.6.0 affect E-law: same normalized personality as traits + neutral
         # relationship 0.5 + takeover flag. No-op unless affect_dynamics_enabled & 8-dim.
         self._engine.scar_state.set_affect_params(
-            personality, relationship=0.5, takeover=self._affect_takeover
+            personality,
+            relationship=0.5,
+            takeover=self._affect_takeover,
+            plasticity=self._affect_plasticity,
         )
         self._engine.void_space._detection_threshold = 0.6 - neuroticism * 0.5
         self._engine.void_space.set_cooldown(openness)
@@ -545,6 +552,12 @@ class ResonanceSpine:
         if dialogue_quality is not None:
             result["dialogue_quality"] = dialogue_quality
             result["_consume_dialogue_quality"] = True  # one-shot bypass of drift rate-limit
+            # v26 A.2：显式 quality 反馈喂 delta-rule 增益学习（内部四重门 + fail-closed；
+            # 只学显式反馈，不学缺省 0.5——否则 δ 恒在 0 附近学噪声）。
+            try:
+                self._engine.scar_state.apply_affect_quality(float(dialogue_quality))
+            except Exception:  # pragma: no cover - learning must never crash a turn
+                logger.debug("affect plasticity hook (resonance) skipped", exc_info=True)
         # Ground-truth 覆盖：agent 把上一轮 renderer 真实裁决（SPEAK/SILENT）经此通道
         # 灌入 result["should_express"]，覆盖 policy 猜测，消除假阳性 expression_fired。
         # 与 dialogue_quality 相同的滞后通道（N+1 轮传入上一轮裁决），无破契约。
@@ -1158,7 +1171,10 @@ class ResonanceSpine:
                 # v2.6.0 affect: re-supply never-persisted traits + takeover flag.
                 if self._affect_enabled:
                     self._engine.scar_state.set_affect_params(
-                        self._personality, relationship=0.5, takeover=self._affect_takeover
+                        self._personality,
+                        relationship=0.5,
+                        takeover=self._affect_takeover,
+                        plasticity=self._affect_plasticity,
                     )
             if "void" in engine_data:
                 self._engine.void_space.from_dict(engine_data["void"])

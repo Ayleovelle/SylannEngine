@@ -219,6 +219,8 @@ class ComputationSpine:
         "_affect_enabled",
         # v2.6.0 T3 E-law takeover flag (config-gated; default off)
         "_affect_takeover",
+        # v26 A.2 delta-rule gain plasticity flag (config-gated; default off)
+        "_affect_plasticity",
         # v2.6.0 T5 slow channel (poignancy -> reflection -> macro drift; default off)
         "_slow_channel",
     )
@@ -232,6 +234,7 @@ class ComputationSpine:
         affect_enabled: bool = False,
         affect_takeover: bool = False,
         affect_slowchannel: bool = False,
+        affect_plasticity: bool = False,
     ):
         if profile is None:
             from ..config import build_profile
@@ -241,6 +244,7 @@ class ComputationSpine:
         self._pel_enabled = pel_enabled
         self._affect_enabled = affect_enabled
         self._affect_takeover = affect_takeover
+        self._affect_plasticity = affect_plasticity
         self._slow_channel = SlowChannel(active=affect_slowchannel)
         hdc_dim = profile.hdc_dim
         if plugin is not None:
@@ -422,7 +426,10 @@ class ComputationSpine:
         # neutral relationship 0.5 (no canonical R signal is plumbed yet) + the
         # takeover flag. No-op unless affect_dynamics_enabled & 8-dim core.
         self.engine.scar_state.set_affect_params(
-            personality, relationship=0.5, takeover=self._affect_takeover
+            personality,
+            relationship=0.5,
+            takeover=self._affect_takeover,
+            plasticity=self._affect_plasticity,
         )
 
         # Void detection threshold: neurotic = lower threshold (detects absence easily)
@@ -953,6 +960,11 @@ class ComputationSpine:
             }
             if dialogue_quality is not None:
                 result["dialogue_quality"] = dialogue_quality
+                # v26 A.2：显式 quality 反馈喂 delta-rule 增益学习（内部四重门 + fail-closed）。
+                try:
+                    self.engine.scar_state.apply_affect_quality(float(dialogue_quality))
+                except Exception:  # pragma: no cover - learning must never crash a turn
+                    logger.debug("affect plasticity hook (computation) skipped", exc_info=True)
                 result["_consume_dialogue_quality"] = True  # one-shot bypass of drift rate-limit
             self._drift_embodiment(result)
             self._result_cache[cache_key] = result
@@ -1305,7 +1317,10 @@ class ComputationSpine:
                 # re-supply them from the restored personality + config flags.
                 if self._affect_enabled:
                     self.engine.scar_state.set_affect_params(
-                        self._personality, relationship=0.5, takeover=self._affect_takeover
+                        self._personality,
+                        relationship=0.5,
+                        takeover=self._affect_takeover,
+                        plasticity=self._affect_plasticity,
                     )
             if "void" in engine_data:
                 self.engine.void_space.from_dict(engine_data["void"])
