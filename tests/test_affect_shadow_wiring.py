@@ -168,6 +168,41 @@ class TestFailClosed:
         st.step(_EVENTS[1], timestamp=1000.0)
         assert st.base != base_before          # base still evolved (event applied)
         assert all(math.isfinite(x) for x in st.base)
+        # C 轨红队修订（AD5 时钟原子性）：异常回合的墙钟必须留在 prev——
+        # 否则该区间的衰减被永久静默丢弃。
+        assert st._e_last_wall_ts == 100.0
+
+    def test_failed_decay_interval_recovered_after_exception(self, monkeypatch) -> None:
+        # 完整攻击链：播种 → 异常回合(时钟不得推进) → 恢复回合补齐全部真实间隔。
+        st = ScarredState(n_dims=8, affect_enabled=True)
+        st.set_affect_params(_TSUNDERE, takeover=True)
+        st.step([0.0] * 8, timestamp=100.0)                     # 播种时钟
+        real_eq = affect_dynamics.equilibrium
+
+        def boom(*_a: object, **_k: object) -> object:
+            raise RuntimeError("transient")
+
+        monkeypatch.setattr(affect_dynamics, "equilibrium", boom)
+        st.step([0.0] * 8, timestamp=100.0 + 1e7)               # 116 天后，衰减失败
+        assert st._e_last_wall_ts == 100.0                      # 时钟没白走
+        monkeypatch.setattr(affect_dynamics, "equilibrium", real_eq)
+        st.step([0.0] * 8, timestamp=100.0 + 1e7 + 60.0)        # 恢复：应补齐全程衰减
+        eq_native = affect_dynamics.from_unit_interval(
+            affect_dynamics.equilibrium(_TSUNDERE, 0.5)
+        )
+        # 衰减在 step 顶部把 base 拉满全程 dt（随后的 MLP 演化会再动 base，
+        # 但时钟已原子推进到成功时刻）。
+        assert st._e_last_wall_ts == 100.0 + 1e7 + 60.0
+        assert eq_native is not None
+
+    def test_non_monotonic_timestamp_does_not_regress_clock(self) -> None:
+        st = ScarredState(n_dims=8, affect_enabled=True)
+        st.set_affect_params(_TSUNDERE)
+        st.step(_EVENTS[0], timestamp=1000.0)
+        st.step(_EVENTS[0], timestamp=2000.0)
+        assert st._e_last_wall_ts == 2000.0
+        st.step(_EVENTS[0], timestamp=500.0)    # 时钟回拨事件
+        assert st._e_last_wall_ts == 2000.0     # affect 墙钟不回退
 
 
 class TestSpineIntegration:
