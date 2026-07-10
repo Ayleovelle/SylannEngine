@@ -5,6 +5,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### v2.6.0 情感动力学（affect-dynamics）—— 分阶段落地，**默认全关，字节一致**
+
+在 8 维情感核（`lite` 档）上引入双速情感动力学 E 律：墙钟惰性衰减到人格均衡 Φ_eq（慢/时间
+通道）+ 每轮 appraisal 饱和快更新（快/语义通道）。E 即 `ScarredState.base`（原地升级，非并行核）。
+全部藏在三个默认 `False` 的 `SylanneConfig` 开关后，**全关时行为与 2.5 逐字节一致**（确定性字段
+逐字相同、快照无新增键）；与设计契约 `docs/design/v26-affect-dynamics-design.md` /
+`docs/design/v26-upgrade-path.md` 对应。已过独立对抗红队（10 条 finding 全修）。
+
+#### 新增（纯函数层，零接线）
+
+- `sylanne_core/compute/affect_dynamics.py`：E 律纯函数——墙钟衰减 `decay`（半衰期 lerp 到 Φ_eq）、
+  饱和快更新 `saturating_update`、人格函数 `equilibrium`/`half_lives`/`gain_vector`、良定域断言
+  `validate_gain`/`validate_scalar_params`，以及 `[0,1]↔(-1,1)` 域适配器 `to_unit_interval`/
+  `from_unit_interval`（`base` 是 tanh (-1,1)，E 律以 [0,1] 立式；`decay` 仿射等变、
+  `saturating_update` 非等变必须整体折进折出）。
+- `sylanne_core/compute/affect_projection.py`：assessor 三标量 + 意图 → 8 维 appraisal 增量。
+- `sylanne_core/compute/affect_output_contract.py`：circumplex 情绪标签 LUT + 逐维 Schmitt 迟滞。
+- `sylanne_core/compute/memory_coupling.py`：情绪相似度 `emotion_match` / 传染凸混合
+  `contagion_blend` / κ 人格函数 `contagion_kappa`（**κ 是人格函数，非扁平 config 标量**）。
+  canonical 无逐条打分记忆库可接，故只出原语、零接线（flag-and-defer）。
+- `sylanne_core/compute/slow_channel.py`：poignancy 漏桶 + 墙钟冷却反思 + 版本化回滚环。
+
+#### 新增配置开关（默认全 `False`）
+
+- `affect_dynamics_enabled`（**Gate A**）：E 律**只算不写**——并行"影子"E 落日志/诊断，
+  绝不写 `base`、不进 `observe()`、不进 prompt。
+- `affect_v26_takeover`（**Gate B**）：E 律**夺权**写权威 `base`——衰减在 `step()` 顶部先于事件
+  演化落地，饱和快更新替代 assessor 手写意图规则，异常 fail-closed 回落旧规则。需
+  `affect_dynamics_enabled`，**与 `pel_core_enabled` 互斥**（`__post_init__` 校验，违背即 `ValueError`）。
+- `affect_slowchannel_enabled`（**Gate C**）：慢通道 poignancy→反思→锚回弹宏漂移（不可逆记忆写，
+  含原子提交 + 回滚环）。
+
+开 Gate B/C 属**有意行为变更**（非字节一致），验收门是 warmth 行为标定——标定完成前不建议生产开启。
+
+#### Surface / 诊断
+
+- `diagnostics=True` 且 affect 启用时，`diagnostics` 附只读键 `affect_label_shadow`（迟滞情绪标签）——
+  仅诊断、不进 prompt，与既有 `Surface.pad.label` 并存。关闭时该键不出现（诊断面板字节一致）。
+
+#### 修复（v2.6 附带，均 gated 在 affect 开关后以保关时字节一致）
+
+- `ScarredState.step()`：`feedback()`（`timestamp=0.0`）不再清零静默愈合墙钟（丢下一步的静默奖励
+  愈合）——仅在 `affect_dynamics_enabled` 开时生效，关时保持旧的无条件赋值。
+- 冷载 hoist：`SylanneEngine._get_or_create_host` 改协程，首触快照磁盘读经 `asyncio.to_thread`
+  挪出事件循环，冷会话不再卡住 loop。
+
 ## [2.5.0] — 2026-07-06
 
 诚实化地基版：拆净 2.5 前架构退役后遗留的死代码，全面文档校真。零 Surface 变更、
