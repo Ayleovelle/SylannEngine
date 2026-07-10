@@ -178,6 +178,49 @@ class TestSpineWiring:
         assert scar._affect_gain is not None
         validate_gain(scar._affect_gain)
 
+    def test_computation_spine_normal_route_learns(self) -> None:
+        # 红队修订：钩子曾只挂在 fast 路由——冷启动前 15 回合走 normal 路由学不到。
+        # 钩子已挪到 process() 入口，所有路由必须都学习。
+        from sylanne_core.compute.computation_spine import ComputationSpine
+
+        sp = ComputationSpine(
+            profile=build_profile("lite"),
+            affect_enabled=True,
+            affect_takeover=True,
+            affect_plasticity=True,
+        )
+        sp.apply_personality(_TRAITS)
+        a = {"valence": 0.6, "arousal": 0.6, "wound_risk": 0.1, "confidence": 0.8}
+        sp.process("抱抱我嘛好不好", timestamp=1.0, assessment=a)
+        sp.process("再抱一下嘛", timestamp=2.0, assessment=a, dialogue_quality=0.9)
+        scar = sp.engine.scar_state
+        assert abs(scar._affect_q_ema - 0.54) < 1e-9      # normal 路由也学到了
+
+    def test_quality_consumed_before_current_turn_phi(self) -> None:
+        # 红队修订（信用序）：turn N 的 quality 在 turn N+1 自己的 assessment 更新
+        # 资格迹**之前**消费——只有 turn N 活跃的维度领赏，turn N+1 独有的维度不领。
+        sp = self._spine()
+        # turn 1：只推 warmth/valence 类维度（正效价、低唤醒、无意图）
+        sp.process("嗯", timestamp=1.0,
+                   assessment={"valence": 0.9, "arousal": 0.0, "wound_risk": 0.0,
+                               "confidence": 0.9})
+        scar = sp._engine.scar_state
+        phi_after_t1 = list(scar._affect_phi)
+        gain_before = list(scar._affect_gain or [0.5] * 8)
+        # turn 2：完全不同的活动形态（高唤醒）+ 对 turn 1 的好评。
+        sp.process("！！！", timestamp=2.0,
+                   assessment={"valence": 0.0, "arousal": 0.95, "wound_risk": 0.0,
+                               "confidence": 0.9},
+                   dialogue_quality=1.0)
+        gain_after = list(scar._affect_gain or [])
+        # 领赏的维度集合必须 ⊆ turn 1 的活跃集合（phi_after_t1>0 的维），
+        # 与 turn 2 自己的活动无关（入口消费顺序保证）。
+        for i in range(8):
+            if phi_after_t1[i] == 0.0:
+                assert gain_after[i] == gain_before[i], (
+                    f"dim{i} 在 turn1 不活跃却领了 turn1 的赏"
+                )
+
     def test_plasticity_off_never_learns(self) -> None:
         sp = ResonanceSpine(
             profile=build_profile("lite"), affect_enabled=True, affect_takeover=True

@@ -158,16 +158,24 @@ class TestIntentDirectOutput:
         good = _parse_response('{"confidence": 0.8, "flags": [], "intent": "生气"}',
                                want_intent=True)
         assert good["intent"] == "生气"
-        for raw in ('"无"', '"完全无关的话"', "null", "42", f'"{"x" * 99}"'):
+        # 首尾引号/标点可剥（LLM 常见毛边）
+        quoted = _parse_response('{"confidence": 0.8, "flags": [], "intent": "撒娇。"}',
+                                 want_intent=True)
+        assert quoted["intent"] == "撒娇"
+        # 红队修订：精确匹配——否定/转述/混排一律归空，不再被子串匹配骗过。
+        for raw in ('"无"', '"完全无关的话"', "null", "42", f'"{"x" * 99}"',
+                    '"不生气"', '"别生气"', '"没有施压"', '"是生气不是撒娇"'):
             out = _parse_response(
                 f'{{"confidence": 0.5, "flags": [], "intent": {raw}}}', want_intent=True
             )
             assert out["intent"] == "", raw             # 词表外一律归空（=今日生产语义）
 
-    def test_fallback_intent_via_keyword_classifier(self):
-        out = _local_fallback("对不起嘛别气了", want_intent=True)
-        assert out["intent"] == "道歉"
-        assert _local_fallback("今天天气不错", want_intent=True)["intent"] == ""
+    def test_fallback_never_classifies_intent(self):
+        # 红队修订：兜底不对用户原文做意图分类（"你生气了吗"会被误判成生气）——
+        # LLM 不在场就诚实给空。
+        assert _local_fallback("对不起嘛别气了", want_intent=True)["intent"] == ""
+        assert _local_fallback("你生气了吗", want_intent=True)["intent"] == ""
+        assert _local_fallback("我没有生气", want_intent=True)["intent"] == ""
         assert "intent" not in _local_fallback("对不起嘛")   # off：无键
 
     @pytest.mark.asyncio

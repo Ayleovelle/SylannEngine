@@ -195,7 +195,7 @@ def build_profile(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class SylanneConfig:
     """Engine configuration options.
 
