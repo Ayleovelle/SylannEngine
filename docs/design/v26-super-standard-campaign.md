@@ -7,12 +7,17 @@
 
 ## 轨道与顺序
 
-**B. 论文级推导（先行，本文档的姊妹篇 `affect-dynamics-derivation.md`）**
+**B. 论文级推导（先行，本文档的姊妹篇 `affect-dynamics-derivation.md`）——✅ 已完成（v2）**
 形式化 E 律全系统：不变集/有界性定理、指数收敛与收缩率、scar 粘滞的一致指数稳定、
 快-慢双时标耦合的有界漂移定理（锚回弹半径）、delta-rule 增益可塑性的投影稳定性设计
-（**先证后写**：可塑性与有界性的关注点分离定理是实现的前置）、迟滞抗抖的换标频率界。
-具名贡献定位：scarload→时间常数调制 + 锚回弹有界人格可塑性 + 分离定理，对标
-WASABI/ALMA/Park et al.（解决 poignancy/reflection 命名撞车）。产出过独立数学红队。
+（**先证后写**）、迟滞抗抖的换标频率界。
+**红队结果（2026-07-10）**：四镜头裁定 3×SOUND_WITH_FIXES + composition BROKEN；
+2 fatal + 10 major 全部处置——3 处代码闸（`_trait` 域强制 / `from_dict` 复原契约 /
+`_affect_decay` 入口皮带，commit `b1636ab`，798 绿）+ 推导 v2（commit `76987b0`）。
+**贡献收窄**：原"分离定理"（C3）降格为投影不变性引理、退出具名贡献；定理 5 按出厂
+递推（q 双调制）重证；标题从"论文级"降为"定理证明级内部草案"；§9 补齐心理学
+affect-dynamics 文献对标（Kuppens/DynAffect、kindling、Loossens）。具名贡献余
+C1（scar 耦合时间常数调制）+ C2（工程契约级锚回弹有界可塑性）。
 
 **A. Punch-up 实现（依赖 B 的 delta-rule 数学）**
 1. assessor schema 直出 `intent`（修死路；注意：接电即激活 canonical 里从未活过的
