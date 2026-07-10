@@ -1,6 +1,6 @@
 # 超级标准 Campaign —— 情感动力学从"设计"升格为"标准"
 
-日期 2026-07-10 · 分支 `feat/v26-affect-dynamics` · 状态：进行中
+日期 2026-07-10 · 分支 `feat/v26-affect-dynamics` · 状态：**四轨全部完成**（B→A→C→D，各轨均过独立红队）
 
 用户指令：四个方向全要 + **论文级别推导**。四轨按依赖排序执行——推导先行（它是 punch-up
 的设计数学与标准的引用基座），代码补齐居中（标准不准写桩），标准与 SOP 收尾。
@@ -19,7 +19,9 @@
 affect-dynamics 文献对标（Kuppens/DynAffect、kindling、Loossens）。具名贡献余
 C1（scar 耦合时间常数调制）+ C2（工程契约级锚回弹有界可塑性）。
 
-**A. Punch-up 实现（依赖 B 的 delta-rule 数学）**
+**A. Punch-up 实现（依赖 B 的 delta-rule 数学）——✅ 已完成**（A.1 intent 直出 `f3f6a0a` /
+A.2 delta-rule 可塑性 `326da76` / A.4 harness+呈报 `e19ab12`；红队 8 条 confirmed 全修
+`27d572f`，823 绿。A.3 消解进呈报 D2/D3；D1/D2 决策待用户拍板）
 1. assessor schema 直出 `intent`（修死路；注意：接电即激活 canonical 里从未活过的
    意图路径，须 gated + 行为对拍）；后续演进为直出 8 维 appraisal。
 2. G 上 delta-rule 可塑性（按 B 的投影收缩设计：`G⁺=Π_{[ε,1]}(G+α·δ·φ)`，
@@ -28,7 +30,9 @@ C1（scar 耦合时间常数调制）+ C2（工程契约级锚回弹有界可塑
    桥接或删死项（二选一，不留矛盾 docstring）。
 4. warmth 行为标定 harness + "隔夜该多冷"产品决策呈报（文献常数不替用户做主）。
 
-**C. 标准化（依赖 A/B：标准里没有死路、常数有行为背书）**
+**C. 标准化——✅ 已完成**（`4dedbe2`：theoretical_spec v0.2 §13 AD1–AD8 + AD-L1/L2/L3 +
+黄金向量锁 `test_conformance_vectors.py` + §13.5 PEL 退役路径；红队双镜头
+SOUND_WITH_FIXES，逮到 `_affect_decay` 时钟原子性真 bug 已修，833 绿）
 1. 情感动力学专章入 `docs/theoretical_spec.md`（公理化 + 定理引用 B + conformance
    测试套件映射：每条定理 ↔ 一组 property test，Theorem 1 ↔ 现有
    `test_bounded_given_gain_le_1` 谱系）。
@@ -36,7 +40,8 @@ C1（scar 耦合时间常数调制）+ C2（工程契约级锚回弹有界可塑
    L2 动力学一致 / L3 全管线一致）、参考测试向量、协议演进规则——服务 SDK 定位。
 3. PEL 取舍论证与退役路径写进标准（coherence 镜头 3 分的病根：撤退不许再沉默）。
 
-**D. 评审 SOP 固化（收尾）**
+**D. 评审 SOP 固化——✅ 已完成**（`b6392ab`：`.claude/skills/red-team-gate/SKILL.md` +
+三份实战红队脚本随仓库走；gitignore 收窄使 skill 真正入库；战绩数字改逐轮可对账版）
 把本轮流程（canonical 落地对账 workflow → 分阶段闸位实现 → 独立对抗红队 → 多镜头
 设计终审 → 主循环亲验承重主张）固化为仓库评审规程（`.claude/` skill/workflow 文件）。
 
