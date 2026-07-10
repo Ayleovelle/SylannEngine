@@ -974,6 +974,14 @@ class ScarredState:
                 out["affect_gain"] = list(self._affect_gain)
                 out["affect_phi"] = list(self._affect_phi)
                 out["affect_q_ema"] = self._affect_q_ema
+            elif self._affect_gain is not None:
+                # 可塑性被降级但内存里还有学习态：本次落盘将**永久**丢掉学到的增益
+                # （数天聊天的学习量）。按字节一致纪律仍不落盘，但把数据丢失喊出来
+                # （红队：静默不可逆丢失是运维暗坑）。
+                logger.warning(
+                    "affect plasticity disabled with learned gains in memory; "
+                    "learned state will NOT be persisted and is lost on restart"
+                )
         return out
 
     @classmethod

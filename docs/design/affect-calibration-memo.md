@@ -53,27 +53,26 @@ base 拽回 **MLP 自己的吸引子**：tension +0.166、repair +0.242（相对
 
 ---
 
-## D3 —— Sylanne-Six 桥接还是删死项（A.3 后半）
+## D3 —— Sylanne-Six：前提更正后基本消解（A.3 后半）
 
-现状：`equilibrium`/`half_lives` 读 7 个 trait 键，其中 Sylanne-Six 侧
-（`warmth_bias`/`curiosity`/`sovereignty_guard` 等）`normalize_personality` 从不回填——
-未显式供给时永远 0.5（等价于这些维度的均衡个性化是死的）。选项：
+**红队更正（原呈报的前提是假的）**：原文称 `drift_sylanne_traits` "零调用点、从未活过"——
+错。`AlphaKernel._evolve_alpha_layers`（kernel.py:485）**每回合**都在调它（自 v0.1.0 即有），
+Sylanne-Six 特质（warmth_bias/curiosity/sovereignty_guard…）随对话真实漂移，且经
+`apply_personality → normalize_personality → set_affect_params` 流进 E 律（一回合滞后）。
+`def drift_sylanne_traits` 在 personality.py:643（原引 :614 也是错行号）。
 
-- **(a) 别名回填**（推荐）：在 `normalize_personality` 的 `_LEGACY_MAP` 谱系里加
-  Big-Five→Sylanne-Six 的近似映射（如 agreeableness→warmth_bias、openness→curiosity、
-  (1−agreeableness)+conscientiousness 混合→sovereignty_guard），显式供给时原值优先。
-  便宜、立刻让均衡个性化活起来；映射系数是新标定项（可先取直觉先验+测试锚定单调性）。
-- **(b) 桥接 drift_sylanne_traits**：把零调用点的 `drift_sylanne_traits`（personality.py:614）
-  接进活 tick，让 Sylanne-Six 真的漂移。机制最完整；但等于激活一条从未活过的漂移通路，
-  需独立红队 + 行为对拍，工程量一个量级。
-- **(c) 删死项**：`equilibrium` 只读 Embodiment-Five，Sylanne-Six 键从 E 律移除。最诚实的
-  减法；损失设计里"主权/好奇个性化均衡"的表达力。
-
-倾向：**(a)** 先活起来，(b) 留给 Sylanne-Six 真正有漂移需求的版本。
-
----
+**消解后剩下的小决策**：唯一残余是**初始值**——traits 首几回合尚未漂移出来前，E 律读到
+的 Sylanne-Six 键缺失、回落 0.5（中性均衡）。选项：(a) 接受（几回合后自然个性化，冷启动
+中性无伤大雅，**推荐、零代码**）；(b) 从 Big-Five 初值做一次性别名回填当种子。原呈报的
+"桥接 drift_sylanne_traits 工程量一个量级"的选项 (b) 整段作废。
 
 ## 附：harness 关键数字（详表跑 `python experiments/exp02_warmth_calibration.py`）
+
+**方法披露（红队修订）**：初版 harness 的吵架情景未镜像生产的创伤注入分支（wound_risk>0.7
+→ scar_state.step(wound_vec)），伤痕/scar 粘滞未参战；已修正为镜像生产路径。红队用带伤痕
+版本复跑半衰期敏感性：3 条 tension 伤痕、scar_density 顶到 3.0 封顶，隔夜 tension 残留仍
+~0.161–0.166、h×0.5/×2 差 <0.01——**D1 结论（MLP 像差主导、h 隔夜不可见）在带伤痕轨迹上
+依然成立**。
 
 - 画像（傲娇位）Φ_eq：warmth 0.52 / tension 0.35 / repair 0.28（单位帧）。
 - 吵架×3 → 0.5h：tension +0.143、repair +0.227（对 Φ_eq）；→ 8h/24h：+0.166/+0.242

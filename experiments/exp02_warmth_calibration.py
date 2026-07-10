@@ -49,7 +49,15 @@ def _fresh(ts: float = 1000.0) -> ScarredState:
 
 
 def _hit(st: ScarredState, ev: dict, ts: float) -> None:
-    st.step([0.0] * 8, timestamp=ts)  # 推进墙钟（衰减在顶部）
+    # 注意：step() 除顶部衰减外还会跑遗留 MLP 主步演化（D1 像差的来源，非"纯衰减"）。
+    st.step([0.0] * 8, timestamp=ts)
+    # 镜像生产 assessor 路径的创伤注入（computation_spine/resonance_integration 的
+    # wound_risk>0.7 分支）——否则吵架情景零伤痕、scar 粘滞从不参战（红队修订）。
+    if ev["wound"] > 0.7:
+        wound_vec = [0.0] * 8
+        wound_vec[3] = ev["wound"] * 0.8
+        wound_vec[5] = ev["wound"] * 0.5
+        st.step(wound_vec, 0.0, heal=False)
     ok = st.apply_affect_takeover(ev["valence"], ev["arousal"], ev["wound"], ev["intent"])
     assert ok, "takeover must engage in this harness"
 
@@ -82,7 +90,8 @@ def scenario_overnight(gap_hours: float, h_scale: float = 1.0) -> list[float]:
     try:
         st = _fresh()
         t_end = _fight(st, 1000.0)
-        st.step([0.0] * 8, timestamp=t_end + gap_hours * 3600.0)   # 醒来：纯衰减
+        # 醒来一步 = E 律衰减（顶部）+ 遗留 MLP 主步演化——正是 D1 像差的观测点。
+        st.step([0.0] * 8, timestamp=t_end + gap_hours * 3600.0)
         return _residual(st)
     finally:
         affect_dynamics._H_BASE_MIN = orig

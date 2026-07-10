@@ -72,8 +72,14 @@ class TestSharedConflict:
         m = _llm()
         cfg = SylanneConfig(mode="lite")
         await SylanneEngine.shared(tmp_path, llm=m, config=cfg)
-        # Mutating the caller's config object must not shift the stored baseline.
-        cfg.mode = "pro"
+        # v26 红队修订：SylanneConfig 现为 frozen dataclass——事后变异直接被类型系统
+        # 拒绝（比"引擎存拷贝"更强的保证：__post_init__ 的跨字段约束不可能被绕过）。
+        import dataclasses
+
+        import pytest as _pytest
+
+        with _pytest.raises(dataclasses.FrozenInstanceError):
+            cfg.mode = "pro"  # type: ignore[misc]
         # A second call with an equivalent original config must not conflict.
         again = await SylanneEngine.shared(tmp_path, llm=m, config=SylanneConfig(mode="lite"))
         assert again.status == "running"

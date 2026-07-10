@@ -426,6 +426,16 @@ class ResonanceSpine:
             self._last_effective_session = session_key
             self._personality_dirty = False
 
+        # v26 A.2（红队修订：信用序）：滞后的 dialogue_quality 反馈在**本回合自己的
+        # assessment 更新资格迹之前**消费——否则本回合的 |a| 活动会污染上一回合的
+        # 信用分配（注 6.2 的赏罚会错发给还没被打分的新活动）。入口位也保证所有
+        # 路由（fast/normal/full）都能学习。fail-closed。
+        if dialogue_quality is not None:
+            try:
+                self._engine.scar_state.apply_affect_quality(float(dialogue_quality))
+            except Exception:  # pragma: no cover - learning must never crash a turn
+                logger.debug("affect plasticity hook (resonance) skipped", exc_info=True)
+
         self._tick_count += 1
         self._route_counts["resonance"] = self._route_counts.get("resonance", 0) + 1
         t0 = time.perf_counter_ns()
@@ -552,12 +562,6 @@ class ResonanceSpine:
         if dialogue_quality is not None:
             result["dialogue_quality"] = dialogue_quality
             result["_consume_dialogue_quality"] = True  # one-shot bypass of drift rate-limit
-            # v26 A.2：显式 quality 反馈喂 delta-rule 增益学习（内部四重门 + fail-closed；
-            # 只学显式反馈，不学缺省 0.5——否则 δ 恒在 0 附近学噪声）。
-            try:
-                self._engine.scar_state.apply_affect_quality(float(dialogue_quality))
-            except Exception:  # pragma: no cover - learning must never crash a turn
-                logger.debug("affect plasticity hook (resonance) skipped", exc_info=True)
         # Ground-truth 覆盖：agent 把上一轮 renderer 真实裁决（SPEAK/SILENT）经此通道
         # 灌入 result["should_express"]，覆盖 policy 猜测，消除假阳性 expression_fired。
         # 与 dialogue_quality 相同的滞后通道（N+1 轮传入上一轮裁决），无破契约。

@@ -701,6 +701,15 @@ class ComputationSpine:
                 self._last_effective_params = dict(effective)
             self._last_effective_session = session_key
             self._personality_dirty = False
+
+        # v26 A.2（红队修订）：滞后 quality 在本回合 assessment 动资格迹之前、且在任何
+        # 路由分支之前消费——修复 normal/full 路由学习钩子缺失 + 信用序污染。fail-closed。
+        if dialogue_quality is not None:
+            try:
+                self.engine.scar_state.apply_affect_quality(float(dialogue_quality))
+            except Exception:  # pragma: no cover - learning must never crash a turn
+                logger.debug("affect plasticity hook (computation) skipped", exc_info=True)
+
         # Empty string handling: skip computation, self-repair only
         if not text or not text.strip():
             self.boundary.self_repair()
@@ -960,11 +969,6 @@ class ComputationSpine:
             }
             if dialogue_quality is not None:
                 result["dialogue_quality"] = dialogue_quality
-                # v26 A.2：显式 quality 反馈喂 delta-rule 增益学习（内部四重门 + fail-closed）。
-                try:
-                    self.engine.scar_state.apply_affect_quality(float(dialogue_quality))
-                except Exception:  # pragma: no cover - learning must never crash a turn
-                    logger.debug("affect plasticity hook (computation) skipped", exc_info=True)
                 result["_consume_dialogue_quality"] = True  # one-shot bypass of drift rate-limit
             self._drift_embodiment(result)
             self._result_cache[cache_key] = result

@@ -1044,7 +1044,9 @@ class SylanneEngine:
             result = await assess_text(
                 text,
                 self._assessor_llm or self._llm,
-                want_intent=self._config.affect_takeover,
+                want_intent=(
+                    self._config.affect_takeover and self._config.affect_dynamics_enabled
+                ),
             )
             if result and result.pop("_degraded", False):
                 if self._status == "running":
