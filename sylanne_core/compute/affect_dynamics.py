@@ -46,14 +46,21 @@ def _clamp01(x: float) -> float:
 
 
 def _trait(traits: Mapping[str, float] | None, name: str, default: float = 0.5) -> float:
-    """安全读 canonical 人格维度（Embodiment Five / Sylanne Six 键名），缺失/非有限给中性。"""
+    """安全读 canonical 人格维度（Embodiment Five / Sylanne Six 键名），缺失/非有限给中性。
+
+    末端夹 [0,1]：在 affect_dynamics 入口硬性执行特质域假设（推导 A6），而非依赖上游
+    恰好用 TraitMemory 供值——否则越域 trait（如 percept=5.0）会把 g_tension 推到 10，
+    半衰期上界失守、k̲→0（定理 3 的"永不冻结"被打穿；数学红队 slow-channel 发现）。
+    """
     if not traits:
         return default
     try:
         v = float(traits.get(name, default))
     except (TypeError, ValueError):
         return default
-    return v if math.isfinite(v) else default
+    if not math.isfinite(v):
+        return default
+    return _clamp01(v)
 
 
 # ===========================================================================
