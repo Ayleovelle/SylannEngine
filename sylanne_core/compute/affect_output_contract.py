@@ -80,14 +80,16 @@ def resolve_label(
     if prev is None:
         key = raw
     else:
-        merged = list(prev.key)
+        # gemini review：默认采纳新量化 raw（恒 len(_KEY_DIMS)），只在迟滞死区内回退到
+        # 前档——比 merged=list(prev.key) 更简且消除 prev.key 长度不一致时的 IndexError。
+        merged = list(raw)
         for i, d in enumerate(_KEY_DIMS):
-            if i < len(prev.key) and raw[i] != prev.key[i]:
-                if _margin_to_boundary(e_unit[d]) >= theta_h:
-                    merged[i] = raw[i]
-                # else: hold prev level for this dim (hysteresis deadband)
-            else:
-                merged[i] = raw[i]
+            if (
+                i < len(prev.key)
+                and raw[i] != prev.key[i]
+                and _margin_to_boundary(e_unit[d]) < theta_h
+            ):
+                merged[i] = prev.key[i]  # hold prev level (hysteresis deadband)
         key = tuple(merged)
     label = EMOTION_LUT.get(key, _DEFAULT_LABEL)  # type: ignore[arg-type]
     return label, HysteresisState(key=key, label=label)

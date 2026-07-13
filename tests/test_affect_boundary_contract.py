@@ -93,3 +93,40 @@ class TestTraitDomainEnforced:
         assert affect_dynamics.half_lives(t) == affect_dynamics.half_lives(dict(t))
         g = affect_dynamics.gain_vector(t)
         assert abs(g[3] - (0.40 + 0.30 * 0.7)) < 1e-12  # 系数原样
+
+
+class TestGeminiReviewHardening:
+    """PR #26 gemini-code-assist review：NaN/越界/损坏快照的健壮性回归锚。"""
+
+    def test_poignancy_magnitude_short_a_k_no_indexerror(self) -> None:
+        # a_k 短于 N_DIMS 不得 IndexError（缺维补 0）；NaN 分量被 _finite 消毒。
+        assert affect_dynamics.poignancy_magnitude([0.5, 0.5]) >= 0.0
+        assert affect_dynamics.poignancy_magnitude([]) == 0.0
+        assert math.isfinite(affect_dynamics.poignancy_magnitude([float("nan")] * 8))
+
+    def test_slow_channel_nan_not_into_pending(self) -> None:
+        from sylanne_core.compute.slow_channel import SlowChannel
+
+        sc = SlowChannel(active=True)
+        sc.observe([float("nan"), float("inf"), 0.5, -0.4] + [0.0] * 4)
+        assert all(math.isfinite(v) for v in sc._pending.values()), sc._pending
+
+    def test_from_dict_corrupt_learned_state_no_crash(self) -> None:
+        # 损坏的 affect_gain/phi（非数值）不得让 from_dict 崩，回落未学习/中性。
+        st = ScarredState(n_dims=8, affect_enabled=True)
+        st.set_affect_params(_TRAITS, takeover=True, plasticity=True)
+        st.apply_affect_takeover(0.8, 0.7, 0.1, "撒娇")
+        st.apply_affect_quality(1.0)
+        d = st.to_dict()
+        d["affect_gain"] = ["oops"] * 8
+        d["affect_phi"] = [None] * 8
+        rt = ScarredState.from_dict(d, affect_enabled=True)  # 不得抛
+        assert rt._affect_gain is None
+        assert rt._affect_phi == [0.0] * 8
+
+    def test_resolve_label_short_prev_key_no_indexerror(self) -> None:
+        from sylanne_core.compute.affect_output_contract import HysteresisState, resolve_label
+
+        bad_prev = HysteresisState(key=(1,), label="中性")  # 比 _KEY_DIMS 短
+        label, state = resolve_label([0.5] * 8, bad_prev)
+        assert isinstance(label, str) and len(state.key) == 2
