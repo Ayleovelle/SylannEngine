@@ -44,17 +44,18 @@ class TestFullTakeover:
     def test_silence_tick_is_decay_only(self) -> None:
         # D1 的核心验收：吵架后隔夜，醒来那步不再被 MLP 拽走——残留 → Φ_eq。
         st = _full_state()
-        st.apply_affect_takeover(-0.8, 0.9, 0.75, "生气")     # 吵架
-        st.step([0.0] * 8, timestamp=1000.0 + 8 * 3600.0)     # 8h 后零事件 step
+        st.apply_affect_takeover(-0.8, 0.9, 0.75, "生气")  # 吵架
+        st.step([0.0] * 8, timestamp=1000.0 + 8 * 3600.0)  # 8h 后零事件 step
         eq_native = affect_dynamics.from_unit_interval(affect_dynamics.equilibrium(_TRAITS, 0.5))
         for i in range(8):
-            assert abs(st.base[i] - eq_native[i]) < 0.02, i   # 像差消失（混血下是 +0.166）
+            assert abs(st.base[i] - eq_native[i]) < 0.02, i  # 像差消失（混血下是 +0.166）
 
     def test_h_priors_now_observable(self, monkeypatch) -> None:
         # 全权下 h 成为活杠杆：同样 2h 静默，h×0.25 应比 h×2 收敛得多。
         def residual(h_scale: float) -> float:
             monkeypatch.setattr(
-                affect_dynamics, "_H_BASE_MIN",
+                affect_dynamics,
+                "_H_BASE_MIN",
                 tuple(h * h_scale for h in (90.0, 30.0, 60.0, 45.0, 40.0, 50.0, 25.0, 120.0)),
             )
             st = _full_state()
@@ -63,12 +64,12 @@ class TestFullTakeover:
             eq = affect_dynamics.from_unit_interval(affect_dynamics.equilibrium(_TRAITS, 0.5))
             return sum(abs(st.base[i] - eq[i]) for i in range(8))
 
-        assert residual(0.25) < residual(2.0) - 1e-3          # 混血下两者差 <0.01
+        assert residual(0.25) < residual(2.0) - 1e-3  # 混血下两者差 <0.01
 
     def test_scars_still_form(self) -> None:
         st = _full_state()
         st.wound_threshold = 0.05
-        st.step([1.0] * 8, timestamp=1100.0)                  # 全权下伤痕形成不被旁路
+        st.step([1.0] * 8, timestamp=1100.0)  # 全权下伤痕形成不被旁路
         assert len(st.scars) > 0
 
     def test_appraisal_still_drives_base(self) -> None:
@@ -84,26 +85,28 @@ class TestFullTakeover:
         st.base = affect_dynamics.from_unit_interval(affect_dynamics.equilibrium(_TRAITS, 0.5))
         before = list(st.base)
         st.step([0.0] * 8, timestamp=1000.0)
-        assert st.base != before                              # MLP 仍在演化
+        assert st.base != before  # MLP 仍在演化
 
     def test_gamma_wound_and_feedback_mood_inert(self) -> None:
         # 红队 major（披露钉死）：非 assessor 创伤通道（Γ 耦合/feedback 向量）在全权下
         # 变哑——base 不动；但幅度过阈时伤痕照常形成（粘滞角色保留）。
         st = _full_state()
         base_before = list(st.base)
-        st.step([0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.0, 0.0], 0.0, heal=False)   # Γ 式小创伤
-        assert st.base == base_before          # mood-inert（混血下 MLP 会动全维）
+        st.step([0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.0, 0.0], 0.0, heal=False)  # Γ 式小创伤
+        assert st.base == base_before  # mood-inert（混血下 MLP 会动全维）
         st.wound_threshold = 0.3
-        st.step([0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0], 0.0, heal=False)   # 过阈
-        assert st.base == base_before          # 仍不动 base
-        assert len(st.scars) > 0               # 但伤痕形成了（粘滞不丢）
+        st.step([0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.0], 0.0, heal=False)  # 过阈
+        assert st.base == base_before  # 仍不动 base
+        assert len(st.scars) > 0  # 但伤痕形成了（粘滞不丢）
 
     def test_config_requires_takeover(self) -> None:
         with pytest.raises(ValueError):
-            SylanneConfig(affect_dynamics_enabled=True, affect_takeover=False,
-                          affect_full_takeover=True)
-        SylanneConfig(affect_dynamics_enabled=True, affect_takeover=True,
-                      affect_full_takeover=True)   # no raise
+            SylanneConfig(
+                affect_dynamics_enabled=True, affect_takeover=False, affect_full_takeover=True
+            )
+        SylanneConfig(
+            affect_dynamics_enabled=True, affect_takeover=True, affect_full_takeover=True
+        )  # no raise
 
 
 class TestRelationshipWiring:
@@ -117,12 +120,12 @@ class TestRelationshipWiring:
     def test_r_raises_warmth_equilibrium(self) -> None:
         sp = self._spine()
         sp.set_relationship(0.9)
-        sp.process("你好", timestamp=1.0)     # personality dirty → 重应用 → R 注入
+        sp.process("你好", timestamp=1.0)  # personality dirty → 重应用 → R 注入
         scar = sp._engine.scar_state
         assert scar._relationship == 0.9
         eq_hi = affect_dynamics.equilibrium(_TRAITS, 0.9)
         eq_mid = affect_dynamics.equilibrium(_TRAITS, 0.5)
-        assert eq_hi[0] > eq_mid[0]           # warmth 行随 R 上移（Φ_eq 语义）
+        assert eq_hi[0] > eq_mid[0]  # warmth 行随 R 上移（Φ_eq 语义）
 
     def test_r_persisted_roundtrip(self) -> None:
         sp = self._spine()
@@ -136,13 +139,13 @@ class TestRelationshipWiring:
         sp2.apply_personality(_TRAITS)
         sp2.from_dict(d)
         assert sp2._affect_relationship == 0.8
-        assert sp2._engine.scar_state._relationship == 0.8    # restore mirror 注入
+        assert sp2._engine.scar_state._relationship == 0.8  # restore mirror 注入
 
     def test_no_key_when_affect_off(self) -> None:
-        sp = ResonanceSpine(profile=build_profile("lite"))     # affect off
+        sp = ResonanceSpine(profile=build_profile("lite"))  # affect off
         sp.apply_personality(_TRAITS)
         sp.process("你好", timestamp=1.0)
-        assert "affect_relationship" not in sp.to_dict()       # 字节一致
+        assert "affect_relationship" not in sp.to_dict()  # 字节一致
 
     def test_computation_spine_restore_order(self) -> None:
         # 红队 fatal：ComputationSpine.from_dict 曾在 scar 镜像**之后**才恢复 R——
@@ -157,7 +160,7 @@ class TestRelationshipWiring:
         sp2.apply_personality(_TRAITS)
         sp2.from_dict(d)
         assert sp2._affect_relationship == 0.8
-        assert sp2.engine.scar_state._relationship == 0.8   # 镜像用的是恢复后的 R
+        assert sp2.engine.scar_state._relationship == 0.8  # 镜像用的是恢复后的 R
 
     def test_repeated_set_relationship_on_bare_spine(self) -> None:
         # 红队 major：脏标机制在人格比较到达不动点后永久失效——set_relationship 现在
@@ -177,7 +180,7 @@ class TestRelationshipWiring:
         )
         await engine.start()
         with pytest.raises(ValueError):
-            await engine.set_relationship("s", 1.5)            # 越界拒绝
+            await engine.set_relationship("s", 1.5)  # 越界拒绝
         await engine.set_relationship("s", 0.9)
         await engine.process("s", "你好")
         host = await engine._get_or_create_host("s")

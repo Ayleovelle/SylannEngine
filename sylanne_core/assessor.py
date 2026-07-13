@@ -205,5 +205,5 @@ def _local_fallback(text: str, *, want_intent: bool = False) -> dict[str, Any]:
         "wound_risk": max(0.0, min(1.0, wound_risk)),
     }
     if want_intent:
-        out["intent"] = ""   # 兜底不判意图（见上方红队修订注释）
+        out["intent"] = ""  # 兜底不判意图（见上方红队修订注释）
     return out

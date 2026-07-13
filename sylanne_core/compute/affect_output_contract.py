@@ -22,23 +22,23 @@ from dataclasses import dataclass
 from .affect_dynamics import N_DIMS
 
 # 键维（canonical 维序：warmth0 arousal1 valence2 tension3 ...）。valence/arousal 为 circumplex 两轴。
-_KEY_DIMS: tuple[int, ...] = (2, 1)   # (valence, arousal)
+_KEY_DIMS: tuple[int, ...] = (2, 1)  # (valence, arousal)
 # 三档量化切点（单位区间 [0,1]）：<1/3 低、[1/3,2/3) 中、>=2/3 高。
 _CUTS: tuple[float, float] = (1.0 / 3.0, 2.0 / 3.0)
-_DEFAULT_THETA_H: float = 0.08        # 迟滞死区（可标定）
+_DEFAULT_THETA_H: float = 0.08  # 迟滞死区（可标定）
 _DEFAULT_LABEL: str = "中性"
 
 # (valence_level, arousal_level) -> 中文情绪词（circumplex-9，影子期可标定先验）。
 EMOTION_LUT: dict[tuple[int, int], str] = {
-    (0, 0): "低落",   # 负效价 + 低唤醒
+    (0, 0): "低落",  # 负效价 + 低唤醒
     (0, 1): "郁闷",
-    (0, 2): "焦躁",   # 负效价 + 高唤醒
+    (0, 2): "焦躁",  # 负效价 + 高唤醒
     (1, 0): "平静",
     (1, 1): "中性",
     (1, 2): "警觉",
-    (2, 0): "安然",   # 正效价 + 低唤醒
+    (2, 0): "安然",  # 正效价 + 低唤醒
     (2, 1): "愉悦",
-    (2, 2): "雀跃",   # 正效价 + 高唤醒
+    (2, 2): "雀跃",  # 正效价 + 高唤醒
 }
 
 

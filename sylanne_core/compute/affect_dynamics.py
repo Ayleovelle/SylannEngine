@@ -67,6 +67,7 @@ def _trait(traits: Mapping[str, float] | None, name: str, default: float = 0.5) 
 # 参数良定域断言（越界 = fail-closed；κ/μ/ρ 供 T4/T5 与 SylanneConfig 校验复用）
 # ===========================================================================
 
+
 def validate_gain(gain: list[float]) -> None:
     """G_i ∈ (0,1] 逐维（否则饱和更新 E 越界，§3.3）。越界抛 ValueError。"""
     if len(gain) != N_DIMS:
@@ -90,6 +91,7 @@ def validate_scalar_params(kappa: float, mu: float, rho: float) -> None:
 # 人格函数：Φ_eq（均衡）/ 半衰期 / 增益 G —— 全部派生自 canonical traits
 # ===========================================================================
 
+
 def equilibrium(traits: Mapping[str, float] | None, relationship: float = 0.5) -> list[float]:
     """Φ_eq(T,R)：canonical 人格 + 关系决定的常驻情绪基线，值域强制内收 [0.15,0.85]（§2.2）。
 
@@ -98,7 +100,7 @@ def equilibrium(traits: Mapping[str, float] | None, relationship: float = 0.5) -
     boundary，relational_gravity→valence。系数为影子期可标定先验；方向性由测试锚定单调。
     """
     warmth_bias = _trait(traits, "warmth_bias")
-    percept = _trait(traits, "perception_acuity")     # neuroticism-like（对张力敏感）
+    percept = _trait(traits, "perception_acuity")  # neuroticism-like（对张力敏感）
     curio = _trait(traits, "curiosity")
     expr_drive = _trait(traits, "expression_drive_trait")
     rel_grav = _trait(traits, "relational_gravity")
@@ -129,7 +131,7 @@ def half_lives(
     """
     percept = _trait(traits, "perception_acuity")
     g = [1.0] * N_DIMS
-    g[_I_TENSION] = max(0.3, 1.0 + (percept - 0.5) * 2.0)     # 高敏 → tension 更粘（反刍）
+    g[_I_TENSION] = max(0.3, 1.0 + (percept - 0.5) * 2.0)  # 高敏 → tension 更粘（反刍）
     sc = scarload if scarload and len(scarload) == N_DIMS else [0.0] * N_DIMS
     out = [0.0] * N_DIMS
     for i in range(N_DIMS):
@@ -156,6 +158,7 @@ def gain_vector(traits: Mapping[str, float] | None) -> list[float]:
 # ===========================================================================
 # 衰减 / 饱和更新（纯函数）
 # ===========================================================================
+
 
 def decay(e0: list[float], e_eq: list[float], h_secs: list[float], dt_secs: float) -> list[float]:
     """闭式惰性衰减：E(t) = E_eq + (E₀−E_eq)·2^(−Δt/h)（半衰期形式，§2.2）。
@@ -203,12 +206,12 @@ def saturating_update(e: list[float], a_k: list[float], gain: list[float]) -> li
 # 与学习信号质量无关。α 按注 6.1 时标排序取：α ≪ 典型 k·Δt_turn。学习态 G 一旦
 # 建立即与 T 解耦（人格漂移不再跳变 G——注 6.1 第三时标在 learned-G 下消失）。
 
-_GAIN_FLOOR: float = 0.05        # ε：投影下限（防增益死亡；ε>0 保 (A3)）
+_GAIN_FLOOR: float = 0.05  # ε：投影下限（防增益死亡；ε>0 保 (A3)）
 _PLASTICITY_ALPHA: float = 0.0005  # α：学习率（时标排序 conformance 锚定：最慢典型维
 # k·Δt=ln2/(120·2min)·60s≈0.0029，α 留 ~5.8× 裕度。刻意冰川速度——人格毗邻态就该慢，
 # 持续超预期反馈下移动一个 0.1 的增益量级需 ~200 次显式 quality 反馈（数天活跃聊天）。
-_PHI_GAMMA: float = 0.6           # 资格迹保持率（泄漏 = 1−γ）
-_Q_EMA_BETA: float = 0.1          # quality 基线 EMA 步长
+_PHI_GAMMA: float = 0.6  # 资格迹保持率（泄漏 = 1−γ）
+_Q_EMA_BETA: float = 0.1  # quality 基线 EMA 步长
 
 
 def eligibility_update(phi: list[float], a_k: list[float]) -> list[float]:
@@ -249,7 +252,7 @@ def plasticity_step(
         g = _finite(gain[i], 0.5) if i < len(gain) else 0.5
         p = _clamp01(_finite(phi[i], 0.0)) if i < len(phi) else 0.0
         nxt = g + a * delta * p
-        out[i] = min(1.0, max(_GAIN_FLOOR, _finite(nxt, g)))   # Π_{[ε,1]}
+        out[i] = min(1.0, max(_GAIN_FLOOR, _finite(nxt, g)))  # Π_{[ε,1]}
     return out
 
 
@@ -261,6 +264,7 @@ def plasticity_step(
 # 定义）。接入前必须过此适配器把 base 折进单位区间、算完再折回，否则语义系统性偏置（设计
 # v26-upgrade-path §1，红队 e-core "domain mismatch" BLOCKER）。两个适配器在 [-1,1]/[0,1] 内
 # 严格互逆（往返恒等，见 tests/test_affect_domain_adapter）。
+
 
 def to_unit_interval(base: list[float]) -> list[float]:
     """tanh 存储帧 (-1,1) → 单位区间 [0,1]：E_unit = (base+1)/2。
@@ -290,9 +294,7 @@ _POIGNANCY_DIM_W: tuple[float, ...] = (0.5, 0.5, 1.0, 1.0, 0.3, 1.0, 0.4, 0.6)
 
 def poignancy_magnitude(a_k: list[float]) -> float:
     """一次 appraisal 的"刻骨"质量 ≥ 0：受伤相关维加权的 L2 范数（§4.2）。"""
-    return math.sqrt(
-        sum((_POIGNANCY_DIM_W[i] * _finite(a_k[i], 0.0)) ** 2 for i in range(N_DIMS))
-    )
+    return math.sqrt(sum((_POIGNANCY_DIM_W[i] * _finite(a_k[i], 0.0)) ** 2 for i in range(N_DIMS)))
 
 
 def poignancy_update(pi: float, inflow: float, mu: float, dt_ticks: float = 1.0) -> float:

@@ -39,7 +39,7 @@ class TestBaseVersion:
 
         off = ScarredState(n_dims=8, affect_enabled=False)
         off.step(_EV, timestamp=100.0)
-        assert "e_ver" not in off.to_dict()   # byte-identical legacy snapshot
+        assert "e_ver" not in off.to_dict()  # byte-identical legacy snapshot
 
     def test_legacy_snapshot_defaults_ver_zero(self) -> None:
         on = ScarredState(n_dims=8, affect_enabled=True)
@@ -67,7 +67,7 @@ class TestFeedbackMonotonicity:
         st = ScarredState(n_dims=8)  # affect disabled
         st.step(_EV, timestamp=1000.0)
         st.step(_EV, timestamp=0.0)
-        assert st._last_step_time == 0.0   # legacy byte-identical (unconditional assign)
+        assert st._last_step_time == 0.0  # legacy byte-identical (unconditional assign)
 
     def test_silence_bonus_survives_feedback(self) -> None:
         # Build a scar, then interleave a feedback (ts=0) between two real steps
@@ -75,9 +75,9 @@ class TestFeedbackMonotonicity:
         # grants silence-bonus healing (clock not zeroed by feedback).
         kept = ScarredState(n_dims=8, affect_enabled=True)
         kept.wound_threshold = 0.05
-        kept.step([1.0] * 8, timestamp=100.0)          # form scars
+        kept.step([1.0] * 8, timestamp=100.0)  # form scars
         ticks_before = [s.ticks_in_stage for s in kept.scars]
-        kept.step([0.0] * 8, timestamp=0.0)            # feedback: no clock reset
+        kept.step([0.0] * 8, timestamp=0.0)  # feedback: no clock reset
         kept.step([0.0] * 8, timestamp=100.0 + 3600.0)  # 1h later -> bonus ticks
         ticks_after = [s.ticks_in_stage for s in kept.scars]
         # At least one scar accrued more than the single non-bonus tick would give.
@@ -91,9 +91,9 @@ class TestColdLoadHoist:
         await engine.start()
         h1 = await engine._get_or_create_host("s1")
         h2 = await engine._get_or_create_host("s1")
-        assert h1 is h2                               # cached, one build
+        assert h1 is h2  # cached, one build
         h3 = await engine._get_or_create_host("s2")
-        assert h3 is not h1                           # distinct session
+        assert h3 is not h1  # distinct session
         await engine.shutdown()
 
     @pytest.mark.asyncio

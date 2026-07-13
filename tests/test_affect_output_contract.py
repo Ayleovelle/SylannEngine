@@ -29,10 +29,10 @@ def _e(valence: float, arousal: float) -> list[float]:
 
 class TestQuantizeLUT:
     def test_corners(self) -> None:
-        assert resolve_label(_e(0.9, 0.9), None)[0] == "雀跃"   # +val +arousal
-        assert resolve_label(_e(0.1, 0.1), None)[0] == "低落"   # -val -arousal
+        assert resolve_label(_e(0.9, 0.9), None)[0] == "雀跃"  # +val +arousal
+        assert resolve_label(_e(0.1, 0.1), None)[0] == "低落"  # -val -arousal
         assert resolve_label(_e(0.5, 0.5), None)[0] == "中性"
-        assert resolve_label(_e(0.9, 0.1), None)[0] == "安然"   # +val -arousal
+        assert resolve_label(_e(0.9, 0.1), None)[0] == "安然"  # +val -arousal
 
     def test_quantize_levels(self) -> None:
         assert quantize(_e(0.1, 0.1)) == (0, 0)

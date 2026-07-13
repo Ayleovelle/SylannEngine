@@ -33,10 +33,8 @@ def _close(got: list[float], want: list[float]) -> None:
 
 class TestGoldenVectors:
     def test_equilibrium(self) -> None:
-        _close(ad.equilibrium(_T_STAR, 0.5),
-               [0.52, 0.40, 0.55, 0.35, 0.50, 0.28, 0.48, 0.52])
-        _close(ad.equilibrium(_T_STAR, 0.9),
-               [0.64, 0.40, 0.55, 0.35, 0.50, 0.28, 0.48, 0.52])
+        _close(ad.equilibrium(_T_STAR, 0.5), [0.52, 0.40, 0.55, 0.35, 0.50, 0.28, 0.48, 0.52])
+        _close(ad.equilibrium(_T_STAR, 0.9), [0.64, 0.40, 0.55, 0.35, 0.50, 0.28, 0.48, 0.52])
 
     def test_half_lives(self) -> None:
         base = [5400.0, 1800.0, 3600.0, 3780.0, 2400.0, 3000.0, 1500.0, 7200.0]
@@ -44,15 +42,24 @@ class TestGoldenVectors:
         _close(ad.half_lives(_T_STAR, [2.0] * 8), [3.0 * h for h in base])  # 粘滞封顶
 
     def test_gain_vector(self) -> None:
-        _close(ad.gain_vector(_T_STAR),
-               [0.50, 0.50, 0.50, 0.61, 0.50, 0.50, 0.58, 0.50])
+        _close(ad.gain_vector(_T_STAR), [0.50, 0.50, 0.50, 0.61, 0.50, 0.50, 0.58, 0.50])
 
     def test_decay(self) -> None:
         eq = ad.equilibrium(_T_STAR, 0.5)
         h = ad.half_lives(_T_STAR, [0.0] * 8)
-        _close(ad.decay(_E0_STAR, eq, h, 1800.0),
-               [0.266015831685, 0.6, 0.55, 0.314056332564,
-                0.470269822125, 0.260207381338, 0.488705505633, 0.587271713220])
+        _close(
+            ad.decay(_E0_STAR, eq, h, 1800.0),
+            [
+                0.266015831685,
+                0.6,
+                0.55,
+                0.314056332564,
+                0.470269822125,
+                0.260207381338,
+                0.488705505633,
+                0.587271713220,
+            ],
+        )
 
     def test_project_appraisal(self) -> None:
         a_k, matched = project_appraisal(0.6, 0.7, 0.2, "撒娇")
@@ -61,12 +68,16 @@ class TestGoldenVectors:
 
     def test_saturating_update(self) -> None:
         a_k, _ = project_appraisal(0.6, 0.7, 0.2, "撒娇")
-        _close(ad.saturating_update(_E0_STAR, a_k, ad.gain_vector(_T_STAR)),
-               [0.416, 0.84, 0.685, 0.271452, 0.4731, 0.25, 0.6102, 0.6048])
+        _close(
+            ad.saturating_update(_E0_STAR, a_k, ad.gain_vector(_T_STAR)),
+            [0.416, 0.84, 0.685, 0.271452, 0.4731, 0.25, 0.6102, 0.6048],
+        )
 
     def test_plasticity_step(self) -> None:
-        _close(ad.plasticity_step([0.5] * 8, 0.9, 0.5, _PHI_STAR),
-               [0.5002, 0.5001, 0.5, 0.50005, 0.5002, 0.5, 0.50015, 0.50002])
+        _close(
+            ad.plasticity_step([0.5] * 8, 0.9, 0.5, _PHI_STAR),
+            [0.5002, 0.5001, 0.5, 0.50005, 0.5002, 0.5, 0.50015, 0.50002],
+        )
 
     def test_pinned_constants(self) -> None:
         # 常数本体也钉住（spec §13.4：本版重钉须走 changelog）。

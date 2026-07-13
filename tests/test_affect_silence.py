@@ -19,31 +19,31 @@ _TRAITS = {"extraversion": 0.5, "neuroticism": 0.5, "warmth_bias": 0.6}
 class TestWallSilencePure:
     def test_unseeded_is_zero(self) -> None:
         pt = PhaseTransitionExpression()
-        assert pt.wall_silence_seconds(5000.0) == 0.0     # never marked
+        assert pt.wall_silence_seconds(5000.0) == 0.0  # never marked
 
     def test_uncapped_seconds(self) -> None:
         pt = PhaseTransitionExpression()
         pt.mark_activity(1000.0)
-        assert pt.wall_silence_seconds(1000.0 + 7200.0) == 7200.0   # 2h, uncapped
+        assert pt.wall_silence_seconds(1000.0 + 7200.0) == 7200.0  # 2h, uncapped
 
     def test_backwards_clock_is_zero(self) -> None:
         pt = PhaseTransitionExpression()
         pt.mark_activity(1000.0)
-        assert pt.wall_silence_seconds(900.0) == 0.0      # clock rewind -> 0
+        assert pt.wall_silence_seconds(900.0) == 0.0  # clock rewind -> 0
 
     def test_read_then_mark_ordering(self) -> None:
         pt = PhaseTransitionExpression()
         pt.mark_activity(100.0)
-        silence = pt.wall_silence_seconds(400.0)          # read BEFORE mark
+        silence = pt.wall_silence_seconds(400.0)  # read BEFORE mark
         pt.mark_activity(400.0)
         assert silence == 300.0
-        assert pt.wall_silence_seconds(400.0) == 0.0      # after mark, same-now -> 0
+        assert pt.wall_silence_seconds(400.0) == 0.0  # after mark, same-now -> 0
 
 
 class TestSilenceTextureActivated:
     def test_classify_returns_valid_textures(self) -> None:
         pt = PhaseTransitionExpression()
-        pt.mark_activity(0.0)   # no-op (now<=0), stays unseeded
+        pt.mark_activity(0.0)  # no-op (now<=0), stays unseeded
         pt.mark_activity(1000.0)
         # short + positive -> content; long + cold -> distant
         assert pt.classify_silence_texture(1000.0 + 60, last_valence=0.5) == SilenceTexture.CONTENT
@@ -64,8 +64,8 @@ class TestLiveSpineWiring:
         return sp._expression_drive
 
     def test_long_silence_raises_reachout_drive_when_takeover(self) -> None:
-        long_gap = self._drive_after_gap(takeover=True, gap=7200.0)   # 2h silence
-        short_gap = self._drive_after_gap(takeover=True, gap=1.0)     # 1s
+        long_gap = self._drive_after_gap(takeover=True, gap=7200.0)  # 2h silence
+        short_gap = self._drive_after_gap(takeover=True, gap=1.0)  # 1s
         # More real-time silence must never REDUCE the reach-out drive, and here it
         # strictly raises it (the wall-clock trigger reaches the live bifurcation).
         assert long_gap >= short_gap
@@ -91,4 +91,4 @@ class TestLiveSpineWiring:
             sp.process("在吗", timestamp=100.0 + gap)
             return sp._expression_drive
 
-        assert drive(7200.0) == drive(1.0)   # silence has zero effect (gated off)
+        assert drive(7200.0) == drive(1.0)  # silence has zero effect (gated off)

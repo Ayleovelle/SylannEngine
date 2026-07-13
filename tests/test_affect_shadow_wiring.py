@@ -51,7 +51,7 @@ class TestShadowNeverTouchesBase:
         _driven(off)
         assert off._affect_shadow_base is None
         assert off._last_affect_shadow is None
-        assert off._e_last_wall_ts == 0.0   # affect clock never advanced when off
+        assert off._e_last_wall_ts == 0.0  # affect clock never advanced when off
 
     def test_base_parity_on_vs_off(self) -> None:
         off = ScarredState(n_dims=8, affect_enabled=False)
@@ -71,12 +71,12 @@ class TestFastChannelAppraisalShadow:
     def test_appraisal_moves_shadow_not_base(self) -> None:
         st = ScarredState(n_dims=8, affect_enabled=True)
         st.set_affect_params(_TSUNDERE)
-        st.step(_EVENTS[0], timestamp=100.0)   # init shadow
+        st.step(_EVENTS[0], timestamp=100.0)  # init shadow
         base_before = list(st.base)
         diag = st.apply_affect_appraisal_shadow(0.8, 0.6, 0.1, "撒娇")
         assert diag is not None
         assert diag["intent_class"] == "coax"
-        assert st.base == base_before             # base untouched
+        assert st.base == base_before  # base untouched
         assert st._affect_shadow_base is not None
         assert diag["divergence_l2"] >= 0.0
 
@@ -88,7 +88,7 @@ class TestFastChannelAppraisalShadow:
         st = ScarredState(n_dims=16, affect_enabled=True)
         st.set_affect_params(_TSUNDERE)
         st.step([0.1] * 16, timestamp=100.0)
-        assert st._affect_shadow_base is None      # affect only for the 8-dim core
+        assert st._affect_shadow_base is None  # affect only for the 8-dim core
         assert st.apply_affect_appraisal_shadow(0.5, 0.5, 0.0, "撒娇") is None
 
 
@@ -96,13 +96,11 @@ class TestWallClockDecay:
     def test_shadow_decays_toward_equilibrium(self) -> None:
         st = ScarredState(n_dims=8, affect_enabled=True)
         st.set_affect_params(_TSUNDERE, relationship=0.5)
-        st.step(_EVENTS[0], timestamp=1000.0)          # init shadow, no decay yet
+        st.step(_EVENTS[0], timestamp=1000.0)  # init shadow, no decay yet
         # Push the shadow far from equilibrium, then let a huge silence gap decay it.
         st.apply_affect_appraisal_shadow(1.0, 1.0, 0.0, "分享")
-        st.step([0.0] * 8, timestamp=1000.0 + 1e7)     # ~116 days of silence
-        eq_native = affect_dynamics.from_unit_interval(
-            affect_dynamics.equilibrium(_TSUNDERE, 0.5)
-        )
+        st.step([0.0] * 8, timestamp=1000.0 + 1e7)  # ~116 days of silence
+        eq_native = affect_dynamics.from_unit_interval(affect_dynamics.equilibrium(_TSUNDERE, 0.5))
         assert st._affect_shadow_base is not None
         for i in range(8):
             assert abs(st._affect_shadow_base[i] - eq_native[i]) < 1e-3, i
@@ -110,7 +108,7 @@ class TestWallClockDecay:
     def test_clock_advances_only_on_real_timestamp(self) -> None:
         st = ScarredState(n_dims=8, affect_enabled=True)
         st.set_affect_params(_TSUNDERE)
-        st.step(_EVENTS[0], timestamp=0.0)             # feedback-style, no clock
+        st.step(_EVENTS[0], timestamp=0.0)  # feedback-style, no clock
         assert st._e_last_wall_ts == 0.0
         st.step(_EVENTS[0], timestamp=500.0)
         assert st._e_last_wall_ts == 500.0
@@ -125,7 +123,7 @@ class TestPersistence:
 
         off = ScarredState(n_dims=8, affect_enabled=False)
         off.step(_EVENTS[0], timestamp=777.0)
-        assert "e_last_wall_ts" not in off.to_dict()   # byte-identical legacy snapshot
+        assert "e_last_wall_ts" not in off.to_dict()  # byte-identical legacy snapshot
 
     def test_roundtrip_and_legacy_default(self) -> None:
         on = ScarredState(n_dims=8, affect_enabled=True)
@@ -166,7 +164,7 @@ class TestFailClosed:
         monkeypatch.setattr(affect_dynamics, "equilibrium", boom)
         # step() must not propagate the shadow exception; base evolves normally.
         st.step(_EVENTS[1], timestamp=1000.0)
-        assert st.base != base_before          # base still evolved (event applied)
+        assert st.base != base_before  # base still evolved (event applied)
         assert all(math.isfinite(x) for x in st.base)
         # C 轨红队修订（AD5 时钟原子性）：异常回合的墙钟必须留在 prev——
         # 否则该区间的衰减被永久静默丢弃。
@@ -176,20 +174,18 @@ class TestFailClosed:
         # 完整攻击链：播种 → 异常回合(时钟不得推进) → 恢复回合补齐全部真实间隔。
         st = ScarredState(n_dims=8, affect_enabled=True)
         st.set_affect_params(_TSUNDERE, takeover=True)
-        st.step([0.0] * 8, timestamp=100.0)                     # 播种时钟
+        st.step([0.0] * 8, timestamp=100.0)  # 播种时钟
         real_eq = affect_dynamics.equilibrium
 
         def boom(*_a: object, **_k: object) -> object:
             raise RuntimeError("transient")
 
         monkeypatch.setattr(affect_dynamics, "equilibrium", boom)
-        st.step([0.0] * 8, timestamp=100.0 + 1e7)               # 116 天后，衰减失败
-        assert st._e_last_wall_ts == 100.0                      # 时钟没白走
+        st.step([0.0] * 8, timestamp=100.0 + 1e7)  # 116 天后，衰减失败
+        assert st._e_last_wall_ts == 100.0  # 时钟没白走
         monkeypatch.setattr(affect_dynamics, "equilibrium", real_eq)
-        st.step([0.0] * 8, timestamp=100.0 + 1e7 + 60.0)        # 恢复：应补齐全程衰减
-        eq_native = affect_dynamics.from_unit_interval(
-            affect_dynamics.equilibrium(_TSUNDERE, 0.5)
-        )
+        st.step([0.0] * 8, timestamp=100.0 + 1e7 + 60.0)  # 恢复：应补齐全程衰减
+        eq_native = affect_dynamics.from_unit_interval(affect_dynamics.equilibrium(_TSUNDERE, 0.5))
         # 衰减在 step 顶部把 base 拉满全程 dt（随后的 MLP 演化会再动 base，
         # 但时钟已原子推进到成功时刻）。
         assert st._e_last_wall_ts == 100.0 + 1e7 + 60.0
@@ -201,8 +197,8 @@ class TestFailClosed:
         st.step(_EVENTS[0], timestamp=1000.0)
         st.step(_EVENTS[0], timestamp=2000.0)
         assert st._e_last_wall_ts == 2000.0
-        st.step(_EVENTS[0], timestamp=500.0)    # 时钟回拨事件
-        assert st._e_last_wall_ts == 2000.0     # affect 墙钟不回退
+        st.step(_EVENTS[0], timestamp=500.0)  # 时钟回拨事件
+        assert st._e_last_wall_ts == 2000.0  # affect 墙钟不回退
 
 
 class TestSpineIntegration:
@@ -227,7 +223,7 @@ class TestSpineIntegration:
         obs_off = off._engine.scar_state.observe()
         obs_on = on._engine.scar_state.observe()
         for k in obs_off:
-            assert obs_on[k] == obs_off[k], k    # base/sensitivity byte-identical
+            assert obs_on[k] == obs_off[k], k  # base/sensitivity byte-identical
         # The live (Resonance) spine actually populated the shadow diagnostic.
         assert on._engine.scar_state._last_affect_shadow is not None
         assert on._engine.scar_state._affect_shadow_base is not None
@@ -243,7 +239,5 @@ class TestConfigThreading:
             root=str(tmp_path), session_key="on", profile=build_profile("lite"), affect_enabled=True
         )
         assert on.kernel.computation._engine.scar_state._affect_enabled is True
-        off = SylanneAlphaHost(
-            root=str(tmp_path), session_key="off", profile=build_profile("lite")
-        )
+        off = SylanneAlphaHost(root=str(tmp_path), session_key="off", profile=build_profile("lite"))
         assert off.kernel.computation._engine.scar_state._affect_enabled is False

@@ -34,7 +34,7 @@ class TestRestoreClampsBase:
     def test_legal_snapshot_identity(self) -> None:
         legal = [-1.0, -0.7, -0.25, 0.0, 0.1, 0.5, 0.9, 1.0]
         restored = ScarredState.from_dict(self._snapshot_with_base(list(legal)))
-        assert restored.base == legal      # 在域值逐位恒等，闸不改合法行为
+        assert restored.base == legal  # 在域值逐位恒等，闸不改合法行为
 
     def test_corrupt_then_decay_stays_bounded(self) -> None:
         # 红队复现的完整攻击链：坏快照 -> 复原 -> takeover 衰减。闸后必须有界。
@@ -76,13 +76,13 @@ class TestTraitDomainEnforced:
     def test_half_life_upper_bound_holds(self) -> None:
         # 定理 3 的 k̲>0 依赖 h 有上界：h ≤ h_base_max·g_max·S̄（percept/scarload 全极端）。
         h = affect_dynamics.half_lives({"perception_acuity": 5.0}, scarload=[100.0] * 8)
-        h_bound = 120.0 * 2.0 * 3.0 * 60.0   # h_base_max(boundary=120min)·g_max·S̄，秒
+        h_bound = 120.0 * 2.0 * 3.0 * 60.0  # h_base_max(boundary=120min)·g_max·S̄，秒
         assert all(0.0 < x <= h_bound for x in h), h
 
     def test_gain_and_equilibrium_survive_wild_traits(self) -> None:
         wild = {"perception_acuity": 99.0, "expression_drive_trait": -7.0, "warmth_bias": 42.0}
         gain = affect_dynamics.gain_vector(wild)
-        affect_dynamics.validate_gain(gain)                   # 不抛：G ∈ (0,1] 仍守
+        affect_dynamics.validate_gain(gain)  # 不抛：G ∈ (0,1] 仍守
         eq = affect_dynamics.equilibrium(wild, 0.5)
         assert all(0.15 <= x <= 0.85 for x in eq)
         assert all(math.isfinite(x) for x in gain + eq)
@@ -92,4 +92,4 @@ class TestTraitDomainEnforced:
         t = {"perception_acuity": 0.7, "expression_drive_trait": 0.3}
         assert affect_dynamics.half_lives(t) == affect_dynamics.half_lives(dict(t))
         g = affect_dynamics.gain_vector(t)
-        assert abs(g[3] - (0.40 + 0.30 * 0.7)) < 1e-12        # 系数原样
+        assert abs(g[3] - (0.40 + 0.30 * 0.7)) < 1e-12  # 系数原样

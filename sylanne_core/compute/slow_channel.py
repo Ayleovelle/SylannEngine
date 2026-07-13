@@ -32,12 +32,12 @@ if TYPE_CHECKING:
     )
 
 # --- 反思参数（校准先验；模块加载即过良定域断言，typo 立崩） ---
-_THETA = 3.0            # poignancy 反思阈
-_MU = 0.10             # 漏桶泄漏率/tick
-_ETA = 0.30            # macro 漂移步长
-_RHO = 0.20            # 锚回弹收缩率
+_THETA = 3.0  # poignancy 反思阈
+_MU = 0.10  # 漏桶泄漏率/tick
+_ETA = 0.30  # macro 漂移步长
+_RHO = 0.20  # 锚回弹收缩率
 _COOLDOWN_SECS = 1800.0  # 反思墙钟冷却（30 min）
-_REFLECTION_DT = 30.0   # 传给 compute_embodiment_drift 的名义 dt（走同一速率闸）
+_REFLECTION_DT = 30.0  # 传给 compute_embodiment_drift 的名义 dt（走同一速率闸）
 _RING_MAXLEN = 5
 
 affect_dynamics.validate_slowchannel_params(_THETA, _MU, _ETA, _RHO, _COOLDOWN_SECS)
@@ -45,11 +45,11 @@ affect_dynamics.validate_slowchannel_params(_THETA, _MU, _ETA, _RHO, _COOLDOWN_S
 # appraisal a_k 维序：warmth0 arousal1 valence2 tension3 curiosity4 repair5 expr6 boundary7。
 # 方向映射：反复的某类情感事件把对应 Embodiment 特质朝某方向漂（校准先验）。
 _TRAIT_DRIFT_MAP: dict[str, list[tuple[int, float]]] = {
-    "expression_drive_trait": [(6, 1.0), (1, 0.3)],    # 表达 + 唤醒 → 更外放
-    "perception_acuity": [(3, 0.8)],                    # 张力 → 更警觉
-    "boundary_permeability": [(7, -1.0)],               # 边界坚固 → 更不可渗透
-    "inner_order": [(3, -0.5), (5, -0.3)],              # 张力/修复压 → 侵蚀秩序
-    "relational_gravity": [(0, 0.7), (2, 0.5)],         # 温度 + 效价 → 更强关系引力
+    "expression_drive_trait": [(6, 1.0), (1, 0.3)],  # 表达 + 唤醒 → 更外放
+    "perception_acuity": [(3, 0.8)],  # 张力 → 更警觉
+    "boundary_permeability": [(7, -1.0)],  # 边界坚固 → 更不可渗透
+    "inner_order": [(3, -0.5), (5, -0.3)],  # 张力/修复压 → 侵蚀秩序
+    "relational_gravity": [(0, 0.7), (2, 0.5)],  # 温度 + 效价 → 更强关系引力
 }
 
 
