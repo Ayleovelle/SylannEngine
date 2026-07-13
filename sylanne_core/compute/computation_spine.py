@@ -644,7 +644,6 @@ class ComputationSpine:
             except Exception:  # pragma: no cover - fail-closed
                 logger.debug("slow-channel observe (computation) skipped", exc_info=True)
 
-
     def set_relationship(self, relationship: float) -> None:
         """v26 D2：host 显式供给关系相位标量 R ∈ [0,1]（memo D2 选项 a）。
 

@@ -35,12 +35,10 @@ class TestDecayWritesBaseUnderTakeover:
     def test_takeover_decay_pulls_base_to_equilibrium(self) -> None:
         st = ScarredState(n_dims=8, affect_enabled=True)
         st.set_affect_params(_TRAITS, takeover=True)
-        st.base = [0.9] * 8                      # far from equilibrium
+        st.base = [0.9] * 8  # far from equilibrium
         st._e_last_wall_ts = 100.0
-        st._affect_decay(100.0 + 1e7)            # huge silence gap
-        eq_native = affect_dynamics.from_unit_interval(
-            affect_dynamics.equilibrium(_TRAITS, 0.5)
-        )
+        st._affect_decay(100.0 + 1e7)  # huge silence gap
+        eq_native = affect_dynamics.from_unit_interval(affect_dynamics.equilibrium(_TRAITS, 0.5))
         for i in range(8):
             assert abs(st.base[i] - eq_native[i]) < 1e-3, i
 
@@ -50,7 +48,7 @@ class TestDecayWritesBaseUnderTakeover:
         st.base = [0.9] * 8
         st._e_last_wall_ts = 100.0
         st._affect_decay(100.0 + 1e7)
-        assert st.base == [0.9] * 8              # base never touched in shadow mode
+        assert st.base == [0.9] * 8  # base never touched in shadow mode
         assert st._affect_shadow_base is not None
 
 
@@ -68,11 +66,11 @@ class TestAppraisalTakeover:
 
     def test_disabled_returns_false_and_leaves_base(self) -> None:
         st = ScarredState(n_dims=8, affect_enabled=True)
-        st.set_affect_params(_TRAITS, takeover=False)   # shadow mode
+        st.set_affect_params(_TRAITS, takeover=False)  # shadow mode
         st.step([0.1] * 8, timestamp=100.0)
         before = list(st.base)
         assert st.apply_affect_takeover(0.9, 0.7, 0.1, "撒娇") is False
-        assert st.base == before                        # E-law did NOT write base
+        assert st.base == before  # E-law did NOT write base
 
     def test_fail_closed_on_bad_gain(self, monkeypatch) -> None:
         st = ScarredState(n_dims=8, affect_enabled=True)
@@ -81,8 +79,8 @@ class TestAppraisalTakeover:
         before = list(st.base)
         # Force an out-of-range gain so validate_gain raises inside the takeover.
         monkeypatch.setattr(affect_dynamics, "gain_vector", lambda _t: [2.0] * 8)
-        assert st.apply_affect_takeover(0.9, 0.7, 0.1, "撒娇") is False   # fail-closed
-        assert st.base == before                                          # base untouched
+        assert st.apply_affect_takeover(0.9, 0.7, 0.1, "撒娇") is False  # fail-closed
+        assert st.base == before  # base untouched
 
 
 class TestDecayAtTopOrdering:
@@ -96,8 +94,8 @@ class TestDecayAtTopOrdering:
         def run(event: list[float]) -> list[float]:
             st = ScarredState(n_dims=8, affect_enabled=True)
             st.set_affect_params(_TRAITS, takeover=True)
-            st.step([0.0] * 8, timestamp=1000.0)          # seed the affect clock
-            st.step(event, timestamp=1000.0 + 1e7)         # ~116 days later + an event
+            st.step([0.0] * 8, timestamp=1000.0)  # seed the affect clock
+            st.step(event, timestamp=1000.0 + 1e7)  # ~116 days later + an event
             return list(st.base)
 
         b_pos = run([0.9] * 8)
@@ -117,7 +115,13 @@ class TestSpineTakeover:
 
     def _drive(self, sp: ResonanceSpine) -> None:
         for t in range(8):
-            a = {"valence": 0.6, "arousal": 0.6, "wound_risk": 0.1, "intent": "撒娇", "confidence": 0.8}
+            a = {
+                "valence": 0.6,
+                "arousal": 0.6,
+                "wound_risk": 0.1,
+                "intent": "撒娇",
+                "confidence": 0.8,
+            }
             sp.process("抱抱我嘛", timestamp=float(t + 1), assessment=a)
 
     def test_takeover_path_runs_at_spine(self) -> None:
@@ -138,7 +142,7 @@ class TestSpineTakeover:
         # Takeover never completed (its diagnostic stamp would be "takeover"); legacy ran.
         last = scar._last_affect_shadow
         assert last is None or last.get("source") != "takeover"
-        assert all(-1.0 <= x <= 1.0 for x in scar.base)   # no crash, base still valid
+        assert all(-1.0 <= x <= 1.0 for x in scar.base)  # no crash, base still valid
 
     def test_takeover_changes_observed_emotion_vs_legacy(self) -> None:
         # Intended behaviour change (NOT byte-identical): same drive, on vs off,
@@ -149,9 +153,9 @@ class TestSpineTakeover:
         self._drive(off)
         obs_on = on._engine.scar_state.observe()
         obs_off = off._engine.scar_state.observe()
-        assert any(
-            abs(obs_on[f"dim_{d}"] - obs_off[f"dim_{d}"]) > 1e-6 for d in range(8)
-        ), "takeover produced no observable delta vs legacy"
+        assert any(abs(obs_on[f"dim_{d}"] - obs_off[f"dim_{d}"]) > 1e-6 for d in range(8)), (
+            "takeover produced no observable delta vs legacy"
+        )
 
 
 class TestPelExclusion:
@@ -164,20 +168,18 @@ class TestPelExclusion:
         assert st.pel_active()
         st.step([0.1] * 8, timestamp=100.0)
         before = list(st.base)
-        assert st.apply_affect_takeover(0.9, 0.7, 0.1, "撒娇") is False   # inert under PEL
+        assert st.apply_affect_takeover(0.9, 0.7, 0.1, "撒娇") is False  # inert under PEL
         assert st.base == before
 
 
 class TestConfigValidation:
     def test_takeover_requires_affect_enabled(self) -> None:
         with pytest.raises(ValueError):
-            SylanneConfig(affect_takeover=True)   # affect_dynamics_enabled defaults False
+            SylanneConfig(affect_takeover=True)  # affect_dynamics_enabled defaults False
 
     def test_takeover_incompatible_with_pel(self) -> None:
         with pytest.raises(ValueError):
-            SylanneConfig(
-                affect_takeover=True, affect_dynamics_enabled=True, pel_core_enabled=True
-            )
+            SylanneConfig(affect_takeover=True, affect_dynamics_enabled=True, pel_core_enabled=True)
 
     def test_valid_takeover_config_accepted(self) -> None:
         SylanneConfig(affect_takeover=True, affect_dynamics_enabled=True)  # no raise

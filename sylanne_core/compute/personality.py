@@ -132,7 +132,13 @@ class TraitMemory:
     """
 
     __slots__ = (
-        "value", "fast_ema", "slow_ema", "set_point", "anchor", "_frozen_ticks", "_persist_anchor"
+        "value",
+        "fast_ema",
+        "slow_ema",
+        "set_point",
+        "anchor",
+        "_frozen_ticks",
+        "_persist_anchor",
     )
 
     def __init__(self, initial: float = 0.5, *, persist_anchor: bool = False):

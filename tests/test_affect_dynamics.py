@@ -49,7 +49,7 @@ class TestSaturatingUpdate:
     def test_nan_appraisal_neutralized(self) -> None:
         out = saturating_update([0.5] * N_DIMS, [float("nan")] * N_DIMS, [1.0] * N_DIMS)
         assert all(math.isfinite(o) for o in out)
-        assert all(abs(o - 0.5) < 1e-12 for o in out)   # NaN → 0 幅度 → 不变
+        assert all(abs(o - 0.5) < 1e-12 for o in out)  # NaN → 0 幅度 → 不变
 
 
 class TestDecay:
@@ -57,7 +57,7 @@ class TestDecay:
         e0, eq, h = [0.8] * N_DIMS, [0.3] * N_DIMS, [100.0] * N_DIMS
         assert decay(e0, eq, h, 0.0) == e0
         assert decay(e0, eq, h, -50.0) == e0
-        assert decay(e0, eq, h, float("nan")) == e0     # F4：NaN 墙钟守卫
+        assert decay(e0, eq, h, float("nan")) == e0  # F4：NaN 墙钟守卫
 
     def test_halfway_at_one_half_life(self) -> None:
         mid = decay([1.0] * N_DIMS, [0.0] * N_DIMS, [100.0] * N_DIMS, 100.0)
@@ -103,13 +103,13 @@ class TestEquilibrium:
     def test_monotone_canonical_traits(self) -> None:
         warm_hi = equilibrium({"warmth_bias": 0.9}, 0.5)[_I_WARMTH]
         warm_lo = equilibrium({"warmth_bias": 0.1}, 0.5)[_I_WARMTH]
-        assert warm_hi > warm_lo                        # warmth_bias↑ → warmth 基线↑
+        assert warm_hi > warm_lo  # warmth_bias↑ → warmth 基线↑
         tens_hi = equilibrium({"perception_acuity": 0.9}, 0.5)[_I_TENSION]
         tens_lo = equilibrium({"perception_acuity": 0.1}, 0.5)[_I_TENSION]
-        assert tens_hi > tens_lo                        # perception_acuity↑ → tension 基线↑
+        assert tens_hi > tens_lo  # perception_acuity↑ → tension 基线↑
         cur_hi = equilibrium({"curiosity": 0.9}, 0.5)[_I_CURIOSITY]
         cur_lo = equilibrium({"curiosity": 0.1}, 0.5)[_I_CURIOSITY]
-        assert cur_hi > cur_lo                          # curiosity↑ → curiosity 基线↑
+        assert cur_hi > cur_lo  # curiosity↑ → curiosity 基线↑
 
     def test_relationship_raises_warmth(self) -> None:
         assert equilibrium({}, 0.9)[_I_WARMTH] > equilibrium({}, 0.1)[_I_WARMTH]
@@ -126,4 +126,4 @@ class TestHalfLives:
         base = half_lives(None, scarload=[0.0] * N_DIMS)
         huge = half_lives(None, scarload=[100.0] * N_DIMS)
         for i in range(N_DIMS):
-            assert abs(huge[i] - base[i] * 3.0) < 1e-6   # 封顶 ×3
+            assert abs(huge[i] - base[i] * 3.0) < 1e-6  # 封顶 ×3

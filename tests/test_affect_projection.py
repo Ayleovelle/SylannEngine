@@ -27,10 +27,10 @@ class TestProjectionFormula:
     def test_identity_and_neutral(self) -> None:
         a_k, matched = project_appraisal(0.5, 0.8, 0.0, None)
         assert matched is None
-        assert abs(a_k[_I_VALENCE] - 0.5) < 1e-9        # a_valence = v
-        assert abs(a_k[_I_AROUSAL] - 0.5) < 1e-9        # a_arousal = a − 0.3
-        assert abs(a_k[_I_WARMTH] - 0.25) < 1e-9        # 0.5·v⁺·(1−w)
-        assert abs(a_k[_I_EXPR] - 0.3) < 1e-9           # 0.5·a·(0.5+0.5v)
+        assert abs(a_k[_I_VALENCE] - 0.5) < 1e-9  # a_valence = v
+        assert abs(a_k[_I_AROUSAL] - 0.5) < 1e-9  # a_arousal = a − 0.3
+        assert abs(a_k[_I_WARMTH] - 0.25) < 1e-9  # 0.5·v⁺·(1−w)
+        assert abs(a_k[_I_EXPR] - 0.3) < 1e-9  # 0.5·a·(0.5+0.5v)
         assert all(-1.0 <= x <= 1.0 for x in a_k)
 
     def test_terminal_clip_on_tension_overshoot(self) -> None:
@@ -106,8 +106,14 @@ class TestDimOrderAlignment:
 
     def test_matches_void_scar_dim_names(self) -> None:
         expected = (
-            "warmth", "arousal", "valence", "tension",
-            "curiosity", "repair_pressure", "expression_drive", "boundary_firmness",
+            "warmth",
+            "arousal",
+            "valence",
+            "tension",
+            "curiosity",
+            "repair_pressure",
+            "expression_drive",
+            "boundary_firmness",
         )
         assert expected == VoidScarEngine._DIM_NAMES
         assert len(VoidScarEngine._DIM_NAMES) == N_DIMS

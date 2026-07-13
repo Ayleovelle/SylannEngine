@@ -60,19 +60,20 @@ class TestDecayAffineEquivariance:
     """decay 是仿射 lerp ⇒ 仿射等变：整体折进折出 == 只把 Φ_eq remap 到 native、base 留原帧。"""
 
     def test_remap_eq_only_equals_full_roundtrip(self) -> None:
-        base = [-0.8, -0.3, 0.0, 0.2, 0.5, 0.7, -0.5, 0.9]      # native (-1,1)
+        base = [-0.8, -0.3, 0.0, 0.2, 0.5, 0.7, -0.5, 0.9]  # native (-1,1)
         eq_unit = [0.15, 0.85, 0.5, 0.3, 0.45, 0.55, 0.25, 0.45]  # Φ_eq ∈ [0,1]
         h = [90.0, 30.0, 60.0, 45.0, 40.0, 50.0, 25.0, 120.0]
         dt = 37.0
 
         # 路线 A：整体折进 [0,1]、在单位区间衰减、再折回 native。
-        full = from_unit_interval(
-            decay(to_unit_interval(base), eq_unit, [x * 60.0 for x in h], dt)
-        )
+        full = from_unit_interval(decay(to_unit_interval(base), eq_unit, [x * 60.0 for x in h], dt))
         # 路线 B：base 留 native，只把 Φ_eq 折回 native 作为衰减目标（T1/T3 采用的捷径）。
         shortcut = decay(base, from_unit_interval(eq_unit), [x * 60.0 for x in h], dt)
 
-        assert all(abs(a - b) < 1e-12 for a, b in zip(full, shortcut, strict=True)), (full, shortcut)
+        assert all(abs(a - b) < 1e-12 for a, b in zip(full, shortcut, strict=True)), (
+            full,
+            shortcut,
+        )
 
     def test_saturating_update_is_not_affine_equivariant(self) -> None:
         # 反证：饱和更新硬编 0/1 界，直接喂 native base 与折进折出结果**不同**——钉死"必须适配"。
@@ -82,6 +83,6 @@ class TestDecayAffineEquivariance:
         a_k = [-0.5] * N_DIMS
         gain = [1.0] * N_DIMS
         proper = from_unit_interval(saturating_update(to_unit_interval(base), a_k, gain))
-        naive = saturating_update(base, a_k, gain)   # 错用：base 未折进单位区间
+        naive = saturating_update(base, a_k, gain)  # 错用：base 未折进单位区间
         assert any(abs(a - b) > 1e-6 for a, b in zip(proper, naive, strict=True))
-        assert all(-1.0 <= p <= 1.0 for p in proper)   # 正确路线仍有界
+        assert all(-1.0 <= p <= 1.0 for p in proper)  # 正确路线仍有界

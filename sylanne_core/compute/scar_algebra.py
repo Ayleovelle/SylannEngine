@@ -363,7 +363,9 @@ class ScarredState:
 
     def _record_affect_shadow(self, source: str, matched: str | None = None) -> dict[str, Any]:
         """构建影子诊断快照 + 落 debug 日志（散度 = 影子 E 与真实 base 的 L2 距离）。"""
-        shadow = self._affect_shadow_base if self._affect_shadow_base is not None else list(self.base)
+        shadow = (
+            self._affect_shadow_base if self._affect_shadow_base is not None else list(self.base)
+        )
         divergence = math.sqrt(sum((shadow[i] - self.base[i]) ** 2 for i in range(self.n_dims)))
         diag: dict[str, Any] = {
             "source": source,
@@ -405,11 +407,11 @@ class ScarredState:
             prev = self._e_last_wall_ts
             ts = float(timestamp)
             if not (prev > 0.0):
-                self._e_last_wall_ts = ts   # 首次播种时钟；无衰减可施
+                self._e_last_wall_ts = ts  # 首次播种时钟；无衰减可施
                 return
             dt = ts - prev
             if not (dt > 0.0):
-                return                       # 非单调/零间隔：时钟留在 prev，不回拨
+                return  # 非单调/零间隔：时钟留在 prev，不回拨
             eq_native = affect_dynamics.from_unit_interval(
                 affect_dynamics.equilibrium(self._affect_traits, self._relationship)
             )
@@ -420,7 +422,7 @@ class ScarredState:
             # **之前**推进，异常时时钟白走、该区间的衰减被永久静默丢弃；现在异常
             # ⇒ 时钟留在 prev，恢复后的下一次成功衰减补齐全部真实间隔）。
             if takeover:
-                self.base = decayed          # T3: authoritative base
+                self.base = decayed  # T3: authoritative base
                 self._e_ver += 1
             else:
                 self._affect_shadow_base = decayed
@@ -490,9 +492,7 @@ class ScarredState:
             self._affect_q_ema = affect_dynamics.quality_baseline_update(
                 self._affect_q_ema, quality
             )
-            logger.debug(
-                "affect-plasticity q=%.3f q_ema=%.3f", float(quality), self._affect_q_ema
-            )
+            logger.debug("affect-plasticity q=%.3f q_ema=%.3f", float(quality), self._affect_q_ema)
             return True
         except Exception:  # pragma: no cover - fail-closed, learning must never crash a turn
             logger.debug("affect plasticity step skipped (exception)", exc_info=True)
