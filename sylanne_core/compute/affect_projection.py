@@ -107,8 +107,8 @@ def project_appraisal(
     v = _clip(_finite(float(valence), 0.0), -1.0, 1.0)
     a = _clip(_finite(float(arousal), 0.3), 0.0, 1.0)
     w = _clip(_finite(float(wound_risk), 0.0), 0.0, 1.0)
-    vp = v if v > 0.0 else 0.0          # v⁺ = max(v,0)
-    vm = -v if v < 0.0 else 0.0         # v⁻ = max(−v,0)
+    vp = v if v > 0.0 else 0.0  # v⁺ = max(v,0)
+    vm = -v if v < 0.0 else 0.0  # v⁻ = max(−v,0)
 
     matched = classify_intent(intent)
     d = intent_bias(matched)

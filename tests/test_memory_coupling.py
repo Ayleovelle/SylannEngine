@@ -53,13 +53,13 @@ class TestContagionBlend:
     def test_endpoints(self) -> None:
         e = [0.2] * N_DIMS
         m = [0.9] * N_DIMS
-        assert contagion_blend(e, m, 0.0) == pytest.approx(e)   # ignore memory
-        assert contagion_blend(e, m, 1.0) == pytest.approx(m)   # fully adopt
+        assert contagion_blend(e, m, 0.0) == pytest.approx(e)  # ignore memory
+        assert contagion_blend(e, m, 1.0) == pytest.approx(m)  # fully adopt
 
     def test_out_of_range_kappa_clamped(self) -> None:
         e, m = [0.3] * N_DIMS, [0.7] * N_DIMS
-        assert contagion_blend(e, m, 5.0) == pytest.approx(m)     # k>1 -> 1
-        assert contagion_blend(e, m, -2.0) == pytest.approx(e)    # k<0 -> 0
+        assert contagion_blend(e, m, 5.0) == pytest.approx(m)  # k>1 -> 1
+        assert contagion_blend(e, m, -2.0) == pytest.approx(e)  # k<0 -> 0
 
     def test_length_mismatch_raises(self) -> None:
         with pytest.raises(ValueError):
