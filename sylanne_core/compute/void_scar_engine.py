@@ -111,12 +111,14 @@ class VoidScarEngine:
         scar_mlp_passes: int = 1,
         *,
         pel_enabled: bool = False,
+        affect_enabled: bool = False,
     ):
         self.scar_state = ScarredState(
             n_dims=n_dims,
             wound_threshold=wound_threshold,
             mlp_passes=scar_mlp_passes,
             pel_enabled=pel_enabled,
+            affect_enabled=affect_enabled,
         )
         self.similarity_fn = similarity_fn or _default_similarity
         self.void_space = VoidSpace(

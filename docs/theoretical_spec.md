@@ -1,6 +1,6 @@
 > **Note**: This document describes the theoretical computation standard (axioms, algebra, conformance levels). For the SDK API specification (method signatures, Surface schema), see [SPEC.md](../SPEC.md). For the integration guide, see [AGENT_GUIDE.md](../AGENT_GUIDE.md).
 
-# Sylanne Affective Computation Standard — Draft Specification v0.1
+# Sylanne Affective Computation Standard — Draft Specification v0.2
 
 ## 1. Purpose
 
@@ -398,3 +398,164 @@ The parameter position is kept because downstream plugins pass
 - Once an axiom is published, it is never weakened (Unicode stability guarantee)
 - New axioms may be added in minor versions but never remove existing guarantees
 - Breaking changes require a new major version with explicit migration path
+
+**Changelog**: v0.1 → v0.2 adds §13 (Affect-Dynamics E-Law — axioms AD1–AD8,
+normative operators, AD-L1/L2/L3 conformance with golden reference vectors, and
+the PEL-Core interaction/retirement position). No existing axiom or level was
+changed.
+
+## 13. Affect-Dynamics E-Law (opt-in Level 1 extension)
+
+Normative specification of the dual-speed affect dynamics ("E-law", design
+codename v26) implemented by the reference engine on its 8-dim emotion core.
+The full derivation with proofs lives in
+[docs/design/affect-dynamics-derivation.md](design/affect-dynamics-derivation.md)
+(theorem/proof-grade internal draft, cleared an independent math red-team);
+this chapter states the **normative contract** an implementation must satisfy.
+All of §13 is **opt-in**: three configuration flags, all default **off**; with
+all flags off, behavior and persisted state are byte-identical to a pre-§13
+implementation (verified against the reference implementation with seeded
+RNG — note the verification methodology REQUIRES seeding the global `random`
+module in addition to `PYTHONHASHSEED=0`, or unrelated exploration noise
+dominates any comparison).
+
+### 13.1 Gates
+
+| Flag | Gate | Contract |
+|---|---|---|
+| `affect_dynamics_enabled` | A (shadow) | E-law computes a parallel shadow E for diagnostics only. MUST NOT write the authoritative state, MUST NOT reach the prompt/output contract, MUST keep observable behavior byte-identical. |
+| `affect_takeover` | B (authority) | E-law owns inter-turn wall-clock decay of the authoritative E (applied BEFORE event evolution — settle-then-evolve) and the per-turn semantic appraisal update (replacing legacy hand-rules). Requires Gate A. MUST fail closed to the legacy path on any E-law error within a turn. Mutually exclusive with PEL-Core (§13.5). |
+| `affect_plasticity_enabled` | B+ (learning) | Per-dim gains G become learned state via delta-rule with projection (AD8). Requires Gate B. Learned state persists; the lagged quality feedback MUST be consumed before the current turn's own activity updates the eligibility trace. |
+| `affect_full_takeover` | B-full (sole authority) | The legacy MLP/PEL main-step base evolution is bypassed on the 8-dim core: base evolves ONLY via decay + appraisal + wound scar formation (scar formation continues unchanged; the non-assessor wound channels — Gamma void-coupling and feedback() outcome vectors — become mood-inert: scars form but base is not nudged, a disclosed consequence of removing semantics-blind base writes). The observable resting mood becomes Phi_eq and half-life priors become live levers. Requires Gate B. Without an assessor, emotion moves only by decay + wounds (principled: the main-step input is a semantics-blind hash). |
+
+### 13.2 Axioms (AD1–AD8)
+
+A conforming E-law implementation MUST satisfy (unit frame `u in [0,1]^8` with
+an affine adapter to the native storage frame; dim order = the reference
+`_DIM_NAMES`):
+
+- **AD1 (Bounded state)** Every E-law operator maps the invariant set K=[0,1]^8
+  (native [-1,1]^8) into itself, for any finite composition in any order.
+  Boundary contracts MUST be code-enforced at restore/entry points (a bare
+  convex combination does not self-heal out-of-range input). [Thm 4]
+- **AD2 (Saturating semantics)** The appraisal update uses multiplicative
+  headroom factors: positive increments scale by (1-u), negative by u; the
+  increment vanishes at the boundaries. The boundary is reached in one step iff
+  G·|a| = 1; otherwise approach is asymptotic. [Thm 1]
+- **AD3 (Wall-clock decay)** Between turns, E decays toward a personality-and-
+  relationship equilibrium Phi_eq with per-dim half-lives; the decay is the
+  exact flow of a linear ODE — contraction, no overshoot, order-preserving.
+  Phi_eq MUST be clamped into an interior band (reference: [0.15, 0.85]) so no
+  equilibrium sits on a corner. [Thm 2]
+- **AD4 (Scar-coupled stickiness, capped)** Wound history may slow per-dim
+  decay by a multiplicative stickiness factor that MUST be capped (reference:
+  x3) and MUST self-heal as wounds fade — the decay rate has a strictly
+  positive floor for any wound history ("never freezes"). Trait inputs to the
+  half-life map MUST be domain-clamped at the E-law boundary. [Thm 3]
+- **AD5 (Fail-closed semantics)** Any error inside an E-law step MUST leave the
+  authoritative state driven by the legacy path for that turn — never a stale
+  or partial E-law write.
+- **AD6 (Slow-channel bounded drift)** Personality macro-drift, if implemented,
+  MUST keep traits inside an invariant ball around an immutable anchor and be
+  non-increasing outside it, for ANY quality-gate sequence in [0,1]. Reversion
+  toward the anchor MAY be quality-gated (the reference gates BOTH the push and
+  the reversion term — reversion stalls under sustained zero quality; this is a
+  disclosed semantic, not a defect). [Thm 5]
+- **AD7 (Hysteretic labeling)** Any categorical label derived from E MUST use a
+  deadband: reversing a label change requires crossing the quantization
+  boundary by a margin theta_h. The anti-chatter turn bound is a calibration-
+  regime guarantee, not an unconditional one (a maximal silence-decay plus a
+  maximal opposite appraisal CAN reverse in consecutive turns — by design; real
+  extreme events should switch immediately). [Prop 7]
+- **AD8 (Projection-invariant plasticity)** Learned gains MUST pass through a
+  projection onto [eps,1] (eps>0) on every update. Safety is carried entirely
+  by the projection: Thm 1–4 hold verbatim for ANY projected gain sequence, so
+  no learning signal — wrong, noisy, or adversarial — can break AD1–AD4.
+  [Lemma 6; this is an invariance audit, not a control-theoretic separation
+  theorem — see the derivation's demotion note]
+
+### 13.3 Normative Operators
+
+| Operator | Contract | Anchor |
+|---|---|---|
+| `equilibrium(T, R)` | Phi_eq in [0.15,0.85]^8; monotone in the documented trait directions | AD3 / Thm 2 |
+| `half_lives(T, scarload)` | h_i = h_base·g_i(T)·min(1+sigma·L_i, S_bar); g bounded via trait clamp | AD4 / Thm 3 |
+| `decay(u0, u_eq, h, dt)` | exact exponential flow; dt<=0/NaN => identity; NO internal clamp (caller enforces AD1 at entry) | AD3 / Thm 2 |
+| `saturating_update(u, a, G)` | AD2 semantics; NOT affine-equivariant — native-frame callers MUST round-trip through the unit frame | AD2 / Note 1.2 |
+| `project_appraisal(v, a, w, intent)` | 3 scalars + intent class -> a in [-1,1]^8; non-finite inputs sanitized | design §3.1 |
+| `plasticity_step(G, q, q_hat, phi)` | G' = Proj_[eps,1](G + alpha·delta·phi); bounded under adversarial q | AD8 / Lemma 6 |
+| `eligibility_update(phi, a)` | phi' = clamp01(gamma·phi + abs(a)); credit only to recently-active dims | Note 6.2 |
+| `contagion_blend(u, m, kappa)` | convex, defensively clamped; kappa derived as a personality function, never a flat config scalar | derivation §8 |
+
+### 13.4 Conformance (AD-L1 / AD-L2 / AD-L3)
+
+> AD-L1/L2/L3 are an **independent axis** from the §6 Level 0/1/2 conformance
+> ladder — "AD-L1" means golden-vector pure-function equivalence, not "standard
+> Level 1". §13 as a whole is an opt-in extension adjacent to Level 1; it is
+> not required for any §6 Level.
+
+- **AD-L1 — pure-function equivalence (MUST for any §13 implementation)**:
+  reproduce the golden reference vectors below to within 1e-9 per component.
+- **AD-L2 — dynamics equivalence (SHOULD)**: given the same event/appraisal/
+  wall-clock sequence, the authoritative E trajectory under Gate B matches the
+  reference to within 1e-6 per component over 100 turns.
+- **AD-L3 — full-pipeline gating (MUST for the reference engine lineage)**:
+  all-flags-off is byte-identical (behavior AND persisted snapshots) to the
+  pre-§13 baseline; each gate's contract in §13.1 holds under its flag.
+
+Golden reference vectors (traits T* = {warmth_bias .6, perception_acuity .7,
+curiosity .7, expression_drive_trait .6, relational_gravity .7,
+sovereignty_guard .8, inner_order .6}; locked by
+`tests/test_conformance_vectors.py`):
+
+```
+equilibrium(T*, 0.5) = [0.52, 0.40, 0.55, 0.35, 0.50, 0.28, 0.48, 0.52]
+equilibrium(T*, 0.9) = [0.64, 0.40, 0.55, 0.35, 0.50, 0.28, 0.48, 0.52]
+half_lives(T*, zeros) = [5400, 1800, 3600, 3780, 2400, 3000, 1500, 7200] (s)
+half_lives(T*, twos)  = 3.0 x the above (sticky cap engaged)
+gain_vector(T*)       = [0.50, 0.50, 0.50, 0.61, 0.50, 0.50, 0.58, 0.50]
+decay(e0*, eq*, h*, 1800s) = [0.266015831685, 0.6, 0.55, 0.314056332564,
+                              0.470269822125, 0.260207381338,
+                              0.488705505633, 0.587271713220]
+project_appraisal(0.6, 0.7, 0.2, "撒娇") = [0.54, 0.40, 0.60, -0.156,
+                              0.084, 0.0, 0.38, 0.024]  (class "coax")
+saturating_update(e0*, a*, G*) = [0.416, 0.84, 0.685, 0.271452,
+                              0.4731, 0.25, 0.6102, 0.6048]
+plasticity_step([0.5]^8, q=0.9, q_hat=0.5, phi*) = [0.5002, 0.5001, 0.5,
+                              0.50005, 0.5002, 0.5, 0.50015, 0.50002]
+  with e0* = [0.20, 0.80, 0.55, 0.30, 0.45, 0.25, 0.50, 0.60]
+       phi* = [1.0, 0.5, 0.0, 0.25, 1.0, 0.0, 0.75, 0.1]
+```
+
+Constants (alpha=0.0005, gamma=0.6, beta=0.1, eps=0.05, sigma=1, S_bar=3,
+h_base, Phi_eq coefficients) are **calibration priors** version-pinned with
+this spec revision (§12 opset discipline): a conforming implementation matches
+these vectors for THIS spec version; a future revision may re-pin them with a
+changelog entry, never silently.
+
+### 13.5 PEL-Core: Interaction and Retirement Position
+
+PEL-Core (v2.5, `pel_core_enabled`, default off) and the E-law takeover BOTH
+claim authority over the 8-dim core's base evolution. The standard's position:
+
+1. **Mutual exclusion is normative**: `affect_takeover` + `pel_core_enabled`
+   MUST be rejected at configuration time (the reference raises ValueError),
+   and an implementation MUST additionally keep the E-law takeover inert if a
+   PEL core is somehow active (belt at the state layer) — otherwise the PEL
+   readout silently overwrites the E-law's decay every tick and the takeover
+   contract is false while appearing enabled.
+2. **Honest status**: PEL remains an opt-in experiment. Its production-liveness
+   witnesses (precision spread, anchor drift) ship in diagnostics; it has NOT
+   cleared a behavioral-calibration gate, and the known structural finding that
+   the legacy MLP main-step image (not Phi_eq, not PEL mu) dominates the
+   observed resting mood applies to the hybrid wiring as a whole (see
+   docs/design/affect-calibration-memo.md, D1).
+3. **Retirement path**: if the E-law full-takeover slice (memo D1 option b —
+   silence ticks become decay-only and event semantics enter via projection
+   instead of the MLP) is adopted and clears its own shadow-parity + red-team
+   gates, PEL-Core retires in the following minor version: the flag remains
+   accepted-and-ignored for one deprecation cycle (config warning), snapshot
+   "pel" sub-keys are ignored on restore (already migration-safe), and the
+   module is deleted the version after. Retreat MUST be announced in the
+   changelog — silence is not a retirement mechanism (the failure mode this
+   clause exists to prevent).
