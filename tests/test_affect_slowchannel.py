@@ -29,15 +29,15 @@ def _fresh_traits() -> dict[str, TraitMemory]:
 
 class TestPureFunctions:
     def test_poignancy_leaky_bucket(self) -> None:
-        assert ad.poignancy_update(10.0, 0.0, 0.1) == pytest.approx(9.0)   # pure leak
-        assert ad.poignancy_update(0.0, 5.0, 0.1) == pytest.approx(5.0)     # pure inflow
-        assert ad.poignancy_update(-3.0, -1.0, 0.1) == 0.0                  # floored at 0
+        assert ad.poignancy_update(10.0, 0.0, 0.1) == pytest.approx(9.0)  # pure leak
+        assert ad.poignancy_update(0.0, 5.0, 0.1) == pytest.approx(5.0)  # pure inflow
+        assert ad.poignancy_update(-3.0, -1.0, 0.1) == 0.0  # floored at 0
 
     def test_reflection_ready(self) -> None:
-        assert ad.reflection_ready(3.5, 3.0, 1000.0, 0.0, 1800.0) is True   # first (no cooldown)
+        assert ad.reflection_ready(3.5, 3.0, 1000.0, 0.0, 1800.0) is True  # first (no cooldown)
         assert ad.reflection_ready(3.5, 3.0, 1000.0, 900.0, 1800.0) is False  # in cooldown
-        assert ad.reflection_ready(3.5, 3.0, 3000.0, 900.0, 1800.0) is True   # cooldown passed
-        assert ad.reflection_ready(2.0, 3.0, 3000.0, 0.0, 1800.0) is False    # below threshold
+        assert ad.reflection_ready(3.5, 3.0, 3000.0, 900.0, 1800.0) is True  # cooldown passed
+        assert ad.reflection_ready(2.0, 3.0, 3000.0, 0.0, 1800.0) is False  # below threshold
 
     def test_drift_step_anchor_rebound(self) -> None:
         # No drive, value above anchor -> pulled back toward anchor (negative).
@@ -59,8 +59,12 @@ class TestPureFunctions:
 
     def test_validate_slowchannel_params(self) -> None:
         ad.validate_slowchannel_params(3.0, 0.1, 0.3, 0.2, 1800.0)
-        for bad in [(-1.0, 0.1, 0.3, 0.2, 60.0), (3.0, 1.0, 0.3, 0.2, 60.0),
-                    (3.0, 0.1, 0.0, 0.2, 60.0), (3.0, 0.1, 0.3, 0.2, -1.0)]:
+        for bad in [
+            (-1.0, 0.1, 0.3, 0.2, 60.0),
+            (3.0, 1.0, 0.3, 0.2, 60.0),
+            (3.0, 0.1, 0.0, 0.2, 60.0),
+            (3.0, 0.1, 0.3, 0.2, -1.0),
+        ]:
             with pytest.raises(ValueError):
                 ad.validate_slowchannel_params(*bad)
 
@@ -101,7 +105,7 @@ class TestSlowChannel:
             raise RuntimeError("drift commit blew up")
 
         monkeypatch.setattr(personality_mod, "compute_embodiment_drift", boom)
-        assert sc.maybe_reflect(traits, now=5000.0, drift_tick=1) is False   # fail-closed
+        assert sc.maybe_reflect(traits, now=5000.0, drift_tick=1) is False  # fail-closed
         # Half-mutation must be rolled back from the ring snapshot.
         assert all(tm.value == 0.5 for tm in traits.values())
         # Poignancy/pending retained for retry (not cleared on failure).
@@ -149,8 +153,11 @@ class TestSpineIntegration:
         sp.apply_personality(_TRAITS)
         for t in range(12):
             a = {
-                "valence": 0.7, "arousal": 0.7, "wound_risk": 0.6,
-                "intent": "生气", "confidence": 0.9,
+                "valence": 0.7,
+                "arousal": 0.7,
+                "wound_risk": 0.6,
+                "intent": "生气",
+                "confidence": 0.9,
             }
             sp.process("你这样让我好难过", timestamp=float((t + 1) * 200), assessment=a)
         return sp

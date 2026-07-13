@@ -359,7 +359,6 @@ class ResonanceSpine:
             scar._pel_enabled = True
             scar.set_pel_priors(self._personality)
 
-
     def set_relationship(self, relationship: float) -> None:
         """v26 D2：host 显式供给关系相位标量 R ∈ [0,1]（memo D2 选项 a）。
 
@@ -884,7 +883,9 @@ class ResonanceSpine:
         silence_on = scar._affect_takeover and scar._affect_active()
         silence_drive = 0.0
         if silence_on:
-            silence_drive = min(1.0, self._expression.wall_silence_seconds(now) / _SILENCE_DRIVE_SCALE_S)
+            silence_drive = min(
+                1.0, self._expression.wall_silence_seconds(now) / _SILENCE_DRIVE_SCALE_S
+            )
 
         # OR-gate: max of independent triggers, gated by meaningfulness
         bifurcation_drive = (
