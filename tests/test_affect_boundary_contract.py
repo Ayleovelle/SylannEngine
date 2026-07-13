@@ -124,6 +124,22 @@ class TestGeminiReviewHardening:
         assert rt._affect_gain is None
         assert rt._affect_phi == [0.0] * 8
 
+    def test_from_dict_nan_learned_state_rejected(self) -> None:
+        # PR #28 gemini：float("nan") 不抛 → 会绕过 try/except 静默钉进学习态。
+        # isfinite 闸必须把 NaN/inf 也判成损坏 → gain 回落 None、phi 回落中性、q_ema 回落 0.5。
+        st = ScarredState(n_dims=8, affect_enabled=True)
+        st.set_affect_params(_TRAITS, takeover=True, plasticity=True)
+        st.apply_affect_takeover(0.8, 0.7, 0.1, "撒娇")
+        st.apply_affect_quality(1.0)
+        d = st.to_dict()
+        d["affect_gain"] = [float("nan")] * 8
+        d["affect_phi"] = [float("inf")] * 8
+        d["affect_q_ema"] = float("nan")
+        rt = ScarredState.from_dict(d, affect_enabled=True)
+        assert rt._affect_gain is None  # 非有限 gain 不得钉成 0.05
+        assert rt._affect_phi == [0.0] * 8  # 非有限 phi 回落中性资格迹
+        assert rt._affect_q_ema == 0.5  # 非有限 q_ema 回落先验
+
     def test_resolve_label_short_prev_key_no_indexerror(self) -> None:
         from sylanne_core.compute.affect_output_contract import HysteresisState, resolve_label
 
