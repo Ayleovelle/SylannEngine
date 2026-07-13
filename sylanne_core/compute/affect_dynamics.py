@@ -294,7 +294,12 @@ _POIGNANCY_DIM_W: tuple[float, ...] = (0.5, 0.5, 1.0, 1.0, 0.3, 1.0, 0.4, 0.6)
 
 def poignancy_magnitude(a_k: list[float]) -> float:
     """一次 appraisal 的"刻骨"质量 ≥ 0：受伤相关维加权的 L2 范数（§4.2）。"""
-    return math.sqrt(sum((_POIGNANCY_DIM_W[i] * _finite(a_k[i], 0.0)) ** 2 for i in range(N_DIMS)))
+    return math.sqrt(
+        sum(
+            (_POIGNANCY_DIM_W[i] * _finite(a_k[i] if i < len(a_k) else 0.0, 0.0)) ** 2
+            for i in range(N_DIMS)
+        )
+    )
 
 
 def poignancy_update(pi: float, inflow: float, mu: float, dt_ticks: float = 1.0) -> float:

@@ -1051,12 +1051,20 @@ class ScarredState:
         state._e_ver = int(data.get("e_ver", 0))
         # A.2 学习态复原（additive；缺键 = 未学习过，懒初始化会重新从人格导出）。
         # 增益经 Π_{[ε,1]} 语义夹回（复原边界执行学习态自己的域契约）。
+        # gemini review：gain/phi 与下方 q_ema 一样包 try/except——损坏快照里的非数值
+        # 学习态不得让整个会话 from_dict 崩（复原边界 fail-soft，回落未学习/中性）。
         raw_gain = data.get("affect_gain")
         if isinstance(raw_gain, list) and len(raw_gain) == state.n_dims:
-            state._affect_gain = [min(1.0, max(0.05, float(x))) for x in raw_gain]
+            try:
+                state._affect_gain = [min(1.0, max(0.05, float(x))) for x in raw_gain]
+            except (TypeError, ValueError):
+                state._affect_gain = None
         raw_phi = data.get("affect_phi")
         if isinstance(raw_phi, list) and len(raw_phi) == state.n_dims:
-            state._affect_phi = [min(1.0, max(0.0, float(x))) for x in raw_phi]
+            try:
+                state._affect_phi = [min(1.0, max(0.0, float(x))) for x in raw_phi]
+            except (TypeError, ValueError):
+                state._affect_phi = [0.0] * state.n_dims
         try:
             state._affect_q_ema = min(1.0, max(0.0, float(data.get("affect_q_ema", 0.5))))
         except (TypeError, ValueError):
