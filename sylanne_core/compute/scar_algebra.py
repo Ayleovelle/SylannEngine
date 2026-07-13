@@ -1051,14 +1051,35 @@ class ScarredState:
         state._e_ver = int(data.get("e_ver", 0))
         # A.2 学习态复原（additive；缺键 = 未学习过，懒初始化会重新从人格导出）。
         # 增益经 Π_{[ε,1]} 语义夹回（复原边界执行学习态自己的域契约）。
+        # gemini review：gain/phi 与下方 q_ema 一样包 try/except——损坏快照里的非数值
+        # 学习态不得让整个会话 from_dict 崩（复原边界 fail-soft，回落未学习/中性）。
+        # gemini review：float("nan") 不抛，会绕过 try/except 静默钉进学习态——显式
+        # isfinite 闸把非有限值也判成损坏；sourcery review：回落时 warning 使坏快照可观测。
+        # isfinite 闸必须验**原始** float——clamp 会把 nan 先钉成边界（max(0.05, nan)=0.05），
+        # 若在 clamp 后检查就永远看不到非有限值（PR #28 gemini：float("nan") 绕过守卫）。
         raw_gain = data.get("affect_gain")
         if isinstance(raw_gain, list) and len(raw_gain) == state.n_dims:
-            state._affect_gain = [min(1.0, max(0.05, float(x))) for x in raw_gain]
+            try:
+                floats = [float(x) for x in raw_gain]
+                if any(not math.isfinite(f) for f in floats):
+                    raise ValueError("non-finite affect_gain")
+                state._affect_gain = [min(1.0, max(0.05, f)) for f in floats]
+            except (TypeError, ValueError):
+                logger.warning("corrupt affect_gain in snapshot; dropping learned gains")
+                state._affect_gain = None
         raw_phi = data.get("affect_phi")
         if isinstance(raw_phi, list) and len(raw_phi) == state.n_dims:
-            state._affect_phi = [min(1.0, max(0.0, float(x))) for x in raw_phi]
+            try:
+                floats = [float(x) for x in raw_phi]
+                if any(not math.isfinite(f) for f in floats):
+                    raise ValueError("non-finite affect_phi")
+                state._affect_phi = [min(1.0, max(0.0, f)) for f in floats]
+            except (TypeError, ValueError):
+                logger.warning("corrupt affect_phi in snapshot; resetting eligibility trace")
+                state._affect_phi = [0.0] * state.n_dims
         try:
-            state._affect_q_ema = min(1.0, max(0.0, float(data.get("affect_q_ema", 0.5))))
+            q = float(data.get("affect_q_ema", 0.5))
+            state._affect_q_ema = min(1.0, max(0.0, q)) if math.isfinite(q) else 0.5
         except (TypeError, ValueError):
             state._affect_q_ema = 0.5
         # PEL-Core: migration-safe restore, GATED ON THE HOST'S CONFIG FLAG

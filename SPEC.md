@@ -1,6 +1,6 @@
 # SylannEngine SDK 规范
 
-版本：`2.5.0`
+版本：`2.6.1`
 协议版本：`sylanne.engine.v1`
 
 > **Scope / 定位**：This document is the **SDK API specification** — public interface, output schema, configuration, and lifecycle.

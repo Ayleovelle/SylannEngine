@@ -8,8 +8,8 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
 [![PyPI](https://img.shields.io/pypi/v/sylanne-core.svg?logo=pypi&logoColor=white)](https://pypi.org/project/sylanne-core/)
-[![Version](https://img.shields.io/badge/Version-2.5.0-green.svg)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/Tests-780+_passed-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/Version-2.6.1-green.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Tests-850+_passed-brightgreen.svg)]()
 [![Zero Dependencies](https://img.shields.io/badge/Lite_Tier-Zero_Dependencies-orange.svg)]()
 
 **[标准规范](SPEC.md)** · **[开发者指南](AGENT_GUIDE.md)** · **[更新日志](CHANGELOG.md)** · **[Paper (EN)](docs/resonance_field_paper_en.pdf)** · **[Paper (中文)](docs/resonance_field_paper_zh.pdf)**

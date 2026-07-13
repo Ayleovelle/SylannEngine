@@ -102,10 +102,13 @@ class SlowChannel:
         """累积一次刻骨 appraisal：更新 poignancy 漏桶 + 逐特质方向累积。"""
         if not self.active:
             return
+        a_s = affect_dynamics.sanitize_appraisal(a_k)
         inflow = affect_dynamics.poignancy_magnitude(a_k)
         self._pi = affect_dynamics.poignancy_update(self._pi, inflow, _MU)
         for trait, mapping in _TRAIT_DRIFT_MAP.items():
-            contrib = sum(w * (a_k[d] if d < len(a_k) else 0.0) for d, w in mapping)
+            # sourcery review：复用集中的 sanitize_appraisal——非有限 a_k 分量不再顺
+            # contrib 灌进持久 _pending 人格漂移累积器，且不与 poignancy 的守卫逻辑漂移。
+            contrib = sum(w * a_s[d] for d, w in mapping)
             self._pending[trait] = self._pending.get(trait, 0.0) + contrib
         self._events += 1
 

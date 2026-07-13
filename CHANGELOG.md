@@ -5,10 +5,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-### 情感动力学（affect-dynamics，设计代号 v26）—— 分阶段落地，**默认全关，字节一致**
+## [2.6.1] — 2026-07-10
 
-> 版本号待发布时定：全部功能默认关、关时与 2.5 字节一致，净行为增量取决于后续 warmth
-> 标定与闸位提升，故本轮**不预先主张 2.6.0**（设计稿沿用内部代号 v26，与发布号解耦）。
+### 情感动力学（affect-dynamics，设计代号 v26）—— 首个带发布号的版本
+
+> 全部功能藏在**默认 `False`** 的 `SylanneConfig` 开关后，**全关时行为与 2.5.0 逐字节一致**
+> （确定性字段逐字相同、快照无新增键，已 `random.seed(0)`+`PYTHONHASHSEED=0` 实证对拍）。
+> 发布号定为 2.6.1：含 v26 全量落地（PR #26/#27）+ 合并后独立机器人评审的健壮性加固（PR #28）。
 
 在 8 维情感核（`lite` 档）上引入双速情感动力学 E 律：墙钟惰性衰减到人格均衡 Φ_eq（慢/时间
 通道）+ 每轮 appraisal 饱和快更新（快/语义通道）。E 即 `ScarredState.base`（原地升级，非并行核）。
@@ -63,6 +66,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   愈合）——仅在 `affect_dynamics_enabled` 开时生效，关时保持旧的无条件赋值。
 - 冷载 hoist：`SylanneEngine._get_or_create_host` 改协程，首触快照磁盘读经 `asyncio.to_thread`
   挪出事件循环，冷会话不再卡住 loop。
+
+#### 健壮性加固（PR #28，合并后 gemini-code-assist 评审）
+
+- `slow_channel.observe`：appraisal 分量补 `math.isfinite` 消毒——非有限值不再灌进持久化人格漂移累积器。
+- `affect_dynamics.poignancy_magnitude`：`a_k` 越界索引加长度守卫，短输入不再 IndexError。
+- `ScarredState.from_dict`：学到的增益/资格迹复原包 try/except——损坏快照的非数值学习态不再崩会话加载。
+- `affect_output_contract.resolve_label`：迟滞合并改 `list(raw)`，消除 `prev.key` 长度不一致时的 IndexError。
 
 ## [2.5.0] — 2026-07-06
 
