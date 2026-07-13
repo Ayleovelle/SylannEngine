@@ -138,3 +138,55 @@ class TestAssessText:
         out = await assess_text("   ", unused)
         assert out["flags"] == ["idle"]
         assert out["valence"] == 0.0
+
+
+class TestIntentDirectOutput:
+    """v26 A.1：assessor 直出 intent——门在 takeover 上，关闭态逐字节不变。"""
+
+    def test_prompt_unchanged_when_off(self):
+        from sylanne_core.assessor import _SYSTEM_PROMPT, _SYSTEM_PROMPT_WITH_INTENT
+
+        assert "intent" not in _SYSTEM_PROMPT           # 旧 prompt 一字未动
+        assert '"intent"' in _SYSTEM_PROMPT_WITH_INTENT  # 替换真的生效（防静默 no-op）
+        assert "撒娇(亲昵求关注)" in _SYSTEM_PROMPT_WITH_INTENT
+
+    def test_parse_no_intent_key_when_off(self):
+        out = _parse_response('{"confidence": 0.8, "flags": [], "intent": "生气"}')
+        assert "intent" not in out                      # 关闭态键集与旧版逐字相同
+
+    def test_parse_intent_sanitized_when_on(self):
+        good = _parse_response('{"confidence": 0.8, "flags": [], "intent": "生气"}',
+                               want_intent=True)
+        assert good["intent"] == "生气"
+        # 首尾引号/标点可剥（LLM 常见毛边）
+        quoted = _parse_response('{"confidence": 0.8, "flags": [], "intent": "撒娇。"}',
+                                 want_intent=True)
+        assert quoted["intent"] == "撒娇"
+        # 红队修订：精确匹配——否定/转述/混排一律归空，不再被子串匹配骗过。
+        for raw in ('"无"', '"完全无关的话"', "null", "42", f'"{"x" * 99}"',
+                    '"不生气"', '"别生气"', '"没有施压"', '"是生气不是撒娇"'):
+            out = _parse_response(
+                f'{{"confidence": 0.5, "flags": [], "intent": {raw}}}', want_intent=True
+            )
+            assert out["intent"] == "", raw             # 词表外一律归空（=今日生产语义）
+
+    def test_fallback_never_classifies_intent(self):
+        # 红队修订：兜底不对用户原文做意图分类（"你生气了吗"会被误判成生气）——
+        # LLM 不在场就诚实给空。
+        assert _local_fallback("对不起嘛别气了", want_intent=True)["intent"] == ""
+        assert _local_fallback("你生气了吗", want_intent=True)["intent"] == ""
+        assert _local_fallback("我没有生气", want_intent=True)["intent"] == ""
+        assert "intent" not in _local_fallback("对不起嘛")   # off：无键
+
+    @pytest.mark.asyncio
+    async def test_assess_text_threads_want_intent(self):
+        prompts: list[str] = []
+
+        async def spy_llm(system: str, user: str) -> str:
+            prompts.append(system)
+            return '{"confidence": 0.9, "flags": [], "intent": "撒娇"}'
+
+        off = await assess_text("抱抱我嘛", spy_llm)
+        on = await assess_text("抱抱我嘛", spy_llm, want_intent=True)
+        assert "intent" not in off and on["intent"] == "撒娇"
+        assert "intent" not in prompts[0] and '"intent"' in prompts[1]

@@ -267,7 +267,7 @@ class SylanneEngine:
         await self._ensure_started()
         assessment = await self._assess(text) if self._config.assessor_enabled else None
         async with self._session_lock(session_id):
-            host = self._get_or_create_host(session_id)
+            host = await self._get_or_create_host(session_id)
             event = {
                 "text": text,
                 "confidence": (
@@ -549,7 +549,7 @@ class SylanneEngine:
             if cached is not None and now_ts - cached[0] < self._config.tick_min_interval_seconds:
                 return cached[1]
         async with self._session_lock(session_id):
-            host = self._get_or_create_host(session_id)
+            host = await self._get_or_create_host(session_id)
             event = {
                 "text": "",
                 "confidence": 0.0,
@@ -570,7 +570,7 @@ class SylanneEngine:
         # resurrection guard. _ensure_started is a no-op on a running engine.
         await self._ensure_started()
         async with self._session_lock(session_id):
-            host = self._get_or_create_host(session_id)
+            host = await self._get_or_create_host(session_id)
             surface = host.diagnostics()
             return self._to_surface(session_id, host, surface)
 
@@ -627,7 +627,7 @@ class SylanneEngine:
             )
         await self._ensure_started()
         async with self._session_lock(session_id):
-            host = self._get_or_create_host(session_id)
+            host = await self._get_or_create_host(session_id)
             from .compute.hot_pool import Influence
 
             influence = Influence(
@@ -832,18 +832,56 @@ class SylanneEngine:
             self._locks[session_id] = asyncio.Lock()
         return self._locks[session_id]
 
-    def _get_or_create_host(self, session_id: str) -> SylanneHost:
-        if session_id not in self._hosts:
-            from .compute import SylanneHost
+    async def set_relationship(self, session_id: str, relationship: float) -> None:
+        """v26 D2：host 显式供给会话的关系相位标量 R ∈ [0,1]（标定呈报 D2 选项 a）。
 
-            self._hosts[session_id] = SylanneHost(
-                root=self._data_dir,
-                session_key=session_id,
-                profile=self._config.profile(),
-                telemetry_sink=self._telemetry_sink,
-                pel_enabled=self._config.pel_core_enabled,
-            )
-        return self._hosts[session_id]
+        R 的语义（"和这个人处到哪一步了"）由宿主定义，引擎只消费：情感均衡 Φ_eq 的
+        warmth 行随 R 上移（关系越深、常驻越暖）。仅在 affect_dynamics_enabled 开启时
+        有可观测效果；未调用时保持 0.5（今日行为）。越界抛 ValueError；设置随快照持久化。
+        """
+        r = float(relationship)
+        if not (0.0 <= r <= 1.0):
+            raise ValueError(f"relationship must be in [0,1], got {relationship!r}")
+        await self._ensure_started()
+        async with self._session_lock(session_id):
+            host = await self._get_or_create_host(session_id)
+            host.kernel.computation.set_relationship(r)
+            host._pending_snapshot = host.kernel.snapshot()
+            host._dirty = True
+            host._flush()
+
+    def _build_host(self, session_id: str) -> SylanneHost:
+        """Construct a host (blocking cold-load disk IO happens in __post_init__)."""
+        from .compute import SylanneHost
+
+        return SylanneHost(
+            root=self._data_dir,
+            session_key=session_id,
+            profile=self._config.profile(),
+            telemetry_sink=self._telemetry_sink,
+            pel_enabled=self._config.pel_core_enabled,
+            affect_enabled=self._config.affect_dynamics_enabled,
+            affect_takeover=self._config.affect_takeover,
+            affect_slowchannel=self._config.affect_slowchannel_enabled,
+            affect_plasticity=self._config.affect_plasticity_enabled,
+            affect_full_takeover=self._config.affect_full_takeover,
+        )
+
+    async def _get_or_create_host(self, session_id: str) -> SylanneHost:
+        """Get the cached session host, cold-loading it off the event loop.
+
+        v2.6.0 T-Persist: first-touch construction reads the session snapshot from
+        disk synchronously (``SylanneAlphaHost.__post_init__`` -> ``AlphaRuntime.load``).
+        Hoist that blocking IO via ``asyncio.to_thread`` so a cold session does not
+        stall the loop. The dict insert stays on the loop thread (no cross-session
+        race); same-id concurrency is already serialized by the per-session lock,
+        so the post-await re-check simply joins a host built while we awaited.
+        """
+        host = self._hosts.get(session_id)
+        if host is None:
+            built = await asyncio.to_thread(self._build_host, session_id)
+            host = self._hosts.setdefault(session_id, built)
+        return host
 
     def _ctx_fingerprint(
         self,
@@ -1020,7 +1058,15 @@ class SylanneEngine:
         try:
             from .assessor import assess_text
 
-            result = await assess_text(text, self._assessor_llm or self._llm)
+            # v26 A.1：仅在 takeover（Gate B）开时向 LLM 直出 intent——Gate A/关闭态
+            # prompt 逐字节不变（intent 通电会点燃遗留手写意图规则、破影子期契约）。
+            result = await assess_text(
+                text,
+                self._assessor_llm or self._llm,
+                want_intent=(
+                    self._config.affect_takeover and self._config.affect_dynamics_enabled
+                ),
+            )
             if result and result.pop("_degraded", False):
                 if self._status == "running":
                     self._status = "degraded"

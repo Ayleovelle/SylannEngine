@@ -117,6 +117,16 @@ def render_prompt_fragment(
         f"[sylanne_proactive_source] decision={proactive['decision']}; body_need={proactive['drivers']['body_need']}; relationship_continuity={proactive['drivers']['relationship_continuity']}; constraints=current_user_sovereignty_first,no_private_memory_recall",
         f"[sylanne_prompt_context_bus] primary={bus['primary']}; posture={bus['posture']}; fragments={','.join(bus['fragments'])}; policy={bus['policy']}",
     ]
+    # v2.6.0 T6 (Gate B): splice the hysteretic emotion-label shadow into the prompt
+    # fragment as a weak style hint. Append-only (canonical render has no budget /
+    # eviction — §6.2 is a plugin-fork artifact). Gated on takeover so the fragment
+    # is byte-identical when off. Coexists with (does NOT replace) Surface.pad.label.
+    affect_label = kernel.affect_label_shadow()
+    if affect_label and getattr(kernel.computation, "_affect_takeover", False):
+        extra_fragments.append(
+            f"[sylanne_affect_label] emotion={affect_label}; "
+            "constraints=weak_style_hint_only,coexists_with_pad_label,no_persona_rewrite"
+        )
     base = (
         f"Sylanne body: action={decision['action']}; reason={reason}; keep user sovereignty first.\n{relational_fragment}\n{memory_fragment}\n{self_fragment}\n"
         + "\n".join(extra_fragments)
@@ -263,7 +273,7 @@ def render_diagnostics(
     vector_summary = kernel._vector_summary()
     body = kernel.body.to_dict()
     risk_score = kernel._risk_score()
-    return {
+    out: dict[str, Any] = {
         "life_principle": "I'm living a life by design",
         "load": body["mortality"]["load"],
         "interruption_budget": body["immunity"]["interruption_budget"],
@@ -300,6 +310,15 @@ def render_diagnostics(
         },
         "hot_pool": kernel.hot_pool.diagnostics(),
     }
+    # v2.6.0 T2 Gate A: additive emotion-label shadow key, present ONLY when the
+    # affect feature is enabled and a label has been resolved — so diagnostics stay
+    # byte-identical (deep-equal) when off. Diagnostic-only; never reaches the prompt
+    # fragment. Coexists with (does not replace) Surface.pad.label — the supersede/
+    # deprecate decision is deferred to T6.
+    label_shadow = kernel.affect_label_shadow()
+    if label_shadow is not None:
+        out["affect_label_shadow"] = label_shadow
+    return out
 
 
 # ---------------------------------------------------------------------------

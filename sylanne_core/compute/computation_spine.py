@@ -24,6 +24,7 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Any, Callable
 
+from . import affect_projection
 from .autopoiesis import AutopoieticBoundary
 from .bounded_dict import BoundedDict
 from .hdc import HDCEncoder
@@ -42,6 +43,7 @@ from .personality import (
 from .phase_transition import PhaseTransitionExpression
 from .predictive_coding import PredictiveCodingGate
 from .relational_sheaf import ScarSheaf
+from .slow_channel import SlowChannel
 from .void_scar_engine import VoidScarEngine
 
 if TYPE_CHECKING:
@@ -213,6 +215,18 @@ class ComputationSpine:
         "_pad_projector_cache",
         # PEL-Core enable flag (config-gated; default off)
         "_pel_enabled",
+        # v2.6.0 affect-dynamics E-law shadow enable flag (config-gated; default off)
+        "_affect_enabled",
+        # v2.6.0 T3 E-law takeover flag (config-gated; default off)
+        "_affect_takeover",
+        # v26 A.2 delta-rule gain plasticity flag (config-gated; default off)
+        "_affect_plasticity",
+        # v26 D1(b) E-law full-takeover flag (config-gated; default off)
+        "_affect_full_takeover",
+        # v26 D2: host-supplied relationship phase scalar R in [0,1] (default 0.5)
+        "_affect_relationship",
+        # v2.6.0 T5 slow channel (poignancy -> reflection -> macro drift; default off)
+        "_slow_channel",
     )
 
     def __init__(
@@ -221,6 +235,11 @@ class ComputationSpine:
         profile: DimensionProfile | None = None,
         *,
         pel_enabled: bool = False,
+        affect_enabled: bool = False,
+        affect_takeover: bool = False,
+        affect_slowchannel: bool = False,
+        affect_plasticity: bool = False,
+        affect_full_takeover: bool = False,
     ):
         if profile is None:
             from ..config import build_profile
@@ -228,6 +247,12 @@ class ComputationSpine:
             profile = build_profile("lite")
         self._profile = profile
         self._pel_enabled = pel_enabled
+        self._affect_enabled = affect_enabled
+        self._affect_takeover = affect_takeover
+        self._affect_plasticity = affect_plasticity
+        self._affect_full_takeover = affect_full_takeover
+        self._affect_relationship = 0.5
+        self._slow_channel = SlowChannel(active=affect_slowchannel)
         hdc_dim = profile.hdc_dim
         if plugin is not None:
             hdc_dim = getattr(plugin, "_cfg_int", lambda k, d: d)(
@@ -240,6 +265,7 @@ class ComputationSpine:
             similarity_fn=self._hdc_similarity,
             scar_mlp_passes=profile.scar_mlp_passes,
             pel_enabled=pel_enabled,
+            affect_enabled=affect_enabled,
         )
         self.sheaf = ScarSheaf(n0=profile.stalk_dim)
         self.boundary = AutopoieticBoundary(
@@ -292,7 +318,8 @@ class ComputationSpine:
         # Embodiment personality drift system
         self._signal_extractor = DriftSignalExtractor()
         self._embodiment_traits: dict[str, TraitMemory] = {
-            name: TraitMemory(0.5) for name in EMBODIMENT_TRAITS
+            name: TraitMemory(0.5, persist_anchor=self._slow_channel.active)
+            for name in EMBODIMENT_TRAITS
         }
         self._oscillation_detector = OscillationDetector()
         self._drift_attribution = DriftAttribution(maxlen=100)
@@ -401,6 +428,17 @@ class ComputationSpine:
 
         # PEL-Core: derive latent attractor prior from personality (no-op off).
         self.engine.scar_state.set_pel_priors(personality)
+
+        # v2.6.0 affect E-law: feed the same normalized personality as traits +
+        # neutral relationship 0.5 (no canonical R signal is plumbed yet) + the
+        # takeover flag. No-op unless affect_dynamics_enabled & 8-dim core.
+        self.engine.scar_state.set_affect_params(
+            personality,
+            relationship=self._affect_relationship,
+            takeover=self._affect_takeover,
+            plasticity=self._affect_plasticity,
+            full_takeover=self._affect_full_takeover,
+        )
 
         # Void detection threshold: neurotic = lower threshold (detects absence easily)
         # Range: 0.1 (very neurotic) to 0.6 (very stable)
@@ -561,23 +599,79 @@ class ComputationSpine:
             for void in self.engine.void_space.voids[:3]:
                 void.pressure *= max(0.5, 1.0 - valence * 0.3)
 
-        # Intent-specific adjustments via scar base vector modulation
-        if intent == "撒娇":
-            # Coquettish intent → soften base state (reduce tension dims)
-            if len(self.engine.scar_state.base) > 3:
-                self.engine.scar_state.base[3] *= 0.85  # tension dim
-            if len(self.engine.scar_state.base) > 0:
-                self.engine.scar_state.base[0] = min(
-                    1.0, self.engine.scar_state.base[0] + 0.1
-                )  # warmth dim
-        elif intent == "生气":
-            # Anger → raise tension in base state
-            if len(self.engine.scar_state.base) > 3:
-                self.engine.scar_state.base[3] = min(1.0, self.engine.scar_state.base[3] + 0.2)
+        # v2.6.0 T3: E-law takeover of the semantic fast update. Returns True iff it
+        # wrote base (takeover on + no error) — then the legacy intent hand-rules are
+        # skipped. Off / fail-closed -> False -> hand-rules run (fail-closed to legacy).
+        took_over = self.engine.scar_state.apply_affect_takeover(
+            valence, arousal, wound_risk, intent
+        )
 
-        # Arousal modulates expression drive accumulation rate
+        # Intent-specific adjustments via scar base vector modulation (legacy path)
+        if not took_over:
+            if intent == "撒娇":
+                # Coquettish intent → soften base state (reduce tension dims)
+                if len(self.engine.scar_state.base) > 3:
+                    self.engine.scar_state.base[3] *= 0.85  # tension dim
+                if len(self.engine.scar_state.base) > 0:
+                    self.engine.scar_state.base[0] = min(
+                        1.0, self.engine.scar_state.base[0] + 0.1
+                    )  # warmth dim
+            elif intent == "生气":
+                # Anger → raise tension in base state
+                if len(self.engine.scar_state.base) > 3:
+                    self.engine.scar_state.base[3] = min(1.0, self.engine.scar_state.base[3] + 0.2)
+
+        # Arousal modulates expression drive accumulation rate (both paths)
         if arousal > 0.7:
             self.expression.accumulate(arousal * 0.2, dt=0.5)
+
+        # v2.6.0 Gate A: fast-channel appraisal onto the *shadow* E (diagnostic only,
+        # never touches base). Skipped when takeover already wrote base. Fail-closed —
+        # a bug in projection/gain must not escape the per-turn path (t1-audit #1).
+        if not took_over:
+            try:
+                self.engine.scar_state.apply_affect_appraisal_shadow(
+                    valence, arousal, wound_risk, intent
+                )
+            except Exception:  # pragma: no cover - diagnostic path, must never crash a turn
+                logger.debug("affect-shadow appraisal (computation) skipped", exc_info=True)
+
+        # v2.6.0 T5: feed the slow channel one poignant appraisal (no-op when off).
+        if self._slow_channel.active:
+            try:
+                a_k, _ = affect_projection.project_appraisal(valence, arousal, wound_risk, intent)
+                self._slow_channel.observe(a_k)
+            except Exception:  # pragma: no cover - fail-closed
+                logger.debug("slow-channel observe (computation) skipped", exc_info=True)
+
+
+    def set_relationship(self, relationship: float) -> None:
+        """v26 D2：host 显式供给关系相位标量 R ∈ [0,1]（memo D2 选项 a）。
+
+        R 语义（"处到哪一步了"）由宿主定义，SDK 只消费：Φ_eq 的 warmth 行随 R 上移
+        （系数 0.30·(R−0.5)）。越界/非有限一律夹回（本层 fail-closed 内部原语；
+        引擎层 `SylanneEngine.set_relationship` 才是 fail-loud 的宿主边界，越界抛
+        ValueError——分层刻意如此）。**直接注入** live scar_state（红队修订：此前只标脏
+        人格，而 R 不参与 effective_personality 比较，比较到达不动点后 set_relationship
+        会永久静默失效；kernel 每 tick 无条件重应用人格只是掩盖它的巧合，不是契约）。
+        R 随 spine 快照持久化（additive，affect 关时不落盘保字节一致）。
+        """
+        import math as _math
+
+        r = float(relationship)
+        if not _math.isfinite(r):
+            r = 0.5
+        self._affect_relationship = min(1.0, max(0.0, r))
+        # 直接把新 R 注入 live scar 参数（幂等；traits 用当前已存人格，冷启动为空时
+        # 稍后 apply_personality 会带着存好的 R 完整重注入）。
+        self.engine.scar_state.set_affect_params(
+            self._personality,
+            relationship=self._affect_relationship,
+            takeover=self._affect_takeover,
+            plasticity=self._affect_plasticity,
+            full_takeover=self._affect_full_takeover,
+        )
+        self._personality_dirty = True
 
     def apply_social_signals(self, signals: SocialSignals | None) -> None:
         """应用社交场信号到 L7 表达层和 L3 虚空-伤痕引擎。"""
@@ -644,6 +738,15 @@ class ComputationSpine:
                 self._last_effective_params = dict(effective)
             self._last_effective_session = session_key
             self._personality_dirty = False
+
+        # v26 A.2（红队修订）：滞后 quality 在本回合 assessment 动资格迹之前、且在任何
+        # 路由分支之前消费——修复 normal/full 路由学习钩子缺失 + 信用序污染。fail-closed。
+        if dialogue_quality is not None:
+            try:
+                self.engine.scar_state.apply_affect_quality(float(dialogue_quality))
+            except Exception:  # pragma: no cover - learning must never crash a turn
+                logger.debug("affect plasticity hook (computation) skipped", exc_info=True)
+
         # Empty string handling: skip computation, self-repair only
         if not text or not text.strip():
             self.boundary.self_repair()
@@ -1019,25 +1122,37 @@ class ComputationSpine:
         # marker is popped here, and _last_drift_time still advances on a bypass, so
         # repeated fast turns are dt-scaled down rather than blowing the 30s budget.
         timestamp = self._last_process_time
+        # v2.6.0 T5: slow-channel reflection (own poignancy threshold + wall-clock
+        # cooldown; atomic via the same write path). Bypasses the early returns so
+        # the reapply propagates when it fires.
+        reflected = self._slow_channel.maybe_reflect(
+            self._embodiment_traits,
+            timestamp,
+            self._drift_tick,
+            dialogue_quality=float(result.get("dialogue_quality", 0.5)),
+            oscillation_detector=self._oscillation_detector,
+            drift_attribution=self._drift_attribution,
+        )
         dt = timestamp - self._last_drift_time
         has_explicit_feedback = result.pop("_consume_dialogue_quality", False)
-        if dt < self._drift_min_interval and not has_explicit_feedback:
+        if dt < self._drift_min_interval and not has_explicit_feedback and not reflected:
             self._drift_tick += 1
             return
         self._last_drift_time = timestamp
 
         signals = self._signal_extractor.extract(result)
-        if not signals:
+        if not signals and not reflected:
             self._drift_tick += 1
             return
-        compute_embodiment_drift(
-            self._embodiment_traits,
-            signals,
-            self._drift_tick,
-            oscillation_detector=self._oscillation_detector,
-            drift_attribution=self._drift_attribution,
-            dt=dt,
-        )
+        if signals:
+            compute_embodiment_drift(
+                self._embodiment_traits,
+                signals,
+                self._drift_tick,
+                oscillation_detector=self._oscillation_detector,
+                drift_attribution=self._drift_attribution,
+                dt=dt,
+            )
         self._drift_tick += 1
 
         # Check if any trait changed significantly since last apply
@@ -1209,6 +1324,9 @@ class ComputationSpine:
             "feedback_counts": dict(self._feedback_counts),
             "hgt_adaptation": self.hgt.to_dict(),
             "personality": dict(self._personality),
+            # v26 D2: host-supplied R survives restarts (additive; emitted only when
+            # affect is enabled => byte-identical legacy snapshots when off).
+            **({"affect_relationship": self._affect_relationship} if self._affect_enabled else {}),
             "sheaf": self.sheaf.to_dict(),
             "embodiment_traits": {
                 name: tm.to_dict() for name, tm in self._embodiment_traits.items()
@@ -1223,6 +1341,13 @@ class ComputationSpine:
         """从持久化状态恢复。"""
         self._tick_count = int(data.get("tick_count", 0))
         self._last_process_time = float(data.get("last_process_time", 0.0))
+        # v26 D2: restore host-supplied R BEFORE the scar restore mirror re-injects
+        # affect params (which reads self._affect_relationship).
+        try:
+            r = float(data.get("affect_relationship", 0.5))
+        except (TypeError, ValueError):
+            r = 0.5
+        self._affect_relationship = min(1.0, max(0.0, r)) if r == r else 0.5
         if "engine" in data:
             # Rebuild engine from persisted scar/void state
             engine_data = data["engine"]
@@ -1230,13 +1355,25 @@ class ComputationSpine:
 
             if "scar" in engine_data:
                 self.engine.scar_state = ScarredState.from_dict(
-                    engine_data["scar"], pel_enabled=self._pel_enabled
+                    engine_data["scar"],
+                    pel_enabled=self._pel_enabled,
+                    affect_enabled=self._affect_enabled,
                 )
                 if self._pel_enabled and not self.engine.scar_state.pel_active():
                     # Legacy snapshot (no "pel"): re-init the latent core from
                     # personality so a PEL-configured spine stays consistent.
                     self.engine.scar_state._pel_enabled = True
                     self.engine.scar_state.set_pel_priors(self._personality)
+                # v2.6.0 affect: traits/relationship/takeover are never persisted —
+                # re-supply them from the restored personality + config flags.
+                if self._affect_enabled:
+                    self.engine.scar_state.set_affect_params(
+                        self._personality,
+                        relationship=self._affect_relationship,
+                        takeover=self._affect_takeover,
+                        plasticity=self._affect_plasticity,
+                        full_takeover=self._affect_full_takeover,
+                    )
             if "void" in engine_data:
                 self.engine.void_space.from_dict(engine_data["void"])
             if "social_void" in engine_data:
@@ -1266,7 +1403,11 @@ class ComputationSpine:
         if "embodiment_traits" in data:
             for name, tm_data in data["embodiment_traits"].items():
                 if name in self._embodiment_traits and isinstance(tm_data, dict):
-                    self._embodiment_traits[name] = TraitMemory.from_dict(tm_data)
+                    tm = TraitMemory.from_dict(tm_data)
+                    # Re-assert anchor persistence from the live config flag, not the
+                    # snapshot, so enabling the slow channel takes effect immediately.
+                    tm._persist_anchor = self._slow_channel.active
+                    self._embodiment_traits[name] = tm
             self._last_embodiment_apply = {n: t.value for n, t in self._embodiment_traits.items()}
         if "drift_tick" in data:
             self._drift_tick = int(data["drift_tick"])

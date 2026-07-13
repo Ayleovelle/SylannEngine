@@ -63,6 +63,9 @@ class PhaseTransitionExpression:
         "_refractory",
         "_silence_drop_rate",
         "_min_threshold_floor",
+        # v2.6.0 T3-silence: true wall-clock silence (epoch seconds) — distinct from
+        # the tick-counter ``silence_duration``. Runtime-only (not persisted).
+        "_last_activity_ts",
     )
 
     # Channel name mapping for diagnostics
@@ -93,6 +96,8 @@ class PhaseTransitionExpression:
         self._refractory = 0.03
         self._silence_drop_rate = 0.008
         self._min_threshold_floor = 0.25
+        # v2.6.0 T3-silence: last real-activity wall clock (0.0 = never/unseeded).
+        self._last_activity_ts = 0.0
 
     @property
     def pressure(self) -> float:
@@ -273,6 +278,42 @@ class PhaseTransitionExpression:
         """持续沉默降低表达阈值（越久不说话，越容易开口）。"""
         self.threshold = max(
             self._min_threshold_floor, self.threshold - self._silence_drop_rate * dt
+        )
+
+    # ------------------------------------------------------------------
+    # v2.6.0 T3-silence: true wall-clock silence (pure; Gate A additive)
+    # ------------------------------------------------------------------
+
+    def wall_silence_seconds(self, now: float) -> float:
+        """自上次真实活动以来的墙钟沉默（秒，**不封顶**）。
+
+        未播种（``_last_activity_ts<=0``）或时钟未前进 ⇒ 0.0。刻意**不复用**表达路径里被夹到
+        [0.1,10.0] 的 dt（那会把长沉默压没，silence MAJOR）——这里是原始 epoch 秒差。
+        """
+        if self._last_activity_ts <= 0.0 or now <= self._last_activity_ts:
+            return 0.0
+        return float(now) - self._last_activity_ts
+
+    def mark_activity(self, now: float) -> None:
+        """标记一次真实活动（推进墙钟沉默基准）。仅在真实 now>0 时推进。
+
+        调用序约定：先 ``wall_silence_seconds(now)`` 读，**再** ``mark_activity(now)`` 写，
+        否则本回合的沉默会被自己清零。
+        """
+        if now > 0.0:
+            self._last_activity_ts = float(now)
+
+    def classify_silence_texture(
+        self, now: float, last_valence: float = 0.0, relationship_warmth: float = 0.5
+    ) -> str:
+        """把当前墙钟沉默分类成沉默质感（激活此前的死代码 ``SilenceTexture.classify``）。
+
+        WAITING/DIGESTING/DISTANT/CONTENT，供诊断/后续质感化表达用。纯读，不改状态。
+        """
+        from .void_calculus import SilenceTexture
+
+        return SilenceTexture.classify(
+            self.wall_silence_seconds(now), last_valence, relationship_warmth
         )
 
     def _current_mode(self) -> str:

@@ -40,6 +40,11 @@ class AlphaRuntime:
         profile: DimensionProfile | None = None,
         *,
         pel_enabled: bool = False,
+        affect_enabled: bool = False,
+        affect_takeover: bool = False,
+        affect_slowchannel: bool = False,
+        affect_plasticity: bool = False,
+        affect_full_takeover: bool = False,
     ):
         """初始化运行时，指定持久化根目录。
 
@@ -47,10 +52,20 @@ class AlphaRuntime:
             root: 存储 .alpha.json 文件的根目录路径。
             profile: 计算维度配置（lite/pro/max），传递给 kernel。
             pel_enabled: 是否启用 PEL-Core 情绪潜核（默认 False，行为字节一致）。
+            affect_enabled: 是否启用 v2.6.0 情感动力学 E 律影子（默认 False，行为字节一致）。
+            affect_takeover: 是否启用 v2.6.0 E 律夺权写 base（默认 False，需 affect_enabled）。
+            affect_slowchannel: 是否启用 v2.6.0 慢通道人格 macro 漂移（默认 False，Gate C）。
+            affect_plasticity: 是否启用 A.2 delta-rule 增益可塑性（默认 False，需 takeover）。
+            affect_full_takeover: 是否启用 E 律全权（默认 False，需 takeover，memo D1(b)）。
         """
         self.root = Path(root)
         self._profile = profile
         self._pel_enabled = pel_enabled
+        self._affect_enabled = affect_enabled
+        self._affect_takeover = affect_takeover
+        self._affect_slowchannel = affect_slowchannel
+        self._affect_plasticity = affect_plasticity
+        self._affect_full_takeover = affect_full_takeover
         self._save_count: int = 0
 
     def load(self, session_key: str, legacy: dict[str, Any] | None = None) -> AlphaKernel:
@@ -80,24 +95,46 @@ class AlphaRuntime:
                     legacy=legacy,
                     profile=self._profile,
                     pel_enabled=self._pel_enabled,
+                    affect_enabled=self._affect_enabled,
+                    affect_takeover=self._affect_takeover,
+                    affect_slowchannel=self._affect_slowchannel,
+                    affect_plasticity=self._affect_plasticity,
+                    affect_full_takeover=self._affect_full_takeover,
                 )
                 self.save(recovered)
                 return recovered
             if data.get("schema_version") == SCHEMA_VERSION:
                 return AlphaKernel.restore(
-                    data, profile=self._profile, pel_enabled=self._pel_enabled
+                    data,
+                    profile=self._profile,
+                    pel_enabled=self._pel_enabled,
+                    affect_enabled=self._affect_enabled,
+                    affect_takeover=self._affect_takeover,
+                    affect_slowchannel=self._affect_slowchannel,
+                    affect_plasticity=self._affect_plasticity,
+                    affect_full_takeover=self._affect_full_takeover,
                 )
             return AlphaKernel.boot(
                 session_key=session_key,
                 legacy=data,
                 profile=self._profile,
                 pel_enabled=self._pel_enabled,
+                affect_enabled=self._affect_enabled,
+                affect_takeover=self._affect_takeover,
+                affect_slowchannel=self._affect_slowchannel,
+                affect_plasticity=self._affect_plasticity,
+                affect_full_takeover=self._affect_full_takeover,
             )
         return AlphaKernel.boot(
             session_key=session_key,
             legacy=legacy,
             profile=self._profile,
             pel_enabled=self._pel_enabled,
+            affect_enabled=self._affect_enabled,
+            affect_takeover=self._affect_takeover,
+            affect_slowchannel=self._affect_slowchannel,
+            affect_plasticity=self._affect_plasticity,
+            affect_full_takeover=self._affect_full_takeover,
         )
 
     def save(self, kernel: AlphaKernel) -> None:
@@ -132,7 +169,14 @@ class AlphaRuntime:
             全新启动的 AlphaKernel 实例。
         """
         kernel = AlphaKernel.boot(
-            session_key=session_key, profile=self._profile, pel_enabled=self._pel_enabled
+            session_key=session_key,
+            profile=self._profile,
+            pel_enabled=self._pel_enabled,
+            affect_enabled=self._affect_enabled,
+            affect_takeover=self._affect_takeover,
+            affect_slowchannel=self._affect_slowchannel,
+            affect_plasticity=self._affect_plasticity,
+            affect_full_takeover=self._affect_full_takeover,
         )
         self.save(kernel)
         return kernel

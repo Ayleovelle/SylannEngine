@@ -216,7 +216,9 @@ _topology_test*.py
 experiments/_tmp_*
 
 # Local agent tooling config & transient worktrees (Claude Code etc.)
-.claude/
+# .claude: local session state stays ignored; committed skills (.claude/skills/) ship with the repo
+.claude/*
+!.claude/skills/
 
 # Per-copy SDK identity — minted once at runtime per install, never tracked.
 sylanne_core/_identity.json

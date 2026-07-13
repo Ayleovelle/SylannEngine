@@ -195,7 +195,7 @@ def build_profile(
 # ---------------------------------------------------------------------------
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class SylanneConfig:
     """Engine configuration options.
 
@@ -228,6 +228,58 @@ class SylanneConfig:
             behaviour is byte-identical to today. When True, the engine's
             8-dim emotion core (lite tier) evolves via the PEL latent
             micro-circuit instead. Additive and snapshot-migration-safe.
+        affect_dynamics_enabled: Opt in to the experimental affect-dynamics E-law
+            *shadow* (Gate A). Default False — nothing changes. When True, the
+            8-dim emotion core additionally computes a parallel "shadow" E via
+            the E-law (wall-clock decay-to-Phi_eq + saturating appraisal update)
+            purely for diagnostics/telemetry: it is logged and buffered but
+            NEVER written into ``base``, never read by ``observe()``, and never
+            enters the prompt. Snapshot-migration-safe. Takeover (writing base)
+            is a separate later flag (T3), not this one.
+        affect_takeover: Opt in to the E-law TAKEOVER (Gate B, experimental). Default
+            False. Requires affect_dynamics_enabled. When True, the E-law becomes
+            authoritative on the 8-dim core: wall-clock decay-to-Phi_eq is applied
+            to ``base`` at the top of each step (before event evolution), and the
+            per-turn saturating appraisal update REPLACES the legacy intent
+            hand-rules at both assessor write-points. Fail-closed: any E-law error
+            mid-turn falls through to the old hand-rules for that turn. This is an
+            INTENDED behaviour change (not byte-identical) whose acceptance bar is
+            warmth behavioural calibration — do not enable without it.
+        affect_slowchannel_enabled: Opt in to the affect slow channel (Gate C, experimental).
+            Default False. When True, poignant appraisals accumulate a leaky
+            "poignancy" bucket on the spine; crossing the threshold (plus a
+            wall-clock cooldown) fires a bounded, anchor-rebounding MACRO DRIFT of
+            the Embodiment personality traits, committed atomically through the
+            existing drift write-path with a rollback ring. Irreversible authority
+            (personality change), so ships off; the appraisal->trait map and the
+            reflection constants are documented calibration priors.
+        affect_plasticity_enabled: Opt in to delta-rule gain plasticity (A.2,
+            experimental). Default False. Requires affect_takeover. When True,
+            the takeover E-law's per-dim gains G become LEARNED state:
+            G <- proj_[0.05,1](G + alpha*delta*phi) driven by lagged
+            dialogue_quality feedback, with an eligibility trace phi crediting
+            only recently-active dims. Safety is carried entirely by the
+            projection (derivation Lemma 6) — bad/adversarial quality signals
+            cannot break E's boundedness. Learned gains persist across restarts
+            and are decoupled from personality after initialization.
+        affect_full_takeover: Opt in to E-law FULL takeover (Gate B-full,
+            experimental; calibration memo D1 option b). Default False. Requires
+            affect_takeover. When True, the legacy MLP/PEL main-step base
+            evolution is BYPASSED on the 8-dim core: base evolves only via the
+            top-of-step wall-clock decay toward Phi_eq, the assessor appraisal
+            (saturating update), and wound scar formation (scars still form and
+            keep their stickiness role). Scoping disclosure: only the ASSESSOR
+            wound path's base perturbation is superseded (by the appraisal's
+            wound terms); the Gamma void-coupling wound vectors and feedback()
+            outcome vectors become mood-inert under full takeover (they still
+            form scars above threshold but no longer nudge base) — these are
+            semantics-blind internal vectors, which is exactly the channel this
+            flag exists to remove. Consequence: the observable resting mood IS
+            Phi_eq
+            (not the MLP attractor image) and the half-life priors become live
+            product levers ("time heals" becomes real). Without an assessor,
+            emotion moves only by decay + wounds — principled, since the HDC
+            main-step input is a semantics-blind hash.
         submit_window_seconds: How long a COMPLETED ``submit()`` entry stays
             joinable before it is pruned (default 10s). A duplicate submission
             for the same key inside this window joins the cached result instead
@@ -255,6 +307,11 @@ class SylanneConfig:
     training_data_path: str | None = None
     training_data_salt: str = ""
     pel_core_enabled: bool = False
+    affect_dynamics_enabled: bool = False
+    affect_takeover: bool = False
+    affect_slowchannel_enabled: bool = False
+    affect_plasticity_enabled: bool = False
+    affect_full_takeover: bool = False
     submit_window_seconds: float = 10.0
     submit_max_entries: int = 1024
     tick_min_interval_seconds: float = 45.0
@@ -279,6 +336,27 @@ class SylanneConfig:
             raise ValueError("submit_max_entries must be >= 1")
         if self.tick_min_interval_seconds < 0:
             raise ValueError("tick_min_interval_seconds must be >= 0")
+        # affect flag compatibility: takeover writes base and needs the E-law machinery
+        # (traits/adapter) that affect_dynamics_enabled turns on; it also cannot coexist
+        # with PEL-Core, which independently OWNS base evolution (PEL's readout would
+        # overwrite the E-law decay every tick — red-team finding #1).
+        if self.affect_takeover and not self.affect_dynamics_enabled:
+            raise ValueError("affect_takeover requires affect_dynamics_enabled")
+        if self.affect_takeover and self.pel_core_enabled:
+            raise ValueError(
+                "affect_takeover is not supported together with pel_core_enabled "
+                "(both own base evolution)"
+            )
+        if self.affect_plasticity_enabled and not self.affect_takeover:
+            raise ValueError(
+                "affect_plasticity_enabled requires affect_takeover "
+                "(plasticity learns the gains the takeover E-law applies)"
+            )
+        if self.affect_full_takeover and not self.affect_takeover:
+            raise ValueError(
+                "affect_full_takeover requires affect_takeover "
+                "(full takeover extends the E-law's authority to the main step)"
+            )
 
     def profile(self) -> DimensionProfile:
         """Build the dimension profile for this config's mode."""

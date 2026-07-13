@@ -491,22 +491,24 @@ class TestA4Convergence:
         """Verify expression drive decays without input (phase transition subsystem)."""
         spine = ComputationSpine()
 
-        # Build up expression drive
         spine.process("exciting news!", 1.0)
-        spine.process("more excitement!", 2.0)
-        initial_state = spine.expression.state()
-        initial_drive = initial_state.get("drive", initial_state.get("accumulator", 0.0))
+        # Seed REAL pressure directly: spine.process() with no assessment never crosses
+        # the arousal>0.7 accumulate gate, so the old version left pressure at 0.0 both
+        # before and after — vacuous (deleting the decay line would still pass). Seeding
+        # makes the assertion sensitive to the decay path (v2.6.0 T3-silence fix).
+        spine.expression.accumulate(0.8)
+        spine.expression.accumulate(0.8)
+        initial_pressure = spine.expression.state()["pressure"]
+        assert initial_pressure > 0.0, "failed to seed nonzero pressure"
 
-        # Idle: process empty strings (triggers silence_lowers_threshold)
-        for i in range(50):
-            spine.process("", float(i + 3))
+        # Idle: inject nothing so every channel just decays.
+        for _ in range(50):
+            spine.expression.accumulate(0.0)
 
-        final_state = spine.expression.state()
-        final_drive = final_state.get("drive", final_state.get("accumulator", 0.0))
-
-        # Drive should have decayed
-        assert final_drive <= initial_drive + 0.01, (
-            f"Expression drive did not decay: {initial_drive:.4f} -> {final_drive:.4f}"
+        final_pressure = spine.expression.state()["pressure"]
+        # Pressure MUST have decayed (strictly) — remove the decay line and this fails.
+        assert final_pressure < initial_pressure, (
+            f"Expression pressure did not decay: {initial_pressure:.4f} -> {final_pressure:.4f}"
         )
 
 

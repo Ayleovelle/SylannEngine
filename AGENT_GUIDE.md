@@ -33,9 +33,8 @@
 sylanne-core>=2.4,<3
 ```
 
-> 尚未上架 PyPI 前，等价的 GitHub 安装命令：
-> `pip install "sylanne-core @ git+https://github.com/Ayleovelle/SylannEngine.git@v2.4.0"`
-> 上架后无缝切回上面钉版本的 `requirements.txt` 写法。
+> 已发布至 PyPI：单机快速试用可直接 `pip install sylanne-core`；多插件共享 venv 仍建议用上面的
+> `requirements.txt` 钉版本写法，靠语义化版本约束跨插件收敛到同一份拷贝。
 
 Pin 纪律很重要：一个共享 venv 只有一份最终生效的版本（`pip install` 是 last-write-wins），
 混着写 `sylanne-core==2.3.2` 和 `sylanne-core>=2.4` 在同一台机器的不同插件里，最后装出来的是
@@ -46,8 +45,8 @@ Pin 纪律很重要：一个共享 venv 只有一份最终生效的版本（`pip
 
 ```python
 import sylanne_core
-assert sylanne_core.__version__.split(".")[0] == "3", (
-    f"sylanne-core {sylanne_core.__version__} incompatible with this plugin build; need 3.x"
+assert sylanne_core.__version__.split(".")[0] == "2", (
+    f"sylanne-core {sylanne_core.__version__} incompatible with this plugin build; need 2.x"
 )
 ```
 
@@ -300,7 +299,7 @@ WARNING 点名这份旧拷贝，但机制上无法自动收敛）。按下面逐
 
 | 我们（SDK 侧）负责 | 你（消费方）负责 |
 |-------------------|----------------|
-| 引擎实例跨插件汇合（rendezvous）与去重 | 升到 3.x（或改共享 venv 单装） |
+| 引擎实例跨插件汇合（rendezvous）与去重 | 升到 `>=2.4,<3`（或改共享 venv 单装） |
 | `submit()` 幂等前门（不依赖身份/加载顺序） | 传原始文本或稳定 `msg_id`，把消费接到 `on()` 推送 |
 | Surface 只加不改 + CI 强制 | 防御式读 Surface（get + 默认值） |
 | | 用共享 `data_dir`，`terminate()` 里别调 `release_shared()` |

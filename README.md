@@ -7,8 +7,9 @@
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10+-3776AB.svg?logo=python&logoColor=white)](https://python.org)
-[![Version](https://img.shields.io/badge/Version-2.4.0-green.svg)](CHANGELOG.md)
-[![Tests](https://img.shields.io/badge/Tests-650+_passed-brightgreen.svg)]()
+[![PyPI](https://img.shields.io/pypi/v/sylanne-core.svg?logo=pypi&logoColor=white)](https://pypi.org/project/sylanne-core/)
+[![Version](https://img.shields.io/badge/Version-2.5.0-green.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/Tests-780+_passed-brightgreen.svg)]()
 [![Zero Dependencies](https://img.shields.io/badge/Lite_Tier-Zero_Dependencies-orange.svg)]()
 
 **[标准规范](SPEC.md)** · **[开发者指南](AGENT_GUIDE.md)** · **[更新日志](CHANGELOG.md)** · **[Paper (EN)](docs/resonance_field_paper_en.pdf)** · **[Paper (中文)](docs/resonance_field_paper_zh.pdf)**
@@ -64,16 +65,19 @@ Prediction error is all you need — for living.
 
 ## 安装
 
-**首选：共享 venv 装依赖**（同宿主多插件场景下的一等公民路径）：
+**首选：从 PyPI 安装。**
+
+```bash
+pip install sylanne-core
+```
+
+同宿主多插件场景下，钉进 `requirements.txt` 锁主版本，让所有插件解析到**同一份**安装拷贝
+——这是 `shared()` + `submit()` 跨插件真正去重的前提：
 
 ```
 # requirements.txt
 sylanne-core>=2.4,<3
 ```
-
-> 尚未上架 PyPI 前，等价的 GitHub 安装命令：
-> `pip install "sylanne-core @ git+https://github.com/Ayleovelle/SylannEngine.git@v2.4.0"`
-> 上架后无缝切回上面钉版本的 `requirements.txt` 写法。
 
 ```python
 from sylanne_core import SylanneEngine, SylanneConfig
