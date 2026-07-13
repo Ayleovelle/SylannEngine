@@ -292,14 +292,19 @@ def from_unit_interval(e: list[float]) -> list[float]:
 _POIGNANCY_DIM_W: tuple[float, ...] = (0.5, 0.5, 1.0, 1.0, 0.3, 1.0, 0.4, 0.6)
 
 
+def sanitize_appraisal(a_k: list[float], n: int = N_DIMS) -> list[float]:
+    """把 appraisal 向量消毒成定长 n 的有限值列表：缺维补 0、NaN/inf → 0。
+
+    poignancy_magnitude 与 slow_channel.observe 共用此消毒（sourcery review：消除两处
+    NaN/越界守卫逻辑重复、防漂移）。
+    """
+    return [_finite(a_k[i] if i < len(a_k) else 0.0, 0.0) for i in range(n)]
+
+
 def poignancy_magnitude(a_k: list[float]) -> float:
     """一次 appraisal 的"刻骨"质量 ≥ 0：受伤相关维加权的 L2 范数（§4.2）。"""
-    return math.sqrt(
-        sum(
-            (_POIGNANCY_DIM_W[i] * _finite(a_k[i] if i < len(a_k) else 0.0, 0.0)) ** 2
-            for i in range(N_DIMS)
-        )
-    )
+    s = sanitize_appraisal(a_k)
+    return math.sqrt(sum((_POIGNANCY_DIM_W[i] * s[i]) ** 2 for i in range(N_DIMS)))
 
 
 def poignancy_update(pi: float, inflow: float, mu: float, dt_ticks: float = 1.0) -> float:
@@ -375,6 +380,7 @@ __all__ = [
     "plasticity_step",
     "validate_gain",
     "validate_scalar_params",
+    "sanitize_appraisal",
     "poignancy_magnitude",
     "poignancy_update",
     "reflection_ready",
